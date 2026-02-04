@@ -1,0 +1,17 @@
+services:
+  web:
+    build: .
+    container_name: gw-backend-web
+    command: gunicorn guidewisey.wsgi:application --bind 0.0.0.0:8000 --workers 3
+    volumes:
+      - .:/app
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+
+volumes:
+  static_volume:
+  media_volume:
