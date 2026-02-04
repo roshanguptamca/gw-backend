@@ -103,7 +103,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
     "http://127.0.0.1:5173",
     "http://127.0.0.1:3000",
-    "https://gw-frontend-nine.vercel.app/",
+    "https://gw-frontend-nine.vercel.app",
 ]
 
 # For development
