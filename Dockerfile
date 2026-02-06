@@ -1,47 +1,38 @@
 # ==============================
-# GuideWisey Dockerfile
+# GuideWisey Dockerfile (PROD)
 # ==============================
 
-# Use official Python 3.13 slim image
 FROM python:3.13-slim
 
-# Set workdir
+# Prevent Python from writing pyc files
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# Set working directory
 WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     gettext \
+    netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements
-COPY requirements.txt .
-
 # Install Python dependencies
-RUN pip install --upgrade pip
-RUN pip install -r requirements.txt
+COPY requirements.txt .
+RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # Copy project files
 COPY . .
 
-# Set environment variables
+# Ensure entrypoint is executable
+RUN chmod +x /app/entrypoint.sh
+
+# Django settings module
 ENV DJANGO_SETTINGS_MODULE=guidewisey.settings
-ENV PYTHONUNBUFFERED=1
-ENV PORT=8000
 
-# Run database migrations
-RUN python manage.py migrate --noinput
-
-# Collect static files
-RUN python manage.py collectstatic --noinput
-
-# Create hardcoded superuser if not exists
-RUN python manage.py shell -c "from django.contrib.auth import get_user_model; \
-User = get_user_model(); \
-User.objects.filter(username='admin').exists() or User.objects.create_superuser('admin','admin@example.com','admin123')"
-
-# Expose the port
+# Expose port (Render will override PORT)
 EXPOSE 8000
 
-# Start the app with Gunicorn on dynamic PORT
-CMD ["sh", "-c", "gunicorn guidewisey.wsgi:application --bind 0.0.0.0:$PORT --workers 3"]
+# Start app via entrypoint
+CMD ["./entrypoint.sh"]
