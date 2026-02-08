@@ -10,8 +10,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Security
 # -------------------------------
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret")
-DEBUG = os.environ.get("DEBUG", "False") == "True"
-# ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "*").split(",")
+DEBUG = os.environ.get("DEBUG", "True") == "True"
 
 ALLOWED_HOSTS = [
     "gw-backend-eq2n.onrender.com",
@@ -24,7 +23,7 @@ ALLOWED_HOSTS = [
 # Installed Apps
 # -------------------------------
 INSTALLED_APPS = [
-    # Django default apps
+    # Django default
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -32,28 +31,28 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
 
-    # Third-party apps
+    # Third-party
     "corsheaders",
     "rest_framework",
 
     # Local apps
     "apps.accounts",
-    "apps.documents",
-    "apps.ai",
+    "apps.doc_x",
 ]
 
 # -------------------------------
 # Middleware
 # -------------------------------
 MIDDLEWARE = [
-    "whitenoise.middleware.WhiteNoiseMiddleware",
-    "corsheaders.middleware.CorsMiddleware",
-    "django.middleware.security.SecurityMiddleware",
-    "django.contrib.sessions.middleware.SessionMiddleware",
-    "django.middleware.common.CommonMiddleware",
-    "django.middleware.csrf.CsrfViewMiddleware",
-    "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "django.contrib.messages.middleware.MessageMiddleware",
+    'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
+    'django.middleware.common.CommonMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.contrib.messages.middleware.MessageMiddleware',
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
 # -------------------------------
@@ -81,49 +80,82 @@ TEMPLATES = [
 ]
 
 # -------------------------------
+# OpenAI & S3 (env)
+# -------------------------------
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "")
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "")
+AWS_REGION = os.getenv("AWS_REGION", "")
+S3_BUCKET = os.getenv("S3_BUCKET", "")
+
+# -------------------------------
 # WSGI
 # -------------------------------
 WSGI_APPLICATION = "guidewisey.wsgi.application"
 
-# -------------------------------
-# Database (PostgreSQL)
-# -------------------------------
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.environ.get("DB_NAME", "guidewisey"),
-        "USER": os.environ.get("DB_USER", "guidewisey"),
-        "PASSWORD": os.environ.get("DB_PASSWORD", "DB_PASSWORD"),
-        "HOST": os.environ.get("DB_HOST","localhost"),
-        "PORT": os.environ.get("DB_PORT", "5432"),
-    }
-}
+ENV = os.getenv("ENV", "DEV")
 
-# CORS settings
+# -------------------------------
+# Database
+# -------------------------------
+if ENV.upper() == "DEV":
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
+    }
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.getenv("POSTGRES_DB"),
+            "USER": os.getenv("POSTGRES_USER"),
+            "PASSWORD": os.getenv("POSTGRES_PASSWORD"),
+            "HOST": os.getenv("POSTGRES_HOST"),
+            "PORT": os.getenv("POSTGRES_PORT", "5432"),
+        }
+    }
+
+# -------------------------------
+# CORS & CSRF
+# -------------------------------
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",  # React
-    "http://localhost:5173",  # Vite
+    "http://localhost:3000",
+    "http://localhost:5173",
     "http://127.0.0.1:3000",
     "http://127.0.0.1:5173",
     "https://gw-frontend-nine.vercel.app",
+    'https://www.guidewisey.com',
+    'https://guidewisey.com',
+    'https://gw-backend-eq2n.onrender.com'
 ]
+CORS_ALLOW_CREDENTIALS = True
 
-# For development
 CSRF_TRUSTED_ORIGINS = [
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
-    "https://gw-frontend-nine.vercel.app/",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+    "https://gw-frontend-nine.vercel.app",
+    'https://www.guidewisey.com',
+    'https://guidewisey.com',
+    'https://gw-backend-eq2n.onrender.com'
 ]
-
-CORS_ALLOW_CREDENTIALS = True  # Important for sessions/cookies
-
-# Session settings
-SESSION_COOKIE_SAMESITE = 'Lax'
-SESSION_COOKIE_HTTPONLY = True
-CSRF_COOKIE_SAMESITE = 'Lax'
 
 # -------------------------------
-# Password Validation
+# Session Settings
+# -------------------------------
+SESSION_COOKIE_SAMESITE = 'None'
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SECURE = True
+
+CSRF_COOKIE_SAMESITE = 'None'
+CSRF_COOKIE_SECURE = True
+
+SESSION_ENGINE = "django.contrib.sessions.backends.db"
+
+# -------------------------------
+# Password Validators
 # -------------------------------
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
@@ -146,6 +178,7 @@ USE_TZ = True
 # -------------------------------
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
@@ -153,23 +186,27 @@ MEDIA_ROOT = BASE_DIR / "media"
 # -------------------------------
 # Django REST Framework
 # -------------------------------
-REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework.authentication.SessionAuthentication"
-    ],
-    "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.IsAuthenticatedOrReadOnly"
-    ]
-}
+if ENV.upper() == "DEVA":
+    REST_FRAMEWORK = {
+        "DEFAULT_AUTHENTICATION_CLASSES": [
+            "rest_framework.authentication.SessionAuthentication",
+        ],
+        "DEFAULT_PERMISSION_CLASSES": [
+            "rest_framework.permissions.AllowAny",
+        ],
+    }
+else:
+    REST_FRAMEWORK = {
+        "DEFAULT_AUTHENTICATION_CLASSES": [
+            "rest_framework.authentication.SessionAuthentication",
+        ],
+        "DEFAULT_PERMISSION_CLASSES": [
+            "rest_framework.permissions.IsAuthenticated",
+        ],
+    }
 
 # -------------------------------
-# CORS (Allow all for dev)
+# CORS Allow All for Dev
 # -------------------------------
-CORS_ALLOW_ALL_ORIGINS = True
-
-# -------------------------------
-# Session Settings
-# -------------------------------
-SESSION_COOKIE_SECURE = False  # True if using HTTPS
-CSRF_COOKIE_SECURE = False     # True if using HTTPS
-SESSION_ENGINE = "django.contrib.sessions.backends.db"
+if DEBUG:
+    CORS_ALLOW_ALL_ORIGINS = True

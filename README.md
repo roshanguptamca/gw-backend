@@ -114,10 +114,10 @@ gw-backend/
 │
 ├─ apps/
 │  ├─ accounts/             # User management
-│  ├─ documents/            # Document-related APIs
-│  └─ ai/                   # AI-powered services
+│  ├─ doc-c/            # Document-related APIs
+│                  
 │
-├─ tests/                   # All test cases
+├─ tests/                   
 │  └─ accounts/
 ├─ manage.py
 ├─ guidewisey/
@@ -129,7 +129,61 @@ gw-backend/
 ├─ docker-compose.yml
 └─ .env
 ```
+# Doc-X App Production Workflow
+Frontend (FE)
+   |
+   | 1️⃣ Upload File
+   |      (PDF/DOCX/Image)
+   |      → S3
+   v
+S3 Bucket (AWS)
+   |
+   | 2️⃣ Provide S3 Key
+   v
+Doc-X Django App (Backend)
+   |
+   |-- 3a️⃣ Download file from S3
+   |      (services/s3_service.py)
+   |
+   |-- 3b️⃣ Extract text
+   |      (extract.py: PDF/DOCX/Image)
+   |
+   |-- 3c️⃣ Call OpenAI API
+   |      (services/openai_service.py)
+   |      - input: extracted text + conversation history
+   |      - output: explanation / summary
+   |
+   |-- 3d️⃣ Store in PostgreSQL
+   |      models: Document, Conversation
+   |
+   v
+Frontend receives JSON response
+   - document_id
+   - summary
 
+-----------------------------------------------------
+
+# Follow-Up Questions
+
+Frontend
+   |
+   | 4️⃣ POST question
+   |      {document_id, question}
+   v
+Doc-X Django App
+   |
+   |-- 4a️⃣ Load document + conversation history from PostgreSQL
+   |
+   |-- 4b️⃣ Call OpenAI API
+   |      - input: question + previous conversation
+   |      - output: answer
+   |
+   |-- 4c️⃣ Save user question + AI answer to PostgreSQL
+   |
+   v
+Frontend receives JSON response
+   - answer
+   - 
 ## Notes
 
 - Email is mandatory for user registration.
