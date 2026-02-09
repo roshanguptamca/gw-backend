@@ -15,6 +15,8 @@ DEBUG = os.environ.get("DEBUG", "True") == "True"
 ALLOWED_HOSTS = [
     "gw-backend-eq2n.onrender.com",
     "gw-frontend-nine.vercel.app",
+    "www.guidewisey.com",
+    "guidewisey.com",
     "127.0.0.1",
     "localhost",
 ]
@@ -31,7 +33,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
 
-    # Third-party
+    # Third-party - CORS MUST be before other apps
     "corsheaders",
     "rest_framework",
 
@@ -41,18 +43,19 @@ INSTALLED_APPS = [
 ]
 
 # -------------------------------
-# Middleware
+# Middleware - ORDER MATTERS!
 # -------------------------------
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
+    'corsheaders.middleware.CorsMiddleware',  # MUST be high up
     'django.contrib.sessions.middleware.SessionMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'apps.accounts.middleware.ForceCSRFCookieMiddleware',  # Custom middleware last
 ]
 
 # -------------------------------
@@ -117,42 +120,83 @@ else:
         }
     }
 
-# -------------------------------
-# CORS & CSRF
-# -------------------------------
+# ===============================================================
+# CORS CONFIGURATION - CRITICAL FOR CROSS-ORIGIN REQUESTS
+# ===============================================================
+
+# Allow specific origins
 CORS_ALLOWED_ORIGINS = [
+    "https://www.guidewisey.com",
+    "https://guidewisey.com",
+    "https://gw-frontend-nine.vercel.app",
     "http://localhost:3000",
     "http://localhost:5173",
     "http://127.0.0.1:3000",
     "http://127.0.0.1:5173",
-    "https://gw-frontend-nine.vercel.app",
-    'https://www.guidewisey.com',
-    'https://guidewisey.com',
-    'https://gw-backend-eq2n.onrender.com'
 ]
+
+# CRITICAL: Must be True for cookies/sessions to work
 CORS_ALLOW_CREDENTIALS = True
 
+# Define allowed headers explicitly - THIS IS THE KEY FIX
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+    'x-secret',
+    'referer',
+]
+
+# Allow common HTTP methods
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+
+# Development: Allow all origins
+if DEBUG:
+    CORS_ALLOW_ALL_ORIGINS = True
+
+# ===============================================================
+# CSRF CONFIGURATION - FOR CROSS-ORIGIN PROTECTION
+# ===============================================================
+
 CSRF_TRUSTED_ORIGINS = [
+    "https://www.guidewisey.com",
+    "https://guidewisey.com",
+    "https://gw-frontend-nine.vercel.app",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://127.0.0.1:5173",
-    "https://gw-frontend-nine.vercel.app",
-    'https://www.guidewisey.com',
-    'https://guidewisey.com',
-    'https://gw-backend-eq2n.onrender.com'
 ]
 
-# -------------------------------
-# Session Settings
-# -------------------------------
+# CRITICAL: Allow JavaScript to read CSRF cookie
+CSRF_COOKIE_HTTPONLY = False  # Must be False for JavaScript access
+CSRF_COOKIE_SAMESITE = 'None'  # Required for cross-origin
+CSRF_COOKIE_SECURE = True      # HTTPS only (production)
+CSRF_COOKIE_PATH = '/'
+CSRF_USE_SESSIONS = False
+CSRF_COOKIE_DOMAIN = None
+
+# ===============================================================
+# SESSION CONFIGURATION
+# ===============================================================
+
 SESSION_COOKIE_SAMESITE = 'None'
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SECURE = True
-
-CSRF_COOKIE_SAMESITE = 'None'
-CSRF_COOKIE_SECURE = True
-
 SESSION_ENGINE = "django.contrib.sessions.backends.db"
+SESSION_COOKIE_DOMAIN = None
 
 # -------------------------------
 # Password Validators
@@ -206,7 +250,6 @@ else:
     }
 
 # -------------------------------
-# CORS Allow All for Dev
+# Default Primary Key Field Type
 # -------------------------------
-if DEBUG:
-    CORS_ALLOW_ALL_ORIGINS = True
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
