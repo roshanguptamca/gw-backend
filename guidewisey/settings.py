@@ -112,11 +112,11 @@ else:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
-            "NAME": os.getenv("POSTGRES_DB"),
-            "USER": os.getenv("POSTGRES_USER"),
-            "PASSWORD": os.getenv("POSTGRES_PASSWORD"),
-            "HOST": os.getenv("POSTGRES_HOST"),
-            "PORT": os.getenv("POSTGRES_PORT", "5432"),
+            "NAME": os.getenv("DB_NAME"),
+            "USER": os.getenv("DB_USER"),
+            "PASSWORD": os.getenv("DB_PASSWORD"),
+            "HOST": os.getenv("DB_HOST"),
+            "PORT": os.getenv("DB_PORT", "5432"),
         }
     }
 
@@ -137,35 +137,17 @@ CORS_ALLOWED_ORIGINS = [
 
 # CRITICAL: Must be True for cookies/sessions to work
 CORS_ALLOW_CREDENTIALS = True
-
+from corsheaders.defaults import default_headers
+from corsheaders.defaults import default_methods
+CORS_ALLOW_METHODS = list(default_methods)
 # Define allowed headers explicitly - THIS IS THE KEY FIX
-CORS_ALLOW_HEADERS = [
-    'accept',
-    'accept-encoding',
-    'authorization',
-    'content-type',
-    'dnt',
-    'origin',
-    'user-agent',
-    'x-csrftoken',
-    'x-requested-with',
-    'x-secret',
-    'referer',
-]
-
-# Allow common HTTP methods
-CORS_ALLOW_METHODS = [
-    'DELETE',
-    'GET',
-    'OPTIONS',
-    'PATCH',
-    'POST',
-    'PUT',
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    "X-Secret",
+    "X-CSRFToken",
 ]
 
 # Development: Allow all origins
-if DEBUG:
-    CORS_ALLOW_ALL_ORIGINS = True
+# CORS_ALLOW_ALL_ORIGINS = True
 
 # ===============================================================
 # CSRF CONFIGURATION - FOR CROSS-ORIGIN PROTECTION
@@ -230,7 +212,7 @@ MEDIA_ROOT = BASE_DIR / "media"
 # -------------------------------
 # Django REST Framework
 # -------------------------------
-if ENV.upper() == "DEVA":
+if ENV.upper() == "DEV":
     REST_FRAMEWORK = {
         "DEFAULT_AUTHENTICATION_CLASSES": [
             "rest_framework.authentication.SessionAuthentication",
