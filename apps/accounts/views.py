@@ -7,6 +7,12 @@ from rest_framework.views import APIView
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
+from rest_framework.parsers import JSONParser
+
+
+class PlainTextJSONParser(JSONParser):
+    """Accept text/plain bodies as JSON (sent by some fetch() calls without explicit Content-Type headers)."""
+    media_type = "text/plain"
 from django.views.decorators.csrf import csrf_exempt
 from .serializers import UserRegistrationSerializer
 from django.middleware.csrf import get_token
@@ -129,6 +135,7 @@ def csrf(request):
 @method_decorator(ensure_csrf_cookie, name="dispatch")
 class RegisterView(APIView):
     permission_classes = [AllowAny]
+    parser_classes = [JSONParser, PlainTextJSONParser]
 
     def post(self, request):
         serializer = UserRegistrationSerializer(data=request.data)
@@ -190,6 +197,7 @@ class RegisterView(APIView):
 @method_decorator(ensure_csrf_cookie, name="dispatch")
 class LoginView(APIView):
     permission_classes = [AllowAny]
+    parser_classes = [JSONParser, PlainTextJSONParser]
 
     def post(self, request):
         username = request.data.get("username")
