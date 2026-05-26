@@ -12,6 +12,10 @@ else
   echo "No DB_HOST set — using SQLite"
 fi
 
+# Collect static files
+echo "Collecting static files..."
+python manage.py collectstatic --noinput
+
 # Apply migrations
 echo "Applying migrations..."
 python manage.py migrate --noinput
