@@ -1,0 +1,87 @@
+services:
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: gw-db
+    environment:
+      POSTGRES_DB: guidewisey
+      POSTGRES_USER: guidewisey
+      POSTGRES_PASSWORD: guidewisey
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U guidewisey"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis (Celery broker + result backend + DRF throttle cache) ─────────────
+  redis:
+    image: redis:7-alpine
+    container_name: gw-redis
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Django API ───────────────────────────────────────────────────────────────
+  web:
+    build: .
+    container_name: gw-backend-web
+    command: gunicorn guidewisey.wsgi:application --bind 0.0.0.0:8000 --workers 3
+    volumes:
+      - .:/app
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ── Celery Worker ────────────────────────────────────────────────────────────
+  celery_worker:
+    build: .
+    container_name: gw-celery-worker
+    command: celery -A guidewisey worker --loglevel=info --concurrency=4 -Q celery
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Celery Beat (Scheduler) ──────────────────────────────────────────────────
+  celery_beat:
+    build: .
+    container_name: gw-celery-beat
+    command: celery -A guidewisey beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  static_volume:
+  media_volume:
+  pg_data:
+  redis_data:
+

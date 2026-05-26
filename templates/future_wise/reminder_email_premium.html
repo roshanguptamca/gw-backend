@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ reminder.subject }}</title>
+  <style>
+    body { margin: 0; padding: 0; background: #1a0533; font-family: 'Georgia', 'Times New Roman', serif; }
+    .wrapper { max-width: 600px; margin: 40px auto; background: #ffffff; border-radius: 14px; overflow: hidden; box-shadow: 0 8px 40px rgba(0,0,0,0.35); }
+    .header { background: linear-gradient(160deg, #1a0533 0%, #4b0082 50%, #c0392b 100%); padding: 52px 36px; text-align: center; position: relative; }
+    .header::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, #f7c59f, #e8a87c, #f7c59f); }
+    .brand { font-family: 'Georgia', serif; font-size: 13px; letter-spacing: 4px; text-transform: uppercase; color: rgba(255,255,255,0.6); margin: 0 0 16px; }
+    .header h1 { margin: 0 0 8px; color: #f7c59f; font-size: 30px; font-weight: 400; font-style: italic; letter-spacing: 1px; }
+    .header .tagline { margin: 0; color: rgba(255,255,255,0.7); font-size: 13px; letter-spacing: 1px; }
+    .date-ribbon { background: rgba(255,255,255,0.12); border: 1px solid rgba(247,197,159,0.3); color: #f7c59f; border-radius: 20px; padding: 7px 20px; font-size: 12px; margin-top: 20px; display: inline-block; letter-spacing: 0.5px; }
+    .body { padding: 48px 40px; color: #2d2d2d; background: #fffef9; }
+    .salutation { font-size: 18px; color: #4b0082; font-style: italic; margin: 0 0 24px; }
+    .subject-line { font-size: 22px; font-weight: 700; color: #1a0533; margin: 0 0 28px; line-height: 1.3; font-family: 'Helvetica Neue', Arial, sans-serif; }
+    .letter-paper { background: #fffef9; border: 1px solid #e8ddd0; border-radius: 4px; padding: 32px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.04); position: relative; }
+    .letter-paper::before { content: ''; position: absolute; left: 56px; top: 0; bottom: 0; width: 1px; background: rgba(200,160,120,0.25); }
+    .letter-paper p { margin: 0; line-height: 2; font-size: 16px; color: #2d2d2d; white-space: pre-wrap; padding-left: 24px; }
+    .attachments { margin: 28px 0 0; padding: 16px 20px; background: #f8f5f0; border-radius: 8px; font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 13px; color: #6b5b44; }
+    .closing { margin: 36px 0 0; font-style: italic; color: #6b5b44; font-size: 14px; text-align: right; }
+    .closing .name { font-size: 18px; color: #4b0082; font-style: italic; display: block; margin-top: 8px; }
+    .divider { height: 1px; background: linear-gradient(90deg, transparent, #e8ddd0, transparent); margin: 32px 0; }
+    .footer { background: #1a0533; padding: 24px 36px; text-align: center; font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 12px; color: rgba(255,255,255,0.4); }
+    .footer a { color: #f7c59f; text-decoration: none; }
+    .footer .logo { color: #f7c59f; font-style: italic; font-size: 14px; margin-bottom: 8px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="header">
+      <p class="brand">Dear Tomorrow</p>
+      <h1>A letter to yourself</h1>
+      <p class="tagline">Written in the past. Arriving now.</p>
+      <div class="date-ribbon">📅 Composed on {{ reminder.created_at|date:"N j, Y" }}</div>
+    </div>
+
+    <div class="body">
+      <p class="salutation">Dear You,</p>
+      <p class="subject-line">{{ reminder.subject }}</p>
+
+      <div class="letter-paper">
+        <p>{{ reminder.message }}</p>
+      </div>
+
+      {% if reminder.attachments.all %}
+      <div class="attachments">
+        <strong>📎 You attached these memories:</strong><br>
+        {% for att in reminder.attachments.all %}
+          • {{ att.original_filename }}<br>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <div class="closing">
+        With care,
+        <span class="name">Your Past Self</span>
+      </div>
+
+      <div class="divider"></div>
+
+      <p style="font-family:'Helvetica Neue',Arial,sans-serif;font-size:12px;color:#9ca3af;text-align:center;margin:0;">
+        This letter was written on {{ reminder.created_at|date:"N j, Y" }} and scheduled for {{ reminder.scheduled_at|date:"N j, Y" }}.
+      </p>
+    </div>
+
+    <div class="footer">
+      <span class="logo">DearTomorrow · by GuideWisey</span>
+      <a href="https://www.guidewisey.com">guidewisey.com</a>
+      <p>You wrote this letter to yourself. We kept it safe until today.</p>
+    </div>
+  </div>
+</body>
+</html>
