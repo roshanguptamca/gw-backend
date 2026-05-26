@@ -207,3 +207,14 @@ marimo/_lsp/
 __marimo__/
 
 staticfiles/
+
+# Local development — do not commit
+.flake8
+.github/
+documents/
+media/
+.vscode/
+.idea/
+*.local
+.env.local
+.env.*.local
