@@ -1,6 +1,13 @@
 import os
 from pathlib import Path
 
+# Load .env file for local development (no-op in production if .env absent)
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
+except ImportError:
+    pass
+
 # -------------------------------
 # Base Directory
 # -------------------------------
@@ -38,12 +45,15 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-
     "corsheaders",
     "rest_framework",
-
+    "drf_spectacular",
+    "drf_spectacular_sidecar",
     "apps.accounts",
     "apps.doc_x",
+    "apps.future_wise",
+    "apps.insurance_explainer",
+    "django_apscheduler",
 ]
 
 # -------------------------------
@@ -135,6 +145,7 @@ if IS_DEVELOPMENT:
 CORS_ALLOW_CREDENTIALS = True
 
 from corsheaders.defaults import default_headers, default_methods
+
 CORS_ALLOW_METHODS = list(default_methods)
 CORS_ALLOW_HEADERS = list(default_headers) + [
     "X-Secret",
@@ -242,6 +253,7 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.AllowAny" if IS_DEVELOPMENT else "rest_framework.permissions.IsAuthenticated",
     ],
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
 # -------------------------------
@@ -273,3 +285,183 @@ if IS_PRODUCTION:
 # Default Primary Key Field Type
 # -------------------------------
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# ============================================================
+# File Storage Backend
+# ============================================================
+# Controls where uploaded files are stored.
+#   "auto" (default) — use S3 if AWS credentials are present, otherwise DB
+#   "db"             — always store file bytes in the database (no external deps)
+#   "s3"             — always use AWS S3 (requires credentials)
+FILE_STORAGE_BACKEND = os.getenv("FILE_STORAGE_BACKEND", "auto")
+
+# ============================================================
+# FutureWise / DearTomorrow — Email Reminder Feature
+# ============================================================
+
+# ── Django SMTP Email Backend ────────────────────────────────
+EMAIL_BACKEND = "guidewisey.email_backend.CertifiSMTPEmailBackend"
+EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp-relay.brevo.com")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", 587))
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "true").lower() == "true"
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "ac98f2001@smtp-brevo.com")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+DEFAULT_FROM_EMAIL = os.getenv(
+    "DEFAULT_FROM_EMAIL",
+    f'{os.getenv("EMAIL_SENDER_NAME", "FutureWise by GuideWisey")} <{os.getenv("EMAIL_SENDER_EMAIL", "noreply@guidewisey.com")}>',
+)
+EMAIL_SENDER_NAME = os.getenv("EMAIL_SENDER_NAME", "FutureWise by GuideWisey")
+EMAIL_SENDER_EMAIL = os.getenv("EMAIL_SENDER_EMAIL", "noreply@guidewisey.com")
+
+# Fall back to console backend in DEV if no SMTP password is set
+if ENV == "DEV" and not EMAIL_HOST_PASSWORD:
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+# Legacy Brevo REST API key (kept for reference; no longer used for delivery)
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
+
+# ── FutureWise Delivery Tuning ───────────────────────────────
+FUTUREWAVE_MAX_RETRIES = int(os.getenv("FUTUREWAVE_MAX_RETRIES", 3))
+FUTUREWAVE_RETRY_BASE_DELAY_SECONDS = int(os.getenv("FUTUREWAVE_RETRY_BASE_DELAY_SECONDS", 300))
+FUTUREWAVE_MAX_SCHEDULE_YEARS = int(os.getenv("FUTUREWAVE_MAX_SCHEDULE_YEARS", 10))
+FUTUREWAVE_MIN_SCHEDULE_MINUTES = int(os.getenv("FUTUREWAVE_MIN_SCHEDULE_MINUTES", 30))
+FUTUREWAVE_MAX_ATTACHMENT_BYTES = int(os.getenv("FUTUREWAVE_MAX_ATTACHMENT_BYTES", 10 * 1024 * 1024))
+FUTUREWAVE_MAX_ATTACHMENTS = int(os.getenv("FUTUREWAVE_MAX_ATTACHMENTS", 5))
+FUTUREWAVE_ATTACHMENT_PURGE_AFTER_SEND = os.getenv("FUTUREWAVE_ATTACHMENT_PURGE_AFTER_SEND", "true").lower() == "true"
+FUTUREWAVE_FRONTEND_BASE_URL = os.getenv("FUTUREWAVE_FRONTEND_BASE_URL", "https://www.guidewisey.com")
+
+# ── Rate Limits (DRF scope rates) ───────────────────────────
+FUTUREWAVE_ANON_CREATE_RATE = os.getenv("FUTUREWAVE_ANON_CREATE_RATE", "5/hour")
+FUTUREWAVE_USER_CREATE_RATE = os.getenv("FUTUREWAVE_USER_CREATE_RATE", "20/hour")
+FUTUREWAVE_VERIFY_RATE = os.getenv("FUTUREWAVE_VERIFY_RATE", "10/hour")
+
+# ── APScheduler (DB-backed, no Redis required) ───────────────
+APSCHEDULER_DATETIME_FORMAT = "N j, Y, f:s a"
+APSCHEDULER_RUN_NOW_TIMEOUT = 25  # seconds
+
+# ── DRF Throttle Cache ───────────────────────────────────────
+if IS_PRODUCTION and os.getenv("REDIS_URL"):
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": os.getenv("REDIS_URL"),
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        }
+    }
+
+REST_FRAMEWORK["DEFAULT_THROTTLE_CLASSES"] = [
+    "rest_framework.throttling.AnonRateThrottle",
+    "rest_framework.throttling.UserRateThrottle",
+]
+REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {
+    "anon": "100/day",
+    "user": "1000/day",
+    "futurewave_anon_create": FUTUREWAVE_ANON_CREATE_RATE,
+    "futurewave_user_create": FUTUREWAVE_USER_CREATE_RATE,
+    "futurewave_verify": FUTUREWAVE_VERIFY_RATE,
+}
+
+# ── Sentry Observability ─────────────────────────────────────
+SENTRY_DSN = os.getenv("SENTRY_DSN", "")
+if SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.celery import CeleryIntegration
+    from sentry_sdk.integrations.django import DjangoIntegration
+
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        integrations=[DjangoIntegration(), CeleryIntegration()],
+        traces_sample_rate=0.1,
+        send_default_pii=False,
+        environment=ENV.lower(),
+    )
+
+# -------------------------------
+# OpenAPI / Swagger (drf-spectacular)
+# -------------------------------
+SPECTACULAR_SETTINGS = {
+    "TITLE": "GuideWisey API",
+    "DESCRIPTION": (
+        "Production API for GuideWisey — a platform that simplifies government, "
+        "school, and official documents using AI.\n\n"
+        "## Authentication\n"
+        "All protected endpoints require a valid session cookie. "
+        "Before calling any mutating endpoint, fetch the CSRF token from "
+        "`GET /api/accounts/csrf/` and include it in the `X-CSRFToken` header.\n\n"
+        "## Apps\n"
+        "- **Accounts** — registration, login, session management\n"
+        "- **Doc-X** — AI-powered document parsing and Q&A\n"
+        "- **FutureWise / DearTomorrow** — schedule a future-self email reminder\n"
+    ),
+    "VERSION": "2.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    # Give explicit names to status enums that would otherwise collide
+    "ENUM_NAME_OVERRIDES": {
+        "DocumentProcessingStatusEnum": ["pending", "processing", "completed", "failed"],
+        "JobStatusEnum": ["pending", "running", "completed", "failed"],
+        "InsuranceSessionStatusEnum": ["ins_pending", "ins_processing", "ins_completed", "ins_failed"],
+    },
+    # Security schemes
+    "SECURITY": [{"cookieAuth": []}],
+    "COMPONENTS": {
+        "securitySchemes": {
+            "cookieAuth": {
+                "type": "apiKey",
+                "in": "cookie",
+                "name": "sessionid",
+                "description": "Django session cookie set after a successful login.",
+            },
+            "csrfToken": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-CSRFToken",
+                "description": "CSRF token obtained from GET /api/accounts/csrf/",
+            },
+        }
+    },
+    # Self-hosted Swagger UI assets (no CDN in production)
+    "SWAGGER_UI_DIST": "SIDECAR",
+    "SWAGGER_UI_FAVICON_HREF": "SIDECAR",
+    "REDOC_DIST": "SIDECAR",
+    # Swagger UI configuration
+    "SWAGGER_UI_SETTINGS": {
+        "deepLinking": True,
+        "persistAuthorization": True,
+        "displayOperationId": False,
+        "filter": True,
+        "docExpansion": "list",
+        "defaultModelsExpandDepth": 2,
+        "defaultModelExpandDepth": 2,
+        "displayRequestDuration": True,
+        "tryItOutEnabled": True,
+    },
+    # Schema generation options
+    "SORT_OPERATIONS": False,
+    "ENUM_GENERATE_CHOICE_DESCRIPTION": True,
+    "POSTPROCESSING_HOOKS": [
+        "drf_spectacular.hooks.postprocess_schema_enums",
+    ],
+    "SCHEMA_PATH_PREFIX": r"/api/",
+    "SCHEMA_PATH_PREFIX_TRIM": True,
+    "CONTACT": {
+        "name": "GuideWisey Support",
+        "email": "support@guidewisey.com",
+        "url": "https://www.guidewisey.com",
+    },
+    "LICENSE": {"name": "Proprietary"},
+    "SERVERS": [
+        {"url": "https://gw-backend-eq2n.onrender.com", "description": "Production"},
+        {"url": "http://localhost:8000", "description": "Local Development"},
+    ],
+    "TAGS": [
+        {"name": "Accounts", "description": "User registration, authentication, and session management"},
+        {"name": "Doc-X V2", "description": "Document upload, AI processing, and chat (recommended API)"},
+        {"name": "Doc-X V1 (Legacy)", "description": "Legacy document processing endpoints — kept for backward compatibility"},
+        {"name": "FutureWise", "description": "Schedule future self-email reminders with optional attachments"},
+        {"name": "Insurance Explainer", "description": "AI-powered insurance policy analysis: coverage, gaps, risks, and action items with country/language context"},
+    ],
+}

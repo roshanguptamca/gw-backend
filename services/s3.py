@@ -32,10 +32,7 @@ class S3Client:
         """Initialize boto3 client."""
         try:
             self.client = boto3.client(
-                "s3",
-                aws_access_key_id=self.access_key,
-                aws_secret_access_key=self.secret_key,
-                region_name=self.region
+                "s3", aws_access_key_id=self.access_key, aws_secret_access_key=self.secret_key, region_name=self.region
             )
             logger.info(f"S3 client initialized for bucket: {self.bucket}, region: {self.region}")
         except Exception as e:

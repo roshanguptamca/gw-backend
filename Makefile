@@ -1,17 +1,14 @@
 # ==============================
-# GuideWisey Production Makefile
+# GuideWisey Backend Makefile
 # ==============================
 
-# Config
-PYTHON ?= python3
-VENV_DIR ?= venv
-DOCKER_COMPOSE ?= docker-compose
-ENV_FILE ?= .env
-DJANGO_MANAGE ?= $(VENV_DIR)/bin/python manage.py
-ENV ?= DEV
+PYTHON     ?= python3
+VENV_DIR   ?= .venv
+ENV        ?= DEV
+MANAGE     := $(VENV_DIR)/bin/python manage.py
 
 # ---------------------------------
-# Environment
+# Environment setup
 # ---------------------------------
 
 env: $(VENV_DIR)/bin/activate
@@ -19,150 +16,122 @@ env: $(VENV_DIR)/bin/activate
 $(VENV_DIR)/bin/activate: requirements.txt
 	@echo "Creating virtual environment..."
 	$(PYTHON) -m venv $(VENV_DIR)
-	@echo "Installing dependencies..."
 	$(VENV_DIR)/bin/pip install --upgrade pip setuptools wheel
 	$(VENV_DIR)/bin/pip install -r requirements.txt
 	touch $(VENV_DIR)/bin/activate
 
 # ---------------------------------
-# Run Django locally
+# Run locally
 # ---------------------------------
 
 run: env
-	@echo "Running Django development server..."
-	ENV=$(ENV) $(DJANGO_MANAGE) runserver
+	ENV=$(ENV) $(MANAGE) runserver
 
 run-dev:
-	@echo "Running Django in DEV mode (SQLite)..."
-	ENV=DEV $(DJANGO_MANAGE) runserver
+	ENV=DEV $(MANAGE) runserver
 
 run-prod:
-	@echo "Running Django in PROD mode (Postgres)..."
-	ENV=PROD $(DJANGO_MANAGE) runserver
+	ENV=PROD $(MANAGE) runserver
+
+run-scheduler:
+	@echo "Starting APScheduler background worker (DB-backed, no Redis)..."
+	ENV=$(ENV) $(MANAGE) runapscheduler
 
 # ---------------------------------
 # Migrations
 # ---------------------------------
 
 migrate: env
-	@echo "Running migrations..."
-	ENV=$(ENV) $(DJANGO_MANAGE) makemigrations
-	ENV=$(ENV) $(DJANGO_MANAGE) migrate
+	ENV=$(ENV) $(MANAGE) makemigrations
+	ENV=$(ENV) $(MANAGE) migrate
 
 # ---------------------------------
-# Create superuser
+# Admin / static
 # ---------------------------------
 
 superuser: env
-	ENV=$(ENV) $(DJANGO_MANAGE) createsuperuser
-
-# ---------------------------------
-# Static files
-# ---------------------------------
+	ENV=$(ENV) $(MANAGE) createsuperuser
 
 collectstatic: env
-	@echo "Collecting static files..."
-	ENV=$(ENV) $(DJANGO_MANAGE) collectstatic --noinput
+	ENV=$(ENV) $(MANAGE) collectstatic --noinput
 
 # ---------------------------------
-# Docker commands
+# Schema validation
+# ---------------------------------
+
+schema: env
+	@echo "Validating OpenAPI schema..."
+	ENV=$(ENV) $(MANAGE) spectacular --validate
+	@echo "✅ Schema valid"
+
+# ---------------------------------
+# Docker
 # ---------------------------------
 
 docker-build:
-	@echo "Building Docker images..."
-	$(DOCKER_COMPOSE) build
+	docker-compose build
 
 docker-up:
-	@echo "Starting Docker containers..."
-	$(DOCKER_COMPOSE) up -d
+	docker-compose up -d
 
 docker-down:
-	@echo "Stopping Docker containers..."
-	$(DOCKER_COMPOSE) down
+	docker-compose down
 
 docker-logs:
-	@echo "Viewing logs..."
-	$(DOCKER_COMPOSE) logs -f
+	docker-compose logs -f
 
 docker-shell:
-	@echo "Enter Docker container shell..."
-	$(DOCKER_COMPOSE) exec web bash
+	docker-compose exec web bash
 
 # ---------------------------------
-# Test & lint
+# Test & coverage
 # ---------------------------------
 
 test: env
-	@echo "Running tests..."
-	ENV=$(ENV) $(DJANGO_MANAGE) test
+	$(VENV_DIR)/bin/pytest tests/ -v
 
-lint:
-	@echo "Linting Python code..."
-	$(VENV_DIR)/bin/flake8 .
+test-fast: env
+	$(VENV_DIR)/bin/pytest tests/ -q
 
-format:
-	@echo "Formatting Python code..."
-	$(VENV_DIR)/bin/black .
+test-cov: env
+	$(VENV_DIR)/bin/pytest tests/ -v --cov=apps --cov=services --cov-report=html --cov-report=term-missing
 
-# ---------------------------------
-# Check ENV
-# ---------------------------------
-
-check-env:
-	@echo "ENV=$(ENV)"
-	@echo "DJANGO_SECRET_KEY=$(DJANGO_SECRET_KEY)"
-	@echo "OPENAI_API_KEY=$(OPENAI_API_KEY)"
-	@echo "AWS_ACCESS_KEY_ID=$(AWS_ACCESS_KEY_ID)"
-	@echo "AWS_SECRET_ACCESS_KEY=$(AWS_SECRET_ACCESS_KEY)"
-	@echo "AWS_REGION=$(AWS_REGION)"
-	@echo "S3_BUCKET=$(S3_BUCKET)"
+test-parallel: env
+	$(VENV_DIR)/bin/pytest tests/ -v -n auto
 
 # ---------------------------------
-# Test S3 client
+# Code quality
 # ---------------------------------
 
-s3-test:
-	@echo "Testing S3 client..."
-	$(VENV_DIR)/bin/python - <<END
-import os
-from services.s3 import S3Client
+lint: env
+	$(VENV_DIR)/bin/flake8 . --exclude=.venv,migrations,staticfiles --max-line-length=120
 
-try:
-    s3 = S3Client()
-    print("S3Client initialized successfully!")
-except Exception as e:
-    print("Error:", e)
-END
+format: env
+	$(VENV_DIR)/bin/black . --exclude="/(\.git|\.venv|migrations|staticfiles)/"
 
-# ---------------------------------
-# Test AI client
-# ---------------------------------
+format-check: env
+	$(VENV_DIR)/bin/black . --check --exclude="/(\.git|\.venv|migrations|staticfiles)/"
 
-ai-test:
-	@echo "Testing AI client..."
-	$(VENV_DIR)/bin/python - <<END
-import os
-from services.ai import AIClient
+isort: env
+	$(VENV_DIR)/bin/isort . --skip .venv --skip migrations --skip staticfiles
 
-try:
-    ai = AIClient()
-    if ai.client:
-        print("AIClient initialized successfully!")
-    else:
-        print("AIClient not initialized (OPENAI_API_KEY missing)")
-except Exception as e:
-    print("Error:", e)
-END
+isort-check: env
+	$(VENV_DIR)/bin/isort . --check --skip .venv --skip migrations --skip staticfiles
+
+format-all: isort format
+
+check: format-check isort-check lint
+
+test-all: check test-cov
 
 # ---------------------------------
 # Clean
 # ---------------------------------
 
 clean:
-	@echo "Cleaning pyc, __pycache__, static files, and venv..."
 	find . -name "*.pyc" -delete
-	find . -name "__pycache__" -delete
-	rm -rf staticfiles
+	find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+	rm -rf staticfiles htmlcov .coverage
 	rm -rf $(VENV_DIR)
 
 # ---------------------------------
@@ -170,24 +139,49 @@ clean:
 # ---------------------------------
 
 help:
-	@echo "Available targets:"
-	@echo "  env            - Setup virtual environment and install dependencies"
-	@echo "  run            - Run Django dev server (uses ENV variable)"
-	@echo "  run-dev        - Run Django in DEV mode (SQLite)"
-	@echo "  run-prod       - Run Django in PROD mode (Postgres)"
-	@echo "  migrate        - Make and apply migrations"
-	@echo "  superuser      - Create Django superuser"
-	@echo "  collectstatic  - Collect static files"
-	@echo "  docker-build   - Build Docker containers"
-	@echo "  docker-up      - Start Docker containers"
-	@echo "  docker-down    - Stop Docker containers"
-	@echo "  docker-logs    - View Docker logs"
-	@echo "  docker-shell   - Enter Docker container shell"
-	@echo "  test           - Run Django tests"
-	@echo "  lint           - Lint code with flake8"
-	@echo "  format         - Format code with black"
-	@echo "  check-env      - Show runtime environment variables"
-	@echo "  s3-test        - Test S3 client initialization"
-	@echo "  ai-test        - Test AI client initialization"
-	@echo "  clean          - Remove temporary files and venv"
-	@echo "  help           - Show this message"
+	@echo ""
+	@echo "GuideWisey Backend — Available make targets"
+	@echo "============================================"
+	@echo ""
+	@echo "Setup:"
+	@echo "  env              Create .venv and install requirements"
+	@echo "  migrate          Make + apply migrations"
+	@echo "  superuser        Create Django superuser"
+	@echo "  collectstatic    Collect static files"
+	@echo ""
+	@echo "Run:"
+	@echo "  run              Django dev server (respects ENV var)"
+	@echo "  run-dev          Django dev server (SQLite, ENV=DEV)"
+	@echo "  run-prod         Django with ENV=PROD"
+	@echo "  run-scheduler    APScheduler background worker (no Redis)"
+	@echo ""
+	@echo "Testing:"
+	@echo "  test             Run all tests with pytest (verbose)"
+	@echo "  test-fast        Run tests (quiet)"
+	@echo "  test-cov         Run tests with HTML coverage report"
+	@echo "  test-parallel    Run tests in parallel (pytest-xdist)"
+	@echo "  test-all         check + test-cov"
+	@echo ""
+	@echo "Code quality:"
+	@echo "  lint             flake8 linting"
+	@echo "  format           black formatter"
+	@echo "  format-check     black check (no changes)"
+	@echo "  isort            sort imports"
+	@echo "  isort-check      check import order (no changes)"
+	@echo "  format-all       isort + black"
+	@echo "  check            format-check + isort-check + lint"
+	@echo ""
+	@echo "Schema:"
+	@echo "  schema           Validate OpenAPI schema (0 warnings = ✅)"
+	@echo ""
+	@echo "Docker:"
+	@echo "  docker-build/up/down/logs/shell"
+	@echo ""
+	@echo "  clean            Remove pyc, __pycache__, staticfiles, .venv"
+	@echo ""
+
+.PHONY: env run run-dev run-prod run-scheduler migrate superuser collectstatic schema \
+        docker-build docker-up docker-down docker-logs docker-shell \
+        test test-fast test-cov test-parallel lint format format-check \
+        isort isort-check format-all check test-all clean help
+

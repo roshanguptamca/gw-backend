@@ -1,8 +1,15 @@
 from django.contrib import admin
 from django.urls import path, include
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("api/accounts/", include("apps.accounts.urls")),   # renamed path
-    path('api/doc-x/', include('apps.doc_x.urls')),
+    path("api/accounts/", include("apps.accounts.urls")),
+    path("api/doc-x/", include("apps.doc_x.urls")),
+    path("api/future-wise/", include("apps.future_wise.urls", namespace="future_wise")),
+    path("api/insurance/", include("apps.insurance_explainer.urls")),
+    # OpenAPI schema + UI
+    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+    path("api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
 ]

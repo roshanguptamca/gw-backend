@@ -13,10 +13,7 @@ class AIClient:
     Pure service: no Django, no DB, no S3 dependency.
     """
 
-    DEFAULT_SYSTEM_PROMPT = (
-        "You explain government, school, and official documents "
-        "in very simple, clear language."
-    )
+    DEFAULT_SYSTEM_PROMPT = "You explain government, school, and official documents " "in very simple, clear language."
 
     def __init__(self):
         """
@@ -26,9 +23,7 @@ class AIClient:
         self.api_key = os.getenv("OPENAI_API_KEY")
 
         if not self.api_key:
-            logger.warning(
-                "OPENAI_API_KEY not set. AIClient will be disabled until provided."
-            )
+            logger.warning("OPENAI_API_KEY not set. AIClient will be disabled until provided.")
             self.client = None
             return
 
@@ -64,9 +59,7 @@ class AIClient:
         """
 
         if not self.client:
-            raise OpenAIError(
-                "OPENAI_API_KEY is missing. Cannot call OpenAI."
-            )
+            raise OpenAIError("OPENAI_API_KEY is missing. Cannot call OpenAI.")
 
         if not text or not text.strip():
             raise ValueError("Text to explain cannot be empty")

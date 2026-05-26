@@ -19,9 +19,7 @@ class AccountsAPITestCase(TestCase):
             "password2": "testpass123",
         }
         self.user = User.objects.create_user(
-            username=self.user_data["username"],
-            email=self.user_data["email"],
-            password=self.user_data["password"]
+            username=self.user_data["username"], email=self.user_data["email"], password=self.user_data["password"]
         )
 
     # ---------------------------

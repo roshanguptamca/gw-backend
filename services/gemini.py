@@ -55,8 +55,7 @@ class GeminiClient:
         if OpenAI is not None:
             try:
                 self.openai_style = OpenAI(
-                    api_key=self.gemini_key,
-                    base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+                    api_key=self.gemini_key, base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
                 )
                 logger.info("Gemini OpenAI-style client initialized.")
             except Exception as e:
@@ -77,7 +76,7 @@ class GeminiClient:
         conversation: Optional[List[dict]] = None,
         preferred_language: str = "English",
         system_prompt: Optional[str] = None,
-        model: str = "gemini-2.5-flash",
+        model: str = "gemini-3.5-flash",
         engine: str = "native",  # "native" or "openai"
     ) -> str:
         """
@@ -148,9 +147,7 @@ class GeminiClient:
         try:
             response = self.native.models.generate_content(
                 model=model,
-                contents=[
-                    f"{system_prompt}\n\nExplain the following document:\n{text}"
-                ],
+                contents=[f"{system_prompt}\n\nExplain the following document:\n{text}"],
             )
             return response.text.strip()
         except Exception as e:

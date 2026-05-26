@@ -13,10 +13,6 @@ ADMIN_PASSWORD = "admin123"  # Hardcoded for now
 
 if not User.objects.filter(username=ADMIN_USERNAME).exists():
     print("Creating superuser...")
-    User.objects.create_superuser(
-        username=ADMIN_USERNAME,
-        email=ADMIN_EMAIL,
-        password=ADMIN_PASSWORD
-    )
+    User.objects.create_superuser(username=ADMIN_USERNAME, email=ADMIN_EMAIL, password=ADMIN_PASSWORD)
 else:
     print("Superuser already exists")
