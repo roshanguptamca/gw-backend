@@ -35,10 +35,24 @@ def dispatch_due_reminders():
     """
     Called every minute by APScheduler.
     Finds SCHEDULED reminders that are due and delivers each one inline.
+    Also recovers reminders stuck in QUEUED (e.g. from a previous crashed delivery).
     """
     now = timezone.now()
 
-    # Log totals each run so it's easy to see what's pending vs due
+    # Recover reminders stuck in QUEUED for more than 5 minutes —
+    # this happens when a previous delivery attempt timed out or crashed
+    # before it could update the status to SENT/FAILED.
+    stuck_cutoff = now - timezone.timedelta(minutes=5)
+    stuck_count = EmailReminder.objects.filter(
+        status=EmailReminder.Status.QUEUED,
+        updated_at__lt=stuck_cutoff,
+    ).update(
+        status=EmailReminder.Status.SCHEDULED,
+        updated_at=now,
+    )
+    if stuck_count:
+        logger.warning("FutureWise: recovered %d stuck QUEUED reminder(s) → SCHEDULED", stuck_count)
+
     total_scheduled = EmailReminder.objects.filter(
         status=EmailReminder.Status.SCHEDULED,
         email_verified=True,
