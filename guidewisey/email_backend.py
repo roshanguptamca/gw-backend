@@ -14,6 +14,10 @@ import ssl
 import certifi
 from django.core.mail.backends.smtp import EmailBackend
 
+# Default timeout for SMTP connections (seconds).
+# Prevents the scheduler thread from hanging indefinitely if Brevo is unreachable.
+_DEFAULT_SMTP_TIMEOUT = 30
+
 
 class CertifiSMTPEmailBackend(EmailBackend):
     """SMTP backend that trusts certifi's CA bundle for TLS verification."""
@@ -25,8 +29,9 @@ class CertifiSMTPEmailBackend(EmailBackend):
         import smtplib
 
         connection_params = {"local_hostname": None}
-        if self.timeout is not None:
-            connection_params["timeout"] = self.timeout
+        # Always apply a timeout — fall back to 30s if EMAIL_TIMEOUT not set
+        connection_params["timeout"] = self.timeout if self.timeout is not None else _DEFAULT_SMTP_TIMEOUT
+
         if self.use_ssl:
             connection_params["context"] = ssl.create_default_context(cafile=certifi.where())
 
