@@ -28,14 +28,33 @@ run: env
 	ENV=$(ENV) $(MANAGE) runserver
 
 run-dev:
+	@echo "ℹ️  Scheduler auto-starts as a background thread (AppConfig.ready)."
+	@echo "   Or run 'make run-dev-full' to see scheduler logs in a second terminal."
 	ENV=DEV $(MANAGE) runserver
 
+# Runs Django dev server + APScheduler in parallel (two processes, one terminal).
+# Press Ctrl-C to stop both.
+run-dev-full:
+	@echo "Starting Django dev server + APScheduler..."
+	@trap 'kill 0' INT; \
+	  ENV=DEV $(MANAGE) runserver & \
+	  ENV=DEV $(MANAGE) runapscheduler & \
+	  wait
+
 run-prod:
+	@echo "ℹ️  In production use 'make run-scheduler' in a separate process (or deploy via render.yaml)."
 	ENV=PROD $(MANAGE) runserver
 
 run-scheduler:
 	@echo "Starting APScheduler background worker (DB-backed, no Redis)..."
 	ENV=$(ENV) $(MANAGE) runapscheduler
+
+# Send a one-off test email to verify SMTP is working.
+# Usage: make test-email EMAIL=you@example.com
+EMAIL ?= test@example.com
+test-email:
+	@echo "Sending test email to $(EMAIL)..."
+	ENV=$(ENV) $(MANAGE) send_test_email $(EMAIL)
 
 # ---------------------------------
 # Migrations
@@ -151,9 +170,11 @@ help:
 	@echo ""
 	@echo "Run:"
 	@echo "  run              Django dev server (respects ENV var)"
-	@echo "  run-dev          Django dev server (SQLite, ENV=DEV)"
-	@echo "  run-prod         Django with ENV=PROD"
+	@echo "  run-dev          Django dev server (scheduler auto-starts as background thread)"
+	@echo "  run-dev-full     Django + APScheduler in one terminal (two processes)"
+	@echo "  run-prod         Django with ENV=PROD (use run-scheduler separately)"
 	@echo "  run-scheduler    APScheduler background worker (no Redis)"
+	@echo "  test-email       Send a test email: make test-email EMAIL=you@example.com"
 	@echo ""
 	@echo "Testing:"
 	@echo "  test             Run all tests with pytest (verbose)"
@@ -180,7 +201,7 @@ help:
 	@echo "  clean            Remove pyc, __pycache__, staticfiles, .venv"
 	@echo ""
 
-.PHONY: env run run-dev run-prod run-scheduler migrate superuser collectstatic schema \
+.PHONY: env run run-dev run-dev-full run-prod run-scheduler test-email migrate superuser collectstatic schema \
         docker-build docker-up docker-down docker-logs docker-shell \
         test test-fast test-cov test-parallel lint format format-check \
         isort isort-check format-all check test-all clean help

@@ -63,19 +63,17 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # ── Celery Beat (Scheduler) ──────────────────────────────────────────────────
-  celery_beat:
+  # ── FutureWise Scheduler (APScheduler — DB-backed, no Redis) ────────────────
+  scheduler:
     build: .
-    container_name: gw-celery-beat
-    command: celery -A guidewisey beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    container_name: gw-scheduler
+    command: ./scheduler_entrypoint.sh
     volumes:
       - .:/app
     env_file:
       - .env
     depends_on:
       db:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     restart: unless-stopped
 

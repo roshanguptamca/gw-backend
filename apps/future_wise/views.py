@@ -245,19 +245,26 @@ class ReminderListCreateView(APIView):
         )
         reminder.save()
 
-        # 5. Upload attachments to S3
+        # 5. Upload attachments (S3 or DB backend)
         if validated_files:
             storage = AttachmentStorage()
             for f in validated_files:
                 content = f.read()
-                s3_key = storage.upload(content, f.name, f.content_type or "application/octet-stream")
-                ReminderAttachment.objects.create(
+                content_type = f.content_type or "application/octet-stream"
+                # Create the record first so DB backend can write file_data onto it
+                att = ReminderAttachment(
                     reminder=reminder,
                     original_filename=f.name,
-                    s3_key=s3_key,
-                    content_type=f.content_type or "application/octet-stream",
+                    content_type=content_type,
                     size_bytes=f.size,
                 )
+                att.save()
+                storage_key = storage.upload(
+                    content, f.name, content_type, attachment_instance=att
+                )
+                att.storage_key = storage_key
+                att.s3_key = storage_key  # keep legacy field in sync
+                att.save(update_fields=["storage_key", "s3_key", "file_data"])
 
         # 6. Send verification email for anonymous users
         if not is_auth:

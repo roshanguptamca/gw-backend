@@ -128,7 +128,7 @@ class DocumentFile(models.Model):
     file_size = models.IntegerField(help_text="File size in bytes")
     s3_key = models.CharField(max_length=500, unique=True)
     storage_backend = models.CharField(
-        max_length=20, default="s3", choices=[("s3", "S3"), ("local", "Local"), ("db", "Database")]
+        max_length=20, default="db", choices=[("s3", "S3"), ("local", "Local"), ("db", "Database")]
     )
     # Raw file bytes — populated when storage_backend == "db"
     file_data = models.BinaryField(null=True, blank=True, editable=False)

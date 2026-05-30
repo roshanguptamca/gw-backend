@@ -9,7 +9,12 @@ from .models import Document, Conversation, UserQuestionLimit
 from .serializers import DocumentSerializer
 from .extract import extract_pdf, extract_docx, extract_image
 from services.gemini import GeminiClient
-from services.s3 import S3Client
+try:
+    from services.s3 import S3Client
+    _S3_AVAILABLE = True
+except ImportError:
+    S3Client = None
+    _S3_AVAILABLE = False
 from services.ai import AIClient
 from guidewisey.decorators import question_limit
 from drf_spectacular.utils import (
@@ -90,6 +95,8 @@ def get_upload_url(request):
     s3_key = f"uploads/{uuid.uuid4()}.{ext}"
 
     try:
+        if not _S3_AVAILABLE:
+            return Response({"error": "S3 is not configured. This endpoint requires S3 storage."}, status=503)
         s3_client = S3Client()
         presigned_url = s3_client.generate_presigned_url(s3_key)
     except Exception as e:
@@ -157,11 +164,14 @@ def process_document(request, document=None, user_question_limit=None):
     Upload document from S3, extract text, generate AI explanation,
     and store Document + initial Conversation.
     """
-    s3_client = S3Client()
+    s3_client = S3Client() if _S3_AVAILABLE else None
     ai_client = AIClient()
     s3_key = request.data.get("s3_key")
     if not s3_key:
         return Response({"error": "s3_key is required"}, status=400)
+
+    if not _S3_AVAILABLE:
+        return Response({"error": "S3 is not configured. This endpoint requires S3 storage."}, status=503)
 
     _, ext = os.path.splitext(s3_key)
     ext = ext.lower().replace(".", "")

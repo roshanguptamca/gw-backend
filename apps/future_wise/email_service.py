@@ -109,12 +109,22 @@ class BrevoEmailService:
 
     def _deliver(self, msg: EmailMultiAlternatives) -> None:
         try:
+            from django.conf import settings as django_settings
+            logger.info(
+                "Email backend=%s host=%s port=%s user=%s to=%s subject=%s",
+                django_settings.EMAIL_BACKEND,
+                django_settings.EMAIL_HOST,
+                django_settings.EMAIL_PORT,
+                django_settings.EMAIL_HOST_USER,
+                msg.to,
+                msg.subject,
+            )
             msg.send(fail_silently=False)
             logger.info(
-                "Email sent via Django backend to=%s subject=%s", msg.to, msg.subject
+                "✅ Email delivered to=%s subject=%s", msg.to, msg.subject
             )
         except Exception as exc:
-            logger.error("Email delivery failed: %s", exc)
+            logger.error("❌ Email delivery failed to=%s subject=%s error=%s", msg.to, msg.subject, exc)
             raise BrevoDeliveryError(f"Email delivery failed: {exc}") from exc
 
 

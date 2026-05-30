@@ -278,6 +278,41 @@ if IS_PRODUCTION:
                 "level": "INFO",
                 "propagate": False,
             },
+            "apps.future_wise": {
+                "handlers": ["console"],
+                "level": "INFO",
+                "propagate": False,
+            },
+        },
+    }
+else:
+    # Dev — ensure FutureWise scheduler/email logs are always visible
+    LOGGING = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "handlers": {
+            "console": {
+                "class": "logging.StreamHandler",
+                "formatter": "simple",
+            },
+        },
+        "formatters": {
+            "simple": {
+                "format": "[{levelname}] {name}: {message}",
+                "style": "{",
+            },
+        },
+        "loggers": {
+            "apps.future_wise": {
+                "handlers": ["console"],
+                "level": "DEBUG",
+                "propagate": False,
+            },
+            "apscheduler": {
+                "handlers": ["console"],
+                "level": "INFO",
+                "propagate": False,
+            },
         },
     }
 
@@ -290,10 +325,11 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # File Storage Backend
 # ============================================================
 # Controls where uploaded files are stored.
-#   "auto" (default) — use S3 if AWS credentials are present, otherwise DB
-#   "db"             — always store file bytes in the database (no external deps)
-#   "s3"             — always use AWS S3 (requires credentials)
-FILE_STORAGE_BACKEND = os.getenv("FILE_STORAGE_BACKEND", "auto")
+#   "db"   (default) — store file bytes in the database; no external deps required
+#   "auto"           — use S3 if AWS credentials are present, otherwise fall back to DB
+#   "s3"             — always use AWS S3 (requires AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, S3_BUCKET)
+# S3 is fully optional. The app runs without any AWS credentials when this is "db".
+FILE_STORAGE_BACKEND = os.getenv("FILE_STORAGE_BACKEND", "db")
 
 # ============================================================
 # FutureWise / DearTomorrow — Email Reminder Feature
