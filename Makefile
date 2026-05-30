@@ -123,19 +123,19 @@ test-parallel: env
 # ---------------------------------
 
 lint: env
-	$(VENV_DIR)/bin/flake8 . --exclude=.venv,migrations,staticfiles --max-line-length=120
+	$(VENV_DIR)/bin/flake8 . --exclude=.venv,venv,migrations,staticfiles --max-line-length=120
 
 format: env
-	$(VENV_DIR)/bin/black . --exclude="/(\.git|\.venv|migrations|staticfiles)/"
+	$(VENV_DIR)/bin/black . --exclude="/(\.git|\.venv|venv|migrations|staticfiles)/"
 
 format-check: env
-	$(VENV_DIR)/bin/black . --check --exclude="/(\.git|\.venv|migrations|staticfiles)/"
+	$(VENV_DIR)/bin/black . --check --exclude="/(\.git|\.venv|venv|migrations|staticfiles)/"
 
 isort: env
-	$(VENV_DIR)/bin/isort . --skip .venv --skip migrations --skip staticfiles
+	$(VENV_DIR)/bin/isort . --skip .venv --skip venv --skip migrations --skip staticfiles
 
 isort-check: env
-	$(VENV_DIR)/bin/isort . --check --skip .venv --skip migrations --skip staticfiles
+	$(VENV_DIR)/bin/isort . --check --skip .venv --skip venv --skip migrations --skip staticfiles
 
 format-all: isort format
 
