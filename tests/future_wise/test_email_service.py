@@ -12,6 +12,8 @@ SMTP_SETTINGS = {
     "EMAIL_SENDER_EMAIL": "noreply@guidewisey.com",
     "EMAIL_SENDER_NAME": "FutureWise",
     "DEFAULT_FROM_EMAIL": "FutureWise <noreply@guidewisey.com>",
+    # Force SMTP path so tests use locmem backend, not real Brevo API
+    "BREVO_API_KEY": "",
 }
 
 
@@ -135,4 +137,34 @@ class BrevoEmailServiceTest(TestCase):
 
         service = BrevoEmailService()
         self.assertEqual(service.from_addr, "FutureWise <noreply@guidewisey.com>")
+
+    @override_settings(BREVO_API_KEY="test-api-key")
+    def test_brevo_api_path_used_when_api_key_set(self):
+        """When BREVO_API_KEY is set, HTTP API should be used instead of SMTP."""
+        from unittest.mock import patch, MagicMock
+        from apps.future_wise.email_service import BrevoEmailService
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status.return_value = None
+
+        with patch("apps.future_wise.email_service.requests.post", return_value=mock_resp) as mock_post:
+            service = BrevoEmailService()
+            service.send_verification_email("user@example.com", "https://verify.me/tok")
+
+        mock_post.assert_called_once()
+        call_kwargs = mock_post.call_args
+        payload = call_kwargs[1]["json"] if "json" in call_kwargs[1] else call_kwargs[0][1]
+        self.assertEqual(payload["to"][0]["email"], "user@example.com")
+        self.assertEqual(call_kwargs[1]["headers"]["api-key"], "test-api-key")
+
+    @override_settings(BREVO_API_KEY="test-api-key")
+    def test_brevo_api_failure_raises_delivery_error(self):
+        """Brevo API HTTP errors should be wrapped in BrevoDeliveryError."""
+        import requests as req
+        from apps.future_wise.email_service import BrevoDeliveryError, BrevoEmailService
+
+        with patch("apps.future_wise.email_service.requests.post", side_effect=req.ConnectionError("API timeout")):
+            service = BrevoEmailService()
+            with self.assertRaises(BrevoDeliveryError):
+                service.send_verification_email("x@example.com", "https://verify.me")
 

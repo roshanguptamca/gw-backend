@@ -1,41 +1,47 @@
 """
 Transactional email service for FutureWise.
 
-Uses Django's built-in email backend (configured for Brevo SMTP relay by default).
-Switch EMAIL_BACKEND in settings / .env to change delivery method without touching
-this code — e.g. console backend for local dev, SMTP for production.
+Delivery strategy (tried in order):
+  1. Brevo HTTP API  — if BREVO_API_KEY is set (works on Render free tier, port 443)
+  2. Django SMTP     — fallback for local dev or environments where SMTP is open
+  3. Console backend — local dev with no credentials (prints to stdout)
+
+Render's free tier blocks outbound SMTP (port 587), so the HTTP API path
+is always used in production when BREVO_API_KEY is set.
 """
 
+import base64
 import logging
+import re
 from typing import Optional
 
+import requests
 from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 
 logger = logging.getLogger(__name__)
 
+_BREVO_SEND_URL = "https://api.brevo.com/v3/smtp/email"
+
 
 class BrevoEmailService:
     """
-    Sends transactional emails via Django's email backend.
+    Sends transactional emails via Brevo HTTP API (preferred) or Django SMTP.
 
     Required settings (set via .env):
-        EMAIL_HOST          — SMTP server  (default: smtp-relay.brevo.com)
-        EMAIL_PORT          — SMTP port    (default: 587)
-        EMAIL_HOST_USER     — SMTP login   (default: ac98f2001@smtp-brevo.com)
-        EMAIL_HOST_PASSWORD — SMTP key/password
+        BREVO_API_KEY       — Brevo API key (uses HTTP API, works on Render free tier)
         EMAIL_SENDER_EMAIL  — From address (default: noreply@guidewisey.com)
         EMAIL_SENDER_NAME   — From name    (default: FutureWise by GuideWisey)
 
-    In DEV mode with no EMAIL_HOST_PASSWORD set, Django automatically falls back
-    to the console backend — emails are printed to stdout, nothing is sent.
+    SMTP fallback (local dev):
+        EMAIL_HOST / EMAIL_PORT / EMAIL_HOST_USER / EMAIL_HOST_PASSWORD
     """
 
     def __init__(self):
         self.sender_email: str = settings.EMAIL_SENDER_EMAIL
         self.sender_name: str = settings.EMAIL_SENDER_NAME
         self.from_addr: str = f"{self.sender_name} <{self.sender_email}>"
+        self.api_key: str = getattr(settings, "BREVO_API_KEY", "")
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -65,32 +71,80 @@ class BrevoEmailService:
         is_premium = reminder.tier == "premium"
         template = "future_wise/reminder_email_premium.html" if is_premium else "future_wise/reminder_email_free.html"
         html = render_to_string(template, {"reminder": reminder})
-
-        email_msg = self._build_message(
+        self._send(
             to_email=reminder.email,
             subject=reminder.subject,
             html=html,
+            attachment_data=attachment_data,
         )
-
-        if attachment_data:
-            for att in attachment_data:
-                email_msg.attach(
-                    att["filename"],
-                    att["content_bytes"],
-                    att["content_type"],
-                )
-
-        self._deliver(email_msg)
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
-    def _send(self, to_email: str, subject: str, html: str) -> None:
-        msg = self._build_message(to_email, subject, html)
-        self._deliver(msg)
+    def _send(
+        self,
+        to_email: str,
+        subject: str,
+        html: str,
+        attachment_data: Optional[list[dict]] = None,
+    ) -> None:
+        if self.api_key:
+            self._deliver_via_api(to_email, subject, html, attachment_data)
+        else:
+            self._deliver_via_smtp(to_email, subject, html, attachment_data)
 
-    def _build_message(self, to_email: str, subject: str, html: str) -> EmailMultiAlternatives:
-        # Plain-text fallback — strip HTML tags crudely
-        import re
+    def _deliver_via_api(
+        self,
+        to_email: str,
+        subject: str,
+        html: str,
+        attachment_data: Optional[list[dict]] = None,
+    ) -> None:
+        """Send via Brevo HTTP API (port 443 — works on Render free tier)."""
+        plain = re.sub(r"<[^>]+>", "", html).strip()
+        payload = {
+            "sender": {"name": self.sender_name, "email": self.sender_email},
+            "to": [{"email": to_email}],
+            "subject": subject,
+            "htmlContent": html,
+            "textContent": plain,
+        }
+
+        if attachment_data:
+            payload["attachment"] = [
+                {
+                    "name": att["filename"],
+                    "content": base64.b64encode(att["content_bytes"]).decode(),
+                }
+                for att in attachment_data
+            ]
+
+        headers = {
+            "api-key": self.api_key,
+            "Content-Type": "application/json",
+        }
+
+        logger.info(
+            "Email via Brevo API to=%s subject=%s sender=%s",
+            to_email, subject, self.sender_email,
+        )
+        try:
+            resp = requests.post(_BREVO_SEND_URL, json=payload, headers=headers, timeout=30)
+            resp.raise_for_status()
+            logger.info("✅ Email delivered (Brevo API) to=%s subject=%s", to_email, subject)
+        except requests.RequestException as exc:
+            body = getattr(exc.response, "text", "") if hasattr(exc, "response") else ""
+            logger.error("❌ Brevo API delivery failed to=%s error=%s body=%s", to_email, exc, body)
+            raise BrevoDeliveryError(f"Brevo API delivery failed: {exc}") from exc
+
+    def _deliver_via_smtp(
+        self,
+        to_email: str,
+        subject: str,
+        html: str,
+        attachment_data: Optional[list[dict]] = None,
+    ) -> None:
+        """Send via Django SMTP backend (local dev fallback)."""
+        from django.core.mail import EmailMultiAlternatives
 
         plain = re.sub(r"<[^>]+>", "", html).strip()
         msg = EmailMultiAlternatives(
@@ -100,27 +154,24 @@ class BrevoEmailService:
             to=[to_email],
         )
         msg.attach_alternative(html, "text/html")
-        return msg
 
-    def _deliver(self, msg: EmailMultiAlternatives) -> None:
+        if attachment_data:
+            for att in attachment_data:
+                msg.attach(att["filename"], att["content_bytes"], att["content_type"])
+
+        logger.info(
+            "Email via SMTP backend=%s host=%s:%s to=%s subject=%s",
+            settings.EMAIL_BACKEND, settings.EMAIL_HOST, settings.EMAIL_PORT,
+            to_email, subject,
+        )
         try:
-            from django.conf import settings as django_settings
-
-            logger.info(
-                "Email backend=%s host=%s port=%s user=%s to=%s subject=%s",
-                django_settings.EMAIL_BACKEND,
-                django_settings.EMAIL_HOST,
-                django_settings.EMAIL_PORT,
-                django_settings.EMAIL_HOST_USER,
-                msg.to,
-                msg.subject,
-            )
             msg.send(fail_silently=False)
-            logger.info("✅ Email delivered to=%s subject=%s", msg.to, msg.subject)
+            logger.info("✅ Email delivered (SMTP) to=%s subject=%s", to_email, subject)
         except Exception as exc:
-            logger.error("❌ Email delivery failed to=%s subject=%s error=%s", msg.to, msg.subject, exc)
+            logger.error("❌ SMTP delivery failed to=%s subject=%s error=%s", to_email, subject, exc)
             raise BrevoDeliveryError(f"Email delivery failed: {exc}") from exc
 
 
 class BrevoDeliveryError(Exception):
     """Raised when email delivery fails."""
+
