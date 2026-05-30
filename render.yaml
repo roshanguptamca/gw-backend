@@ -86,74 +86,75 @@ services:
         value: https://gw-frontend.onrender.com
 
   # ── Background Scheduler (FutureWise reminder dispatch) ──────────────────────
-  # Runs APScheduler — dispatches due reminders every 60s, expires tokens every 10min.
-  # No Redis needed — uses the same PostgreSQL DB as the web service.
-  - type: worker
-    name: gw-scheduler
-    runtime: python
-    region: frankfurt
-    plan: starter
-    buildCommand: |
-      pip install --upgrade pip
-      pip install -r requirements.txt
-      python manage.py migrate --noinput
-    startCommand: python manage.py runapscheduler
-    envVars:
-      - key: ENV
-        value: PROD
-      - key: PYTHON_VERSION
-        value: "3.13.0"
-      - key: SECRET_KEY
-        fromService:
-          name: gw-backend
-          type: web
-          envVarKey: SECRET_KEY
-      - key: DB_ENGINE
-        value: postgresql
-      - key: DB_HOST
-        fromDatabase:
-          name: gw-db
-          property: host
-      - key: DB_PORT
-        fromDatabase:
-          name: gw-db
-          property: port
-      - key: DB_NAME
-        fromDatabase:
-          name: gw-db
-          property: database
-      - key: DB_USER
-        fromDatabase:
-          name: gw-db
-          property: user
-      - key: DB_PASSWORD
-        fromDatabase:
-          name: gw-db
-          property: password
-      - key: EMAIL_HOST
-        value: smtp-relay.brevo.com
-      - key: EMAIL_PORT
-        value: "587"
-      - key: EMAIL_USE_TLS
-        value: "true"
-      - key: EMAIL_HOST_USER
-        sync: false
-      - key: EMAIL_HOST_PASSWORD
-        sync: false
-      - key: EMAIL_SENDER_EMAIL
-        value: noreply@guidewisey.com
-      - key: EMAIL_SENDER_NAME
-        value: FutureWise by GuideWisey
-      - key: FUTUREWAVE_FRONTEND_BASE_URL
-        value: https://gw-frontend.onrender.com
-      - key: FILE_STORAGE_BACKEND
-        value: auto
-      - key: AWS_ACCESS_KEY_ID
-        sync: false
-      - key: AWS_SECRET_ACCESS_KEY
-        sync: false
-      - key: S3_BUCKET
-        sync: false
+  # The APScheduler runs as a background thread inside the web service process
+  # (started via AppConfig.ready()) — no separate paid Worker service needed.
+  #
+  # If you upgrade to a paid plan and want a dedicated scheduler process, uncomment:
+  #
+  # - type: worker
+  #   name: gw-scheduler
+  #   runtime: python
+  #   region: frankfurt
+  #   plan: starter
+  #   buildCommand: |
+  #     pip install --upgrade pip
+  #     pip install -r requirements.txt
+  #     python manage.py migrate --noinput
+  #   startCommand: python manage.py runapscheduler
+  #   envVars:
+  #     - key: ENV
+  #       value: PROD
+  #     - key: SECRET_KEY
+  #       fromService:
+  #         name: gw-backend
+  #         type: web
+  #         envVarKey: SECRET_KEY
+  #     - key: DB_ENGINE
+  #       value: postgresql
+  #     - key: DB_HOST
+  #       fromDatabase:
+  #         name: gw-db
+  #         property: host
+  #     - key: DB_PORT
+  #       fromDatabase:
+  #         name: gw-db
+  #         property: port
+  #     - key: DB_NAME
+  #       fromDatabase:
+  #         name: gw-db
+  #         property: database
+  #     - key: DB_USER
+  #       fromDatabase:
+  #         name: gw-db
+  #         property: user
+  #     - key: DB_PASSWORD
+  #       fromDatabase:
+  #         name: gw-db
+  #         property: password
+  #     - key: EMAIL_HOST
+  #       value: smtp-relay.brevo.com
+  #     - key: EMAIL_PORT
+  #       value: "587"
+  #     - key: EMAIL_USE_TLS
+  #       value: "true"
+  #     - key: EMAIL_HOST_USER
+  #       sync: false
+  #     - key: EMAIL_HOST_PASSWORD
+  #       sync: false
+  #     - key: EMAIL_SENDER_EMAIL
+  #       value: noreply@guidewisey.com
+  #     - key: EMAIL_SENDER_NAME
+  #       value: FutureWise by GuideWisey
+  #     - key: FUTUREWAVE_FRONTEND_BASE_URL
+  #       value: https://gw-frontend.onrender.com
+  #     - key: FILE_STORAGE_BACKEND
+  #       value: auto
+  #     - key: AWS_ACCESS_KEY_ID
+  #       sync: false
+  #     - key: AWS_SECRET_ACCESS_KEY
+  #       sync: false
+  #     - key: S3_BUCKET
+  #       sync: false
 
 # ── Managed PostgreSQL Database ──────────────────────────────────────────────
 databases:

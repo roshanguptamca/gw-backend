@@ -4,6 +4,7 @@ from pathlib import Path
 # Load .env file for local development (no-op in production if .env absent)
 try:
     from dotenv import load_dotenv
+
     load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
 except ImportError:
     pass
@@ -496,8 +497,14 @@ SPECTACULAR_SETTINGS = {
     "TAGS": [
         {"name": "Accounts", "description": "User registration, authentication, and session management"},
         {"name": "Doc-X V2", "description": "Document upload, AI processing, and chat (recommended API)"},
-        {"name": "Doc-X V1 (Legacy)", "description": "Legacy document processing endpoints — kept for backward compatibility"},
+        {
+            "name": "Doc-X V1 (Legacy)",
+            "description": "Legacy document processing endpoints — kept for backward compatibility",
+        },
         {"name": "FutureWise", "description": "Schedule future self-email reminders with optional attachments"},
-        {"name": "Insurance Explainer", "description": "AI-powered insurance policy analysis: coverage, gaps, risks, and action items with country/language context"},
+        {
+            "name": "Insurance Explainer",
+            "description": "AI-powered insurance policy analysis: coverage, gaps, risks, and action items with country/language context",
+        },
     ],
 }

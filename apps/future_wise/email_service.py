@@ -63,11 +63,7 @@ class BrevoEmailService:
             filename (str), content_bytes (bytes), content_type (str)
         """
         is_premium = reminder.tier == "premium"
-        template = (
-            "future_wise/reminder_email_premium.html"
-            if is_premium
-            else "future_wise/reminder_email_free.html"
-        )
+        template = "future_wise/reminder_email_premium.html" if is_premium else "future_wise/reminder_email_free.html"
         html = render_to_string(template, {"reminder": reminder})
 
         email_msg = self._build_message(
@@ -92,11 +88,10 @@ class BrevoEmailService:
         msg = self._build_message(to_email, subject, html)
         self._deliver(msg)
 
-    def _build_message(
-        self, to_email: str, subject: str, html: str
-    ) -> EmailMultiAlternatives:
+    def _build_message(self, to_email: str, subject: str, html: str) -> EmailMultiAlternatives:
         # Plain-text fallback — strip HTML tags crudely
         import re
+
         plain = re.sub(r"<[^>]+>", "", html).strip()
         msg = EmailMultiAlternatives(
             subject=subject,
@@ -110,6 +105,7 @@ class BrevoEmailService:
     def _deliver(self, msg: EmailMultiAlternatives) -> None:
         try:
             from django.conf import settings as django_settings
+
             logger.info(
                 "Email backend=%s host=%s port=%s user=%s to=%s subject=%s",
                 django_settings.EMAIL_BACKEND,
@@ -120,9 +116,7 @@ class BrevoEmailService:
                 msg.subject,
             )
             msg.send(fail_silently=False)
-            logger.info(
-                "✅ Email delivered to=%s subject=%s", msg.to, msg.subject
-            )
+            logger.info("✅ Email delivered to=%s subject=%s", msg.to, msg.subject)
         except Exception as exc:
             logger.error("❌ Email delivery failed to=%s subject=%s error=%s", msg.to, msg.subject, exc)
             raise BrevoDeliveryError(f"Email delivery failed: {exc}") from exc
