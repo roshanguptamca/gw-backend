@@ -7,11 +7,26 @@ from django.apps import AppConfig
 logger = logging.getLogger(__name__)
 
 # Management commands that must NOT start the background scheduler
-_NO_SCHEDULER_COMMANDS = frozenset({
-    "migrate", "makemigrations", "collectstatic", "runapscheduler",
-    "test", "shell", "createsuperuser", "check", "inspectdb",
-    "showmigrations", "sqlmigrate", "dbshell",
-})
+_NO_SCHEDULER_COMMANDS = frozenset(
+    {
+        "migrate",
+        "makemigrations",
+        "collectstatic",
+        "runapscheduler",
+        "test",
+        "shell",
+        "createsuperuser",
+        "check",
+        "inspectdb",
+        "showmigrations",
+        "sqlmigrate",
+        "dbshell",
+    }
+)
+
+# Process-level guard — ensures the scheduler starts exactly once per process
+# even if AppConfig.ready() is somehow called more than once.
+_scheduler_started = False
 
 
 class FutureWiseConfig(AppConfig):
@@ -20,28 +35,22 @@ class FutureWiseConfig(AppConfig):
     verbose_name = "FutureWise / DearTomorrow Reminders"
 
     def ready(self):
-        # Skip scheduler for management commands that don't need it
+        global _scheduler_started
+
+        # Never start inside management commands that don't need it
         if len(sys.argv) >= 2 and sys.argv[1] in _NO_SCHEDULER_COMMANDS:
             return
 
-        from django.conf import settings
-
-        # In production the dedicated `scheduler` docker service runs
-        # `python manage.py runapscheduler` — don't also start a per-worker
-        # BackgroundScheduler inside every gunicorn worker.
-        if not settings.DEBUG:
+        # Guard: only start once per process
+        if _scheduler_started:
             return
-
-        # Django dev runserver forks an autoreload watcher + a live worker process.
-        # RUN_MAIN=true is set only in the live worker — skip the watcher fork.
-        if os.environ.get("RUN_MAIN") != "true":
-            return
+        _scheduler_started = True
 
         _start_background_scheduler()
 
 
 def _start_background_scheduler():
-    """Start APScheduler as a background thread (dev only)."""
+    """Start APScheduler as a background thread."""
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
         from apscheduler.triggers.interval import IntervalTrigger
@@ -73,8 +82,39 @@ def _start_background_scheduler():
             max_instances=1,
         )
 
+        # Self-ping to prevent Render free tier from spinning down.
+        # RENDER_EXTERNAL_URL is injected automatically by Render — only active in production.
+        render_url = os.environ.get("RENDER_EXTERNAL_URL")
+        if render_url:
+            scheduler.add_job(
+                _ping_self,
+                trigger=IntervalTrigger(minutes=10),
+                id="keep_alive_ping",
+                name="Keep-alive ping (Render free tier)",
+                jobstore="default",
+                replace_existing=True,
+                max_instances=1,
+                args=[render_url],
+            )
+            logger.info("FutureWise: keep-alive ping enabled → %s", render_url)
+
         scheduler.start()
         logger.info("FutureWise BackgroundScheduler started (DB-backed, no Redis)")
 
     except Exception as exc:
         logger.error("FutureWise scheduler failed to start: %s", exc)
+
+
+def _ping_self(base_url: str) -> None:
+    """
+    Ping the service's own health endpoint every 10 min to prevent
+    Render free tier from spinning down the container.
+    """
+    import urllib.request
+
+    url = base_url.rstrip("/") + "/api/accounts/session/"
+    try:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            logger.info("Keep-alive ping → %s (%d)", url, resp.status)
+    except Exception as exc:
+        logger.warning("Keep-alive ping failed → %s : %s", url, exc)

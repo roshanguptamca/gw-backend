@@ -82,9 +82,9 @@ def dispatch_due_reminders():
     for reminder_id in due_ids:
         logger.info("FutureWise: attempting to queue reminder %s", reminder_id)
         # Atomic transition: only proceed if still SCHEDULED
-        updated = EmailReminder.objects.filter(
-            id=reminder_id, status=EmailReminder.Status.SCHEDULED
-        ).update(status=EmailReminder.Status.QUEUED, updated_at=timezone.now())
+        updated = EmailReminder.objects.filter(id=reminder_id, status=EmailReminder.Status.SCHEDULED).update(
+            status=EmailReminder.Status.QUEUED, updated_at=timezone.now()
+        )
         if updated:
             logger.info("FutureWise: reminder %s → QUEUED, starting delivery", reminder_id)
             _deliver_reminder(str(reminder_id))
@@ -128,7 +128,10 @@ def _deliver_reminder(reminder_id: str):
         )
         logger.info(
             "FutureWise: reminder loaded | id=%s email=%s subject=%s retry_count=%d",
-            reminder_id, reminder.email, reminder.subject, reminder.retry_count,
+            reminder_id,
+            reminder.email,
+            reminder.subject,
+            reminder.retry_count,
         )
     except EmailReminder.DoesNotExist:
         logger.warning("FutureWise: reminder %s not found or not QUEUED — skipping", reminder_id)
@@ -143,23 +146,30 @@ def _deliver_reminder(reminder_id: str):
     for att in reminder.attachments.all():
         try:
             content_bytes = storage.download_bytes(att.storage_key, attachment_instance=att)
-            attachment_data.append({
-                "filename": att.original_filename,
-                "content_bytes": content_bytes,
-                "content_type": att.content_type,
-            })
+            attachment_data.append(
+                {
+                    "filename": att.original_filename,
+                    "content_bytes": content_bytes,
+                    "content_type": att.content_type,
+                }
+            )
             logger.debug("FutureWise: loaded attachment %s (%d bytes)", att.original_filename, len(content_bytes))
         except StorageError as exc:
             logger.error(
                 "FutureWise: attachment %s unavailable for reminder %s: %s",
-                att.id, reminder_id, exc,
+                att.id,
+                reminder_id,
+                exc,
             )
 
     # Send email
     try:
         logger.info(
             "FutureWise: sending email | id=%s to=%s subject=%s attachments=%d",
-            reminder_id, reminder.email, reminder.subject, len(attachment_data),
+            reminder_id,
+            reminder.email,
+            reminder.subject,
+            len(attachment_data),
         )
         service = BrevoEmailService()
         service.send_reminder_email(reminder, attachment_data or None)
@@ -169,7 +179,9 @@ def _deliver_reminder(reminder_id: str):
         reminder.save(update_fields=["status", "sent_at", "updated_at"])
         logger.info(
             "FutureWise: ✅ SENT reminder %s → %s (status=SENT, sent_at=%s)",
-            reminder_id, reminder.email, reminder.sent_at,
+            reminder_id,
+            reminder.email,
+            reminder.sent_at,
         )
 
         # Purge attachments after delivery if configured
@@ -189,13 +201,17 @@ def _deliver_reminder(reminder_id: str):
             reminder.save(update_fields=["status", "retry_count", "last_error", "updated_at"])
             logger.warning(
                 "FutureWise: ⚠️  reminder %s will retry (attempt %d/%d) error=%s",
-                reminder_id, reminder.retry_count, _MAX_RETRIES, exc,
+                reminder_id,
+                reminder.retry_count,
+                _MAX_RETRIES,
+                exc,
             )
         else:
             reminder.status = EmailReminder.Status.DEAD_LETTER
             reminder.save(update_fields=["status", "retry_count", "last_error", "updated_at"])
             logger.error(
                 "FutureWise: ❌ reminder %s DEAD_LETTER after %d retries. last_error=%s",
-                reminder_id, _MAX_RETRIES, exc,
+                reminder_id,
+                _MAX_RETRIES,
+                exc,
             )
-
