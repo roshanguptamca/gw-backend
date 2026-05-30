@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ reminder.subject }}</title>
+  <style>
+    body { margin:0; padding:0; background:#f5f3ff; font-family:'Helvetica Neue',Arial,sans-serif; }
+    .wrapper { max-width:600px; margin:40px auto; background:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 4px 20px rgba(0,0,0,0.10); }
+    .header { background:linear-gradient(160deg, #667eea 0%, #9c5fe4 50%, #c0aaf8 100%); padding:48px 32px 36px; text-align:center; }
+    .stars { font-size:20px; letter-spacing:6px; opacity:0.8; margin-bottom:10px; }
+    .header h1 { margin:0; color:rgba(255,255,255,0.85); font-size:12px; font-weight:600; letter-spacing:3px; text-transform:uppercase; }
+    .header h2 { margin:10px 0 0; color:#fff; font-size:24px; font-weight:700; line-height:1.4; }
+    .header-note { display:inline-block; background:rgba(255,255,255,0.18); color:rgba(255,255,255,0.9); border-radius:20px; padding:6px 18px; font-size:13px; margin-top:16px; }
+    .body { padding:40px 36px; color:#374151; }
+    .intro { font-size:15px; color:#6b7280; margin:0 0 28px; line-height:1.7; font-style:italic; text-align:center; }
+    .letter-box { background:linear-gradient(135deg,#f5f3ff,#ede9fe); border-left:4px solid #9c5fe4; border-radius:0 10px 10px 0; padding:28px 28px; margin-bottom:28px; }
+    .letter-box p { margin:0; line-height:1.9; font-size:15px; color:#374151; white-space:pre-wrap; }
+    .closing { text-align:center; padding:20px; color:#9ca3af; font-size:14px; line-height:1.8; }
+    .closing .candle { font-size:32px; display:block; margin-bottom:8px; }
+    .footer { background:#f5f3ff; border-top:1px solid #ddd6fe; padding:24px 32px; text-align:center; font-size:12px; color:#9ca3af; }
+    .footer a { color:#9c5fe4; text-decoration:none; }
+    .footer-brand { font-size:13px; margin-bottom:8px; color:#6b7280; }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="header">
+      <div class="stars">✦ ✦ ✦</div>
+      <h1>A letter held with love</h1>
+      <h2>{{ reminder.subject }}</h2>
+      <div class="header-note">📅 Written {{ reminder.created_at|date:"N j, Y" }}</div>
+    </div>
+    <div class="body">
+      <p class="intro">
+        "Those we love don't go away — they walk beside us every day,<br>
+        unseen, unheard, but always near."
+      </p>
+      <div class="letter-box">
+        <p>{{ reminder.message }}</p>
+      </div>
+      <div class="closing">
+        <span class="candle">🕯️</span>
+        Delivered on {{ reminder.scheduled_at|date:"N j, Y" }} — a date you chose to remember.
+      </div>
+      {% if reminder.attachments.all %}
+      <p style="font-size:14px; color:#6b7280;"><strong>📎 Attached with love:</strong>
+        {% for att in reminder.attachments.all %}{{ att.original_filename }}{% if not forloop.last %}, {% endif %}{% endfor %}
+      </p>
+      {% endif %}
+    </div>
+    <div class="footer">
+      <p class="footer-brand">Kept safely by <strong>FutureWise</strong> — <a href="https://www.guidewisey.com">GuideWisey</a></p>
+      <p>This letter was written with love and delivered with care. We hope it brings you peace.</p>
+    </div>
+  </div>
+</body>
+</html>
