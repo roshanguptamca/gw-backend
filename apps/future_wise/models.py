@@ -39,6 +39,13 @@ class EmailReminder(models.Model):
         FREE = "free", "FutureWise (Free)"
         PREMIUM = "premium", "DearTomorrow (Premium)"
 
+    class LetterType(models.TextChoices):
+        FUTURE_SELF = "future_self", "Letter to Future Self"
+        MILESTONE = "milestone", "Open When… (Milestone)"
+        GRIEF = "grief", "In Memory — Grief Letter"
+        FORGIVENESS = "forgiveness", "Forgiveness Letter"
+        GRATITUDE = "gratitude", "Gratitude Letter"
+
     # ── Identity ──────────────────────────────────────────────────────────────
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(
@@ -69,6 +76,12 @@ class EmailReminder(models.Model):
         max_length=20,
         choices=Tier.choices,
         default=Tier.FREE,
+        db_index=True,
+    )
+    letter_type = models.CharField(
+        max_length=20,
+        choices=LetterType.choices,
+        default=LetterType.FUTURE_SELF,
         db_index=True,
     )
 

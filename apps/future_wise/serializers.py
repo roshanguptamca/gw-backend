@@ -42,6 +42,10 @@ class CreateReminderSerializer(serializers.Serializer):
         choices=EmailReminder.Tier.choices,
         default=EmailReminder.Tier.FREE,
     )
+    letter_type = serializers.ChoiceField(
+        choices=EmailReminder.LetterType.choices,
+        default=EmailReminder.LetterType.FUTURE_SELF,
+    )
 
     def validate_scheduled_at(self, value):
         validate_scheduled_at(value)
@@ -87,6 +91,7 @@ class ReminderDetailSerializer(serializers.ModelSerializer):
             "message",
             "scheduled_at",
             "tier",
+            "letter_type",
             "brand_name",
             "status",
             "retry_count",
@@ -109,6 +114,7 @@ class ReminderListSerializer(serializers.ModelSerializer):
             "subject",
             "scheduled_at",
             "tier",
+            "letter_type",
             "status",
             "sent_at",
             "created_at",

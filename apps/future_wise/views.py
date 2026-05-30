@@ -241,6 +241,7 @@ class ReminderListCreateView(APIView):
             message=body_serializer.validated_data["message"],
             scheduled_at=body_serializer.validated_data["scheduled_at"],
             tier=body_serializer.validated_data.get("tier", EmailReminder.Tier.FREE),
+            letter_type=body_serializer.validated_data.get("letter_type", EmailReminder.LetterType.FUTURE_SELF),
             status=(EmailReminder.Status.SCHEDULED if is_auth else EmailReminder.Status.PENDING_VERIFICATION),
         )
         reminder.save()
