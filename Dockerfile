@@ -26,8 +26,8 @@ RUN pip install --upgrade pip \
 # Copy project files
 COPY . .
 
-# Ensure entrypoint is executable
-RUN chmod +x /app/entrypoint.sh
+# Ensure entrypoints are executable
+RUN chmod +x /app/entrypoint.sh /app/scheduler_entrypoint.sh
 
 # Django settings module
 ENV DJANGO_SETTINGS_MODULE=guidewisey.settings

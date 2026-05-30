@@ -11,7 +11,7 @@ from .models import AbuseLog, EmailReminder, ReminderAttachment
 class ReminderAttachmentInline(admin.TabularInline):
     model = ReminderAttachment
     extra = 0
-    readonly_fields = ("id", "original_filename", "content_type", "size_bytes", "s3_key", "created_at")
+    readonly_fields = ("id", "original_filename", "content_type", "size_bytes", "s3_key", "storage_key", "created_at")
     can_delete = False
 
 
@@ -80,7 +80,7 @@ class EmailReminderAdmin(admin.ModelAdmin):
 @admin.register(ReminderAttachment)
 class ReminderAttachmentAdmin(admin.ModelAdmin):
     list_display = ("id", "reminder", "original_filename", "content_type", "size_bytes", "created_at")
-    readonly_fields = ("id", "s3_key", "created_at")
+    readonly_fields = ("id", "s3_key", "storage_key", "created_at")
     search_fields = ("original_filename", "reminder__email")
 
 

@@ -15,7 +15,8 @@ pydantic>=2.6,<2.9
 # DB
 psycopg2-binary>=2.9,<3.0
 
-# AWS
+# AWS (optional — only required when FILE_STORAGE_BACKEND=s3)
+# Remove or leave unset if using DB storage backend.
 boto3>=1.28,<2.0
 
 # Utils
