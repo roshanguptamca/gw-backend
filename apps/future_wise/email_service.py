@@ -65,11 +65,19 @@ class BrevoEmailService:
         """
         Deliver the actual scheduled reminder to the user.
 
+        The email template is chosen based on reminder.letter_type (falls back
+        to the free FutureWise template for legacy/unknown types).
+
         attachment_data: list of dicts with keys:
             filename (str), content_bytes (bytes), content_type (str)
         """
-        is_premium = reminder.tier == "premium"
-        template = "future_wise/reminder_email_premium.html" if is_premium else "future_wise/reminder_email_free.html"
+        template = self._pick_template(reminder)
+        logger.debug(
+            "FutureWise: send_reminder_email id=%s letter_type=%s template=%s",
+            getattr(reminder, "id", "?"),
+            getattr(reminder, "letter_type", "?"),
+            template,
+        )
         html = render_to_string(template, {"reminder": reminder})
         self._send(
             to_email=reminder.email,
@@ -77,6 +85,29 @@ class BrevoEmailService:
             html=html,
             attachment_data=attachment_data,
         )
+
+    # ── Template selection ────────────────────────────────────────────────────
+
+    def _pick_template(self, reminder) -> str:
+        """Return the HTML template path for this reminder's letter_type and tier."""
+        from .models import EmailReminder as ER
+
+        letter_type = getattr(reminder, "letter_type", ER.LetterType.FUTURE_SELF)
+        is_premium = getattr(reminder, "tier", "free") == "premium"
+
+        template_map = {
+            ER.LetterType.FUTURE_SELF: (
+                "future_wise/reminder_email_premium.html" if is_premium
+                else "future_wise/reminder_email_free.html"
+            ),
+            ER.LetterType.MILESTONE:    "future_wise/reminder_email_milestone.html",
+            ER.LetterType.GRIEF:        "future_wise/reminder_email_grief.html",
+            ER.LetterType.FORGIVENESS:  "future_wise/reminder_email_forgiveness.html",
+            ER.LetterType.GRATITUDE:    "future_wise/reminder_email_gratitude.html",
+        }
+        chosen = template_map.get(letter_type, "future_wise/reminder_email_free.html")
+        logger.debug("_pick_template: letter_type=%s → %s", letter_type, chosen)
+        return chosen
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -88,8 +119,17 @@ class BrevoEmailService:
         attachment_data: Optional[list[dict]] = None,
     ) -> None:
         if self.api_key:
+            logger.info(
+                "FutureWise: delivery path=Brevo_API to=%s subject=%s attachments=%d",
+                to_email, subject, len(attachment_data) if attachment_data else 0,
+            )
             self._deliver_via_api(to_email, subject, html, attachment_data)
         else:
+            logger.info(
+                "FutureWise: delivery path=SMTP host=%s:%s to=%s subject=%s attachments=%d",
+                settings.EMAIL_HOST, settings.EMAIL_PORT,
+                to_email, subject, len(attachment_data) if attachment_data else 0,
+            )
             self._deliver_via_smtp(to_email, subject, html, attachment_data)
 
     def _deliver_via_api(
@@ -124,17 +164,25 @@ class BrevoEmailService:
         }
 
         logger.info(
-            "Email via Brevo API to=%s subject=%s sender=%s",
-            to_email, subject, self.sender_email,
+            "Brevo API: POST %s to=%s sender=%s subject=%s",
+            _BREVO_SEND_URL, to_email, self.sender_email, subject,
         )
         try:
             resp = requests.post(_BREVO_SEND_URL, json=payload, headers=headers, timeout=30)
+            logger.debug("Brevo API: response status=%s body=%s", resp.status_code, resp.text[:300])
             resp.raise_for_status()
-            logger.info("✅ Email delivered (Brevo API) to=%s subject=%s", to_email, subject)
+            message_id = resp.json().get("messageId", "?")
+            logger.info("✅ Brevo API delivered to=%s subject=%s messageId=%s", to_email, subject, message_id)
+        except requests.HTTPError as exc:
+            body = exc.response.text[:500] if exc.response is not None else ""
+            logger.error(
+                "❌ Brevo API HTTP error to=%s status=%s body=%s",
+                to_email, exc.response.status_code if exc.response is not None else "?", body,
+            )
+            raise BrevoDeliveryError(f"Brevo API HTTP error {exc.response.status_code if exc.response is not None else '?'}: {body}") from exc
         except requests.RequestException as exc:
-            body = getattr(exc.response, "text", "") if hasattr(exc, "response") else ""
-            logger.error("❌ Brevo API delivery failed to=%s error=%s body=%s", to_email, exc, body)
-            raise BrevoDeliveryError(f"Brevo API delivery failed: {exc}") from exc
+            logger.error("❌ Brevo API request failed to=%s error=%s", to_email, exc)
+            raise BrevoDeliveryError(f"Brevo API request failed: {exc}") from exc
 
     def _deliver_via_smtp(
         self,
