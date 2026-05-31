@@ -123,14 +123,26 @@ class BrevoEmailService:
                 "FutureWise: delivery path=Brevo_API to=%s subject=%s attachments=%d",
                 to_email, subject, len(attachment_data) if attachment_data else 0,
             )
-            self._deliver_via_api(to_email, subject, html, attachment_data)
-        else:
-            logger.info(
-                "FutureWise: delivery path=SMTP host=%s:%s to=%s subject=%s attachments=%d",
-                settings.EMAIL_HOST, settings.EMAIL_PORT,
-                to_email, subject, len(attachment_data) if attachment_data else 0,
-            )
-            self._deliver_via_smtp(to_email, subject, html, attachment_data)
+            try:
+                self._deliver_via_api(to_email, subject, html, attachment_data)
+                return
+            except BrevoDeliveryError as exc:
+                # 401 means this IP isn't whitelisted in Brevo (common in local dev).
+                # Fall back to SMTP so development works without IP whitelisting.
+                if "401" in str(exc):
+                    logger.warning(
+                        "Brevo API returned 401 (IP not whitelisted) — falling back to SMTP for to=%s",
+                        to_email,
+                    )
+                else:
+                    raise
+
+        logger.info(
+            "FutureWise: delivery path=SMTP host=%s:%s to=%s subject=%s attachments=%d",
+            settings.EMAIL_HOST, settings.EMAIL_PORT,
+            to_email, subject, len(attachment_data) if attachment_data else 0,
+        )
+        self._deliver_via_smtp(to_email, subject, html, attachment_data)
 
     def _deliver_via_api(
         self,

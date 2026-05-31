@@ -274,7 +274,11 @@ class ReminderListCreateView(APIView):
                 BrevoEmailService().send_verification_email(email, verification_url)
             except Exception as exc:
                 logger.error("Failed to send verification email for %s: %s", email, exc)
-                # Still return success — user can be re-sent via a future endpoint
+                reminder.delete()
+                return Response(
+                    {"detail": "We couldn't send your verification email. Please try again later."},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
 
         log_action(email, ip, "create_reminder")
 
