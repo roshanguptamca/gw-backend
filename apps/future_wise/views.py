@@ -2,11 +2,16 @@
 REST API views for FutureWise / DearTomorrow.
 
 Endpoints:
-  POST   /api/future-wise/reminders/          — create reminder (anon or auth)
-  GET    /api/future-wise/reminders/          — list my reminders (auth required)
-  GET    /api/future-wise/reminders/<id>/     — detail view (owner only)
-  DELETE /api/future-wise/reminders/<id>/     — cancel reminder (owner only)
-  GET    /api/future-wise/verify/<token>/     — one-click email verification
+  POST   /api/future-wise/reminders/                      — create reminder (anon or auth)
+  GET    /api/future-wise/reminders/                      — list my reminders (auth required)
+  GET    /api/future-wise/reminders/<id>/                 — detail view (owner only)
+  DELETE /api/future-wise/reminders/<id>/                 — cancel reminder (owner only)
+  POST   /api/future-wise/reminders/<id>/test/            — send test via one channel
+  GET    /api/future-wise/reminders/<id>/delivery-status/ — per-channel delivery logs
+  GET    /api/future-wise/verify/<token>/                 — one-click email verification
+  GET    /api/future-wise/notification-preferences/       — list user channel prefs
+  PUT    /api/future-wise/notification-preferences/       — update user channel prefs
+  POST   /api/future-wise/telegram/webhook/               — Telegram Bot update webhook
 """
 
 import logging
@@ -30,12 +35,16 @@ from drf_spectacular.utils import (
 from rest_framework import serializers as drf_serializers
 
 from .email_service import BrevoEmailService
-from .models import EmailReminder, ReminderAttachment
+from .models import EmailReminder, ReminderAttachment, ReminderChannel, UserNotificationPreference
 from .serializers import (
     AttachmentUploadSerializer,
     CreateReminderSerializer,
+    NotificationPreferenceSerializer,
+    ReminderDeliveryStatusSerializer,
     ReminderDetailSerializer,
     ReminderListSerializer,
+    TestReminderSerializer,
+    UpdateNotificationPreferencesSerializer,
 )
 from .storage import AttachmentStorage
 from .throttle import (
@@ -243,6 +252,11 @@ class ReminderListCreateView(APIView):
             scheduled_at=body_serializer.validated_data["scheduled_at"],
             tier=body_serializer.validated_data.get("tier", EmailReminder.Tier.FREE),
             letter_type=body_serializer.validated_data.get("letter_type", EmailReminder.LetterType.FUTURE_SELF),
+            phone_number=body_serializer.validated_data.get("phone_number", ""),
+            telegram_chat_id=body_serializer.validated_data.get("telegram_chat_id", ""),
+            channels_requested=",".join(
+                body_serializer.validated_data.get("channels") or ["email"]
+            ),
             status=(EmailReminder.Status.SCHEDULED if is_auth else EmailReminder.Status.PENDING_VERIFICATION),
         )
         reminder.save()
@@ -557,4 +571,290 @@ class VerifyEmailView(APIView):
                 "redirect_url": frontend_url,
             },
             status=status.HTTP_200_OK,
+        )
+
+
+# ── Delivery Status ───────────────────────────────────────────────────────────
+
+
+@extend_schema(tags=["FutureWise"])
+class ReminderDeliveryStatusView(APIView):
+    """
+    GET /reminders/<id>/delivery-status/
+    Returns per-channel delivery log for a reminder.
+    Requires authentication (owner only).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="Get reminder delivery status",
+        description="Returns per-channel delivery logs for the given reminder.",
+        responses={200: ReminderDeliveryStatusSerializer},
+    )
+    def get(self, request, pk):
+        reminder = get_object_or_404(EmailReminder, id=pk, user=request.user)
+        serializer = ReminderDeliveryStatusSerializer(reminder)
+        return Response(serializer.data)
+
+
+# ── Test Send ─────────────────────────────────────────────────────────────────
+
+
+@extend_schema(tags=["FutureWise"])
+class ReminderTestSendView(APIView):
+    """
+    POST /reminders/<id>/test/
+    Trigger an immediate test delivery on the specified channel.
+    Does not affect reminder status or retry_count.
+    Requires authentication.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="Send a test reminder",
+        description=(
+            "Immediately deliver the reminder via the specified channel. "
+            "Does not change the reminder's status or retry count. "
+            "Useful for verifying credentials and contact details before the scheduled date."
+        ),
+        request=TestReminderSerializer,
+        responses={
+            200: inline_serializer(
+                "TestSendResponse",
+                fields={
+                    "channel": drf_serializers.CharField(),
+                    "success": drf_serializers.BooleanField(),
+                    "provider_message_id": drf_serializers.CharField(),
+                    "error": drf_serializers.CharField(allow_null=True),
+                },
+            ),
+        },
+    )
+    def post(self, request, pk):
+        reminder = get_object_or_404(EmailReminder, id=pk, user=request.user)
+
+        ser = TestReminderSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        channel_code = ser.validated_data["channel"]
+
+        from .providers import PROVIDER_REGISTRY
+        from .dispatcher import ReminderDispatcher
+
+        provider_cls = PROVIDER_REGISTRY.get(channel_code)
+        if provider_cls is None:
+            return Response(
+                {"detail": f"Unknown channel '{channel_code}'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        dispatcher = ReminderDispatcher()
+        ctx = dispatcher._build_recipient_context(reminder)
+        provider = provider_cls()
+
+        if not provider.is_available(ctx):
+            return Response(
+                {
+                    "channel": channel_code,
+                    "success": False,
+                    "provider_message_id": "",
+                    "error": (
+                        "Channel not available: missing contact details or opt-in consent. "
+                        "Update your notification preferences first."
+                    ),
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        result = provider.send(reminder, ctx)
+        return Response(
+            {
+                "channel": channel_code,
+                "success": result.success,
+                "provider_message_id": result.provider_message_id,
+                "error": result.error_message if not result.success else None,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# ── Notification Preferences ──────────────────────────────────────────────────
+
+
+@extend_schema(tags=["FutureWise"])
+class NotificationPreferencesView(APIView):
+    """
+    GET /notification-preferences/  — list the authenticated user's channel prefs.
+    PUT /notification-preferences/  — bulk-update channel prefs.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="Get notification preferences",
+        description="Returns channel opt-in state and contact details for the authenticated user.",
+        responses={200: NotificationPreferenceSerializer(many=True)},
+    )
+    def get(self, request):
+        prefs = UserNotificationPreference.objects.filter(
+            user=request.user
+        ).select_related("channel").order_by("channel__code")
+        serializer = NotificationPreferenceSerializer(prefs, many=True)
+        return Response(serializer.data)
+
+    @extend_schema(
+        summary="Update notification preferences",
+        description=(
+            "Bulk-update channel preferences. "
+            "Pass a dict keyed by channel code with the fields to update. "
+            "Missing channels are left unchanged."
+        ),
+        request=UpdateNotificationPreferencesSerializer,
+        responses={
+            200: NotificationPreferenceSerializer(many=True),
+            400: inline_serializer("PrefError", fields={"detail": drf_serializers.CharField()}),
+        },
+    )
+    def put(self, request):
+        ser = UpdateNotificationPreferencesSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        updated = []
+        for channel_code, fields in request.data.items():
+            if not isinstance(fields, dict):
+                continue
+            try:
+                channel = ReminderChannel.objects.get(code=channel_code, is_active=True)
+            except ReminderChannel.DoesNotExist:
+                continue
+
+            pref, _ = UserNotificationPreference.objects.get_or_create(
+                user=request.user,
+                channel=channel,
+                defaults={"email": request.user.email},
+            )
+
+            if "is_opted_in" in fields:
+                pref.is_opted_in = str(fields["is_opted_in"]).lower() in ("true", "1", "yes")
+            if "phone_number" in fields:
+                phone = fields["phone_number"]
+                import re as _re
+                if phone and not _re.match(r"^\+[1-9]\d{7,14}$", phone):
+                    return Response(
+                        {"detail": f"Invalid phone_number for {channel_code}. Use E.164 format."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                pref.phone_number = phone
+            if "telegram_chat_id" in fields:
+                pref.telegram_chat_id = fields["telegram_chat_id"]
+            if "whatsapp_opted_in" in fields:
+                pref.whatsapp_opted_in = str(fields["whatsapp_opted_in"]).lower() in ("true", "1", "yes")
+            pref.save()
+            updated.append(pref)
+
+        serializer = NotificationPreferenceSerializer(updated, many=True)
+        return Response(serializer.data)
+
+
+# ── Telegram Bot Webhook ──────────────────────────────────────────────────────
+
+
+@extend_schema(tags=["FutureWise"])
+class TelegramWebhookView(APIView):
+    """
+    POST /telegram/webhook/
+    Receives update events from the Telegram Bot API.
+
+    On /start <token>, links the user's Telegram chat_id to their account.
+    The start parameter should be a URL-safe token identifying the user
+    (e.g. their reminder UUID encoded as a URL-safe string).
+
+    Register this webhook:
+        curl -F "url=https://<domain>/api/future-wise/telegram/webhook/" \\
+             https://api.telegram.org/bot<TOKEN>/setWebhook
+    """
+
+    permission_classes = [AllowAny]
+    # No CSRF needed — Telegram sends POST with JSON body
+
+    @extend_schema(
+        summary="Telegram Bot webhook",
+        description="Receives Telegram Bot updates. Captures chat_id on /start command.",
+        request=inline_serializer(
+            "TelegramUpdate",
+            fields={"update_id": drf_serializers.IntegerField()},
+        ),
+        responses={200: inline_serializer("TelegramOK", fields={"ok": drf_serializers.BooleanField()})},
+        auth=[],
+    )
+    def post(self, request):
+        data = request.data or {}
+        message = data.get("message") or data.get("edited_message") or {}
+        text: str = (message.get("text") or "").strip()
+        chat_id = str(message.get("chat", {}).get("id", ""))
+        from_user = message.get("from", {})
+        tg_user_id = str(from_user.get("id", ""))
+
+        logger.info(
+            "TelegramWebhookView: update from chat_id=%s text='%s'",
+            chat_id,
+            text[:100],
+        )
+
+        if text.startswith("/start") and chat_id:
+            # /start may carry a payload: /start <reminder_uuid>
+            # For now, store the chat_id against any matching unlinked preference
+            # or create a new one if a Telegram channel exists.
+            parts = text.split(None, 1)
+            start_param = parts[1].strip() if len(parts) > 1 else ""
+
+            self._handle_start(chat_id, start_param, request)
+
+        return Response({"ok": True})
+
+    def _handle_start(self, chat_id: str, start_param: str, request) -> None:
+        """
+        Link chat_id to a UserNotificationPreference.
+
+        If start_param is a valid reminder UUID, link it to that reminder's user.
+        Otherwise, update any existing Telegram pref without a chat_id that is
+        attached to the authenticated user (fallback — mainly useful in testing).
+        """
+        telegram_channel = ReminderChannel.objects.filter(code="telegram", is_active=True).first()
+        if telegram_channel is None:
+            logger.warning("TelegramWebhookView: telegram channel not found in DB — run seed_channels")
+            return
+
+        # Attempt to match via start_param (reminder UUID)
+        if start_param:
+            try:
+                import uuid as _uuid
+                reminder_id = _uuid.UUID(start_param)
+                reminder = EmailReminder.objects.select_related("user").get(id=reminder_id)
+                if reminder.user_id:
+                    pref, _ = UserNotificationPreference.objects.get_or_create(
+                        user=reminder.user,
+                        channel=telegram_channel,
+                        defaults={"email": reminder.email},
+                    )
+                    pref.telegram_chat_id = chat_id
+                    pref.is_opted_in = True
+                    pref.save(update_fields=["telegram_chat_id", "is_opted_in", "updated_at"])
+                    logger.info(
+                        "TelegramWebhookView: linked chat_id=%s to user=%s via reminder=%s",
+                        chat_id,
+                        reminder.user_id,
+                        reminder_id,
+                    )
+                    return
+            except (ValueError, EmailReminder.DoesNotExist):
+                pass
+
+        logger.info(
+            "TelegramWebhookView: /start received from chat_id=%s (no matching reminder param)",
+            chat_id,
         )

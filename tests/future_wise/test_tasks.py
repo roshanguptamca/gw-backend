@@ -144,11 +144,12 @@ class ExpireUnverifiedRemindersTest(TestCase):
 
 
 class DeliverReminderTest(TestCase):
+    """Tests for _deliver_reminder() — uses ReminderDispatcher internally."""
 
+    @patch("apps.future_wise.tasks.ReminderDispatcher")
     @patch("apps.future_wise.tasks.AttachmentStorage")
-    @patch("apps.future_wise.tasks.BrevoEmailService")
-    def test_successful_delivery_marks_sent(self, mock_brevo_cls, mock_storage_cls):
-        mock_brevo_cls.return_value.send_reminder_email.return_value = None
+    def test_successful_delivery_marks_sent(self, mock_storage_cls, mock_dispatcher_cls):
+        mock_dispatcher_cls.return_value.dispatch.return_value = True
         mock_storage_cls.return_value.download_bytes.return_value = b"bytes"
 
         reminder = make_reminder()
@@ -160,12 +161,10 @@ class DeliverReminderTest(TestCase):
         self.assertEqual(reminder.status, EmailReminder.Status.SENT)
         self.assertIsNotNone(reminder.sent_at)
 
+    @patch("apps.future_wise.tasks.ReminderDispatcher")
     @patch("apps.future_wise.tasks.AttachmentStorage")
-    @patch("apps.future_wise.tasks.BrevoEmailService")
-    def test_delivery_failure_resets_to_scheduled_for_retry(self, mock_brevo_cls, mock_storage_cls):
-        from apps.future_wise.email_service import BrevoDeliveryError
-
-        mock_brevo_cls.return_value.send_reminder_email.side_effect = BrevoDeliveryError("SMTP down")
+    def test_delivery_failure_resets_to_scheduled_for_retry(self, mock_storage_cls, mock_dispatcher_cls):
+        mock_dispatcher_cls.return_value.dispatch.return_value = False
         mock_storage_cls.return_value.download_bytes.return_value = b""
 
         reminder = make_reminder()
@@ -176,14 +175,11 @@ class DeliverReminderTest(TestCase):
         reminder.refresh_from_db()
         self.assertEqual(reminder.status, EmailReminder.Status.SCHEDULED)
         self.assertEqual(reminder.retry_count, 1)
-        self.assertIn("SMTP down", reminder.last_error)
 
+    @patch("apps.future_wise.tasks.ReminderDispatcher")
     @patch("apps.future_wise.tasks.AttachmentStorage")
-    @patch("apps.future_wise.tasks.BrevoEmailService")
-    def test_dead_letter_after_max_retries(self, mock_brevo_cls, mock_storage_cls):
-        from apps.future_wise.email_service import BrevoDeliveryError
-
-        mock_brevo_cls.return_value.send_reminder_email.side_effect = BrevoDeliveryError("still down")
+    def test_dead_letter_after_max_retries(self, mock_storage_cls, mock_dispatcher_cls):
+        mock_dispatcher_cls.return_value.dispatch.return_value = False
         mock_storage_cls.return_value.download_bytes.return_value = b""
 
         reminder = make_reminder()
