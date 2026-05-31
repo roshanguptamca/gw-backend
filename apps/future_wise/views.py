@@ -42,6 +42,7 @@ from .throttle import (
     CreateReminderAnonThrottle,
     CreateReminderUserThrottle,
     VerifyEmailThrottle,
+    check_daily_reminder_limit,
     check_email_rate,
     log_action,
 )
@@ -212,10 +213,10 @@ class ReminderListCreateView(APIView):
         email = body_serializer.validated_data["email"]
         ip = _get_client_ip(request)
 
-        # 2. Per-email rate-limit check (max 10 reminders/hour per address)
-        if not check_email_rate(email, "create_reminder", max_count=10, window_minutes=60):
+        # 2. Daily free-user rate-limit check (3 reminders/day per email; superusers exempt)
+        if not check_daily_reminder_limit(email, user=request.user):
             return Response(
-                {"detail": "Too many reminders created for this email address. Try again later."},
+                {"detail": "Free email reminder limit reached. You can create up to 3 email reminders per day."},
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
 

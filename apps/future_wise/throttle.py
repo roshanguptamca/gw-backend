@@ -40,7 +40,22 @@ def log_action(email: str, ip_address, action: str) -> None:
         logger.warning("Failed to write AbuseLog: %s", exc)
 
 
-# ── DRF Throttle Classes ──────────────────────────────────────────────────────
+def check_daily_reminder_limit(email: str, user=None) -> bool:
+    """
+    Return True (allowed) if the email/user is under the daily reminder limit.
+
+    Rules:
+    - Superusers have no limit.
+    - All others are limited to EMAIL_REMINDER_FREE_DAILY_LIMIT per 24-hour rolling window.
+    """
+    if user and getattr(user, "is_authenticated", False) and getattr(user, "is_superuser", False):
+        return True
+
+    limit = getattr(settings, "EMAIL_REMINDER_FREE_DAILY_LIMIT", 3)
+    return check_email_rate(email, "create_reminder", max_count=limit, window_minutes=24 * 60)
+
+
+
 
 
 class CreateReminderAnonThrottle(AnonRateThrottle):

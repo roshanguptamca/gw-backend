@@ -11,6 +11,7 @@ To start the scheduler:
 Two periodic jobs:
     dispatch_due_reminders()      — every 60 s
     expire_unverified_reminders() — every 10 min
+    cleanup_unverified_reminders() — every hour
 """
 
 import logging
@@ -124,6 +125,31 @@ def expire_unverified_reminders():
     else:
         logger.debug("FutureWise: no unverified reminders to expire")
     return count
+
+
+def cleanup_unverified_reminders() -> int:
+    """
+    Delete anonymous PENDING_VERIFICATION reminders older than EMAIL_VERIFICATION_EXPIRY_HOURS.
+
+    Safe to call repeatedly (idempotent). Only removes reminders that are:
+    - anonymous (user=None)
+    - status=PENDING_VERIFICATION
+    - created_at older than the configured expiry window
+
+    Returns the number of deleted reminders.
+    """
+    expiry_hours = getattr(settings, "EMAIL_VERIFICATION_EXPIRY_HOURS", 24)
+    cutoff = timezone.now() - timezone.timedelta(hours=expiry_hours)
+    deleted_count, _ = EmailReminder.objects.filter(
+        user=None,
+        status=EmailReminder.Status.PENDING_VERIFICATION,
+        created_at__lt=cutoff,
+    ).delete()
+    if deleted_count:
+        logger.info("FutureWise: deleted %d expired anonymous unverified reminder(s)", deleted_count)
+    else:
+        logger.debug("FutureWise: no expired anonymous unverified reminders to delete")
+    return deleted_count
 
 
 # ── Delivery (inline, with retry counter in DB) ───────────────────────────────

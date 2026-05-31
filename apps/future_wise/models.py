@@ -14,7 +14,7 @@ from django.utils import timezone
 
 User = get_user_model()
 
-# Verification token validity window
+# Kept for backward-compat reference only; actual window is EMAIL_VERIFICATION_EXPIRY_HOURS from settings
 VERIFICATION_TOKEN_TTL_MINUTES = 30
 
 
@@ -118,7 +118,9 @@ class EmailReminder(models.Model):
 
     @classmethod
     def make_token_expiry(cls):
-        return timezone.now() + timezone.timedelta(minutes=VERIFICATION_TOKEN_TTL_MINUTES)
+        from django.conf import settings
+        hours = getattr(settings, "EMAIL_VERIFICATION_EXPIRY_HOURS", 24)
+        return timezone.now() + timezone.timedelta(hours=hours)
 
     # ── Instance Helpers ──────────────────────────────────────────────────────
     def is_verification_token_valid(self) -> bool:
