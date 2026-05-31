@@ -61,6 +61,29 @@ class CreateReminderViewTest(TestCase):
         mock_brevo.return_value.send_verification_email.assert_called_once()
 
     @patch("apps.future_wise.views.BrevoEmailService")
+    @patch("apps.future_wise.views.AttachmentStorage")
+    def test_verification_email_uses_frontend_url(self, mock_storage, mock_brevo):
+        """Email verification link must point to the frontend, not the backend API."""
+        import apps.future_wise.views as fw_views
+
+        mock_brevo.return_value.send_verification_email.return_value = {"messageId": "abc"}
+        payload = {
+            "email": "anon@example.com",
+            "subject": "Hi future me",
+            "message": "Stay strong.",
+            "scheduled_at": FUTURE.isoformat(),
+            "tier": "free",
+        }
+        with patch.object(fw_views, "_FRONTEND_BASE", "https://example-frontend.com"):
+            self.client.post(self.url, payload, format="json")
+
+        call_args = mock_brevo.return_value.send_verification_email.call_args
+        verification_url = call_args[0][1] if call_args[0] else call_args[1].get("verification_url")
+        self.assertIn("example-frontend.com", verification_url)
+        self.assertIn("/future-wise/verify/", verification_url)
+        self.assertNotIn("/api/", verification_url)
+
+    @patch("apps.future_wise.views.BrevoEmailService")
     def test_authenticated_create_scheduled(self, mock_brevo):
         user = User.objects.create_user("alice", "alice@example.com", "pass")
         self.client.force_authenticate(user=user)
@@ -218,3 +241,120 @@ class VerifyEmailViewTest(TestCase):
         url = reverse("future_wise:verify-email", kwargs={"token": reminder.verification_token})
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_valid_token_changes_status_to_scheduled(self):
+        """Valid token must transition reminder from PENDING_VERIFICATION to SCHEDULED."""
+        reminder = make_reminder(
+            email_verified=False,
+            status=EmailReminder.Status.PENDING_VERIFICATION,
+        )
+        url = reverse("future_wise:verify-email", kwargs={"token": reminder.verification_token})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        reminder.refresh_from_db()
+        self.assertEqual(reminder.status, EmailReminder.Status.SCHEDULED)
+        self.assertTrue(reminder.email_verified)
+
+    def test_invalid_token_returns_api_error_detail(self):
+        """Invalid token should return a JSON error detail, not raw DRF HTML."""
+        url = reverse("future_wise:verify-email", kwargs={"token": "no-such-token"})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn("detail", response.data)
+
+    def test_already_used_token_returns_api_error_detail(self):
+        """Already-used (SCHEDULED) token should return JSON error detail."""
+        reminder = make_reminder(
+            email_verified=True,
+            status=EmailReminder.Status.SCHEDULED,
+        )
+        url = reverse("future_wise:verify-email", kwargs={"token": reminder.verification_token})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn("detail", response.data)
+
+
+class DailyReminderLimitTest(TestCase):
+    """Free-user daily limit: 3 email reminders per 24 hours, superusers exempt."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.url = reverse("future_wise:reminder-list-create")
+        self.payload = {
+            "email": "limit@example.com",
+            "subject": "Daily limit test",
+            "message": "Test message",
+            "scheduled_at": FUTURE.isoformat(),
+            "tier": "free",
+        }
+
+    def _seed_abuse_log(self, email: str, count: int, *, user=None):
+        """Insert `count` AbuseLog entries for the email to simulate prior requests."""
+        ip = "127.0.0.1"
+        for _ in range(count):
+            AbuseLog.objects.create(email=email, ip_address=ip, action="create_reminder")
+
+    @patch("apps.future_wise.views.BrevoEmailService")
+    @patch("apps.future_wise.views.AttachmentStorage")
+    def test_anonymous_blocked_after_daily_limit(self, mock_storage, mock_brevo):
+        """Anonymous user is blocked after 3 reminders in 24 hours."""
+        mock_brevo.return_value.send_verification_email.return_value = {"messageId": "x"}
+        self._seed_abuse_log("limit@example.com", 3)
+        response = self.client.post(self.url, self.payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertIn("detail", response.data)
+
+    @patch("apps.future_wise.views.BrevoEmailService")
+    @patch("apps.future_wise.views.AttachmentStorage")
+    def test_authenticated_user_blocked_after_daily_limit(self, mock_storage, mock_brevo):
+        """Authenticated non-admin user is blocked after 3 reminders in 24 hours."""
+        mock_brevo.return_value.send_verification_email.return_value = {"messageId": "x"}
+        user = User.objects.create_user("limituser", "limit@example.com", "pass")
+        self.client.force_authenticate(user=user)
+        self._seed_abuse_log("limit@example.com", 3)
+        response = self.client.post(self.url, self.payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @patch("apps.future_wise.views.BrevoEmailService")
+    @patch("apps.future_wise.views.AttachmentStorage")
+    def test_superuser_bypasses_daily_limit(self, mock_storage, mock_brevo):
+        """Superusers are never blocked by the daily limit."""
+        mock_brevo.return_value.send_verification_email.return_value = {"messageId": "x"}
+        admin = User.objects.create_superuser("superadmin", "admin@example.com", "pass")
+        self.client.force_authenticate(user=admin)
+        # Seed 10 entries — way over the free limit
+        self._seed_abuse_log("admin@example.com", 10)
+        payload = {**self.payload, "email": "admin@example.com"}
+        response = self.client.post(self.url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_daily_limit_error_message(self):
+        """429 from our daily-limit check must include the expected user-facing message."""
+        # Use an authenticated user to bypass the IP-based DRF anon throttle,
+        # so the only 429 source is our AbuseLog daily-limit check.
+        user = User.objects.create_user("msgtest", "limit@example.com", "pass")
+        self.client.force_authenticate(user=user)
+        self._seed_abuse_log("limit@example.com", 3)
+        response = self.client.post(self.url, self.payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertIn("3 email reminders per day", response.data["detail"])
+
+    @patch("apps.future_wise.views.BrevoEmailService")
+    @patch("apps.future_wise.views.AttachmentStorage")
+    def test_authenticated_user_can_use_different_recipient_email(self, mock_storage, mock_brevo):
+        """Logged-in users may specify any recipient email and the reminder is SCHEDULED."""
+        mock_brevo.return_value.send_verification_email.return_value = {"messageId": "x"}
+        user = User.objects.create_user("authuser", "authuser@example.com", "pass")
+        self.client.force_authenticate(user=user)
+        payload = {
+            "email": "someone_else@example.com",
+            "subject": "For a friend",
+            "message": "Stay well.",
+            "scheduled_at": FUTURE.isoformat(),
+        }
+        response = self.client.post(self.url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["status"], "scheduled")
+        reminder = EmailReminder.objects.get(id=response.data["id"])
+        self.assertEqual(reminder.user, user)
+        self.assertEqual(reminder.email, "someone_else@example.com")

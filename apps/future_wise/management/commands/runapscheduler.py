@@ -5,8 +5,9 @@ Starts APScheduler with the Django ORM job store — no Redis or Celery needed.
 Runs until interrupted (Ctrl-C).
 
 Jobs:
-  dispatch_due_reminders       — every 60 seconds
-  expire_unverified_reminders  — every 10 minutes
+  dispatch_due_reminders        — every 60 seconds
+  expire_unverified_reminders   — every 10 minutes
+  cleanup_unverified_reminders  — every hour
 """
 
 import logging
@@ -18,7 +19,7 @@ from django.core.management.base import BaseCommand
 from django_apscheduler.jobstores import DjangoJobStore
 from django_apscheduler.models import DjangoJobExecution
 
-from apps.future_wise.tasks import dispatch_due_reminders, expire_unverified_reminders
+from apps.future_wise.tasks import cleanup_unverified_reminders, dispatch_due_reminders, expire_unverified_reminders
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,16 @@ class Command(BaseCommand):
             replace_existing=True,
         )
 
+        # Delete anonymous unverified reminders older than EMAIL_VERIFICATION_EXPIRY_HOURS
+        scheduler.add_job(
+            cleanup_unverified_reminders,
+            trigger=IntervalTrigger(hours=1),
+            id="cleanup_unverified_reminders",
+            name="Clean up old anonymous unverified FutureWise reminders",
+            jobstore="default",
+            replace_existing=True,
+        )
+
         # Weekly cleanup of old job execution records
         scheduler.add_job(
             delete_old_job_executions,
@@ -67,8 +78,9 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS("✅ FutureWise scheduler starting (DB-backed, no Redis)"))
         self.stdout.write("   Jobs registered:")
-        self.stdout.write("   • dispatch_due_reminders     — every 60 s")
-        self.stdout.write("   • expire_unverified_reminders — every 10 min")
+        self.stdout.write("   • dispatch_due_reminders          — every 60 s")
+        self.stdout.write("   • expire_unverified_reminders     — every 10 min")
+        self.stdout.write("   • cleanup_unverified_reminders    — every hour")
         self.stdout.write("   Press Ctrl-C to stop.\n")
 
         try:

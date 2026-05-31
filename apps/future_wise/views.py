@@ -42,6 +42,7 @@ from .throttle import (
     CreateReminderAnonThrottle,
     CreateReminderUserThrottle,
     VerifyEmailThrottle,
+    check_daily_reminder_limit,
     check_email_rate,
     log_action,
 )
@@ -58,9 +59,9 @@ def _get_client_ip(request) -> str:
     return request.META.get("REMOTE_ADDR", "")
 
 
-def _build_verification_url(request, token: str) -> str:
-    """Build the absolute verify URL for the verification email."""
-    return request.build_absolute_uri(f"/api/future-wise/verify/{token}/")
+def _build_verification_url(token: str) -> str:
+    """Build the frontend verification URL for the verification email."""
+    return f"{_FRONTEND_BASE}/future-wise/verify/{token}"
 
 
 # ── Create / List ─────────────────────────────────────────────────────────────
@@ -212,10 +213,10 @@ class ReminderListCreateView(APIView):
         email = body_serializer.validated_data["email"]
         ip = _get_client_ip(request)
 
-        # 2. Per-email rate-limit check (max 10 reminders/hour per address)
-        if not check_email_rate(email, "create_reminder", max_count=10, window_minutes=60):
+        # 2. Daily free-user rate-limit check (3 reminders/day per email; superusers exempt)
+        if not check_daily_reminder_limit(email, user=request.user):
             return Response(
-                {"detail": "Too many reminders created for this email address. Try again later."},
+                {"detail": "Free email reminder limit reached. You can create up to 3 email reminders per day."},
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
 
@@ -270,11 +271,15 @@ class ReminderListCreateView(APIView):
         # 6. Send verification email for anonymous users
         if not is_auth:
             try:
-                verification_url = _build_verification_url(request, token)
+                verification_url = _build_verification_url(token)
                 BrevoEmailService().send_verification_email(email, verification_url)
             except Exception as exc:
                 logger.error("Failed to send verification email for %s: %s", email, exc)
-                # Still return success — user can be re-sent via a future endpoint
+                reminder.delete()
+                return Response(
+                    {"detail": "We couldn't send your verification email. Please try again later."},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
 
         log_action(email, ip, "create_reminder")
 

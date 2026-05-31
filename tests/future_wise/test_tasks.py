@@ -212,3 +212,82 @@ class DeliverReminderTest(TestCase):
 
         _deliver_reminder("00000000-0000-0000-0000-000000000000")  # should not raise
 
+
+
+class CleanupUnverifiedRemindersTest(TestCase):
+    """Tests for cleanup_unverified_reminders() task and management command."""
+
+    def _make_old_pending(self, user=None) -> EmailReminder:
+        """Create an anonymous PENDING_VERIFICATION reminder created 25 h ago."""
+        reminder = make_reminder(
+            user=user,
+            email_verified=False,
+            status=EmailReminder.Status.PENDING_VERIFICATION,
+        )
+        # Use queryset update to bypass auto_now fields
+        EmailReminder.objects.filter(pk=reminder.pk).update(
+            created_at=timezone.now() - timedelta(hours=25)
+        )
+        reminder.refresh_from_db()
+        return reminder
+
+    def test_deletes_old_anonymous_pending_reminders(self):
+        reminder = self._make_old_pending()
+        from apps.future_wise.tasks import cleanup_unverified_reminders
+        count = cleanup_unverified_reminders()
+        self.assertEqual(count, 1)
+        self.assertFalse(EmailReminder.objects.filter(pk=reminder.pk).exists())
+
+    def test_does_not_delete_recent_anonymous_pending(self):
+        reminder = make_reminder(
+            email_verified=False,
+            status=EmailReminder.Status.PENDING_VERIFICATION,
+        )
+        from apps.future_wise.tasks import cleanup_unverified_reminders
+        count = cleanup_unverified_reminders()
+        self.assertEqual(count, 0)
+        self.assertTrue(EmailReminder.objects.filter(pk=reminder.pk).exists())
+
+    def test_does_not_delete_authenticated_user_pending(self):
+        """PENDING_VERIFICATION reminders belonging to a real user must not be deleted."""
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        user = User.objects.create_user("verifyuser", "verifyuser@example.com", "pass")
+        reminder = self._make_old_pending(user=user)
+        from apps.future_wise.tasks import cleanup_unverified_reminders
+        count = cleanup_unverified_reminders()
+        self.assertEqual(count, 0)
+        self.assertTrue(EmailReminder.objects.filter(pk=reminder.pk).exists())
+
+    def test_does_not_delete_non_pending_status(self):
+        """Old anonymous reminders in CANCELLED or SCHEDULED status must not be deleted."""
+        cancelled = make_reminder(
+            email_verified=False,
+            status=EmailReminder.Status.CANCELLED,
+        )
+        EmailReminder.objects.filter(pk=cancelled.pk).update(
+            created_at=timezone.now() - timedelta(hours=25)
+        )
+        from apps.future_wise.tasks import cleanup_unverified_reminders
+        count = cleanup_unverified_reminders()
+        self.assertEqual(count, 0)
+        self.assertTrue(EmailReminder.objects.filter(pk=cancelled.pk).exists())
+
+    def test_management_command_output(self):
+        """Management command should report the number of deleted reminders."""
+        from io import StringIO
+        from django.core.management import call_command
+        self._make_old_pending()
+        out = StringIO()
+        call_command("cleanup_unverified_reminders", stdout=out)
+        output = out.getvalue()
+        self.assertIn("1", output)
+        self.assertIn("Deleted", output)
+
+    def test_management_command_no_reminders(self):
+        """Management command should report nothing to delete when clean."""
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        call_command("cleanup_unverified_reminders", stdout=out)
+        self.assertIn("No expired", out.getvalue())

@@ -367,6 +367,12 @@ FUTUREWAVE_MAX_ATTACHMENTS = int(os.getenv("FUTUREWAVE_MAX_ATTACHMENTS", 5))
 FUTUREWAVE_ATTACHMENT_PURGE_AFTER_SEND = os.getenv("FUTUREWAVE_ATTACHMENT_PURGE_AFTER_SEND", "true").lower() == "true"
 FUTUREWAVE_FRONTEND_BASE_URL = os.getenv("FUTUREWAVE_FRONTEND_BASE_URL", "https://www.guidewisey.com")
 
+# ── Business rules ───────────────────────────────────────────
+# Max email reminders per day for free (non-superuser) users, counted per email address
+EMAIL_REMINDER_FREE_DAILY_LIMIT = int(os.getenv("EMAIL_REMINDER_FREE_DAILY_LIMIT", 3))
+# How long an email-verification link stays valid (also used by cleanup job)
+EMAIL_VERIFICATION_EXPIRY_HOURS = int(os.getenv("EMAIL_VERIFICATION_EXPIRY_HOURS", 24))
+
 # ── Rate Limits (DRF scope rates) ───────────────────────────
 FUTUREWAVE_ANON_CREATE_RATE = os.getenv("FUTUREWAVE_ANON_CREATE_RATE", "5/hour")
 FUTUREWAVE_USER_CREATE_RATE = os.getenv("FUTUREWAVE_USER_CREATE_RATE", "20/hour")
