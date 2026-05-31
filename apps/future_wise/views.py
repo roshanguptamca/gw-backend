@@ -58,9 +58,9 @@ def _get_client_ip(request) -> str:
     return request.META.get("REMOTE_ADDR", "")
 
 
-def _build_verification_url(request, token: str) -> str:
-    """Build the absolute verify URL for the verification email."""
-    return request.build_absolute_uri(f"/api/future-wise/verify/{token}/")
+def _build_verification_url(token: str) -> str:
+    """Build the frontend verification URL for the verification email."""
+    return f"{_FRONTEND_BASE}/future-wise/verify/{token}"
 
 
 # ── Create / List ─────────────────────────────────────────────────────────────
@@ -270,7 +270,7 @@ class ReminderListCreateView(APIView):
         # 6. Send verification email for anonymous users
         if not is_auth:
             try:
-                verification_url = _build_verification_url(request, token)
+                verification_url = _build_verification_url(token)
                 BrevoEmailService().send_verification_email(email, verification_url)
             except Exception as exc:
                 logger.error("Failed to send verification email for %s: %s", email, exc)

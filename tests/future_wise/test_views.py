@@ -61,6 +61,29 @@ class CreateReminderViewTest(TestCase):
         mock_brevo.return_value.send_verification_email.assert_called_once()
 
     @patch("apps.future_wise.views.BrevoEmailService")
+    @patch("apps.future_wise.views.AttachmentStorage")
+    def test_verification_email_uses_frontend_url(self, mock_storage, mock_brevo):
+        """Email verification link must point to the frontend, not the backend API."""
+        import apps.future_wise.views as fw_views
+
+        mock_brevo.return_value.send_verification_email.return_value = {"messageId": "abc"}
+        payload = {
+            "email": "anon@example.com",
+            "subject": "Hi future me",
+            "message": "Stay strong.",
+            "scheduled_at": FUTURE.isoformat(),
+            "tier": "free",
+        }
+        with patch.object(fw_views, "_FRONTEND_BASE", "https://example-frontend.com"):
+            self.client.post(self.url, payload, format="json")
+
+        call_args = mock_brevo.return_value.send_verification_email.call_args
+        verification_url = call_args[0][1] if call_args[0] else call_args[1].get("verification_url")
+        self.assertIn("example-frontend.com", verification_url)
+        self.assertIn("/future-wise/verify/", verification_url)
+        self.assertNotIn("/api/", verification_url)
+
+    @patch("apps.future_wise.views.BrevoEmailService")
     def test_authenticated_create_scheduled(self, mock_brevo):
         user = User.objects.create_user("alice", "alice@example.com", "pass")
         self.client.force_authenticate(user=user)
@@ -218,3 +241,34 @@ class VerifyEmailViewTest(TestCase):
         url = reverse("future_wise:verify-email", kwargs={"token": reminder.verification_token})
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_valid_token_changes_status_to_scheduled(self):
+        """Valid token must transition reminder from PENDING_VERIFICATION to SCHEDULED."""
+        reminder = make_reminder(
+            email_verified=False,
+            status=EmailReminder.Status.PENDING_VERIFICATION,
+        )
+        url = reverse("future_wise:verify-email", kwargs={"token": reminder.verification_token})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        reminder.refresh_from_db()
+        self.assertEqual(reminder.status, EmailReminder.Status.SCHEDULED)
+        self.assertTrue(reminder.email_verified)
+
+    def test_invalid_token_returns_api_error_detail(self):
+        """Invalid token should return a JSON error detail, not raw DRF HTML."""
+        url = reverse("future_wise:verify-email", kwargs={"token": "no-such-token"})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn("detail", response.data)
+
+    def test_already_used_token_returns_api_error_detail(self):
+        """Already-used (SCHEDULED) token should return JSON error detail."""
+        reminder = make_reminder(
+            email_verified=True,
+            status=EmailReminder.Status.SCHEDULED,
+        )
+        url = reverse("future_wise:verify-email", kwargs={"token": reminder.verification_token})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn("detail", response.data)
