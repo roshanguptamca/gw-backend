@@ -19,7 +19,7 @@ import logging
 from django.conf import settings
 from django.utils import timezone
 
-from .email_service import BrevoDeliveryError, BrevoEmailService
+from .dispatcher import ReminderDispatcher
 from .models import EmailReminder, ReminderAttachment
 from .storage import AttachmentStorage, StorageError
 
@@ -27,6 +27,11 @@ logger = logging.getLogger(__name__)
 
 _MAX_RETRIES = getattr(settings, "FUTUREWAVE_MAX_RETRIES", 3)
 _RETRY_BASE_DELAY = getattr(settings, "FUTUREWAVE_RETRY_BASE_DELAY_SECONDS", 300)
+
+# Thread-local attachment store: tasks.py loads attachments then passes them
+# to the EmailReminderProvider via this dict keyed by reminder_id (str).
+# This avoids changing the IReminderProvider.send() signature.
+_attachment_context: dict = {}
 
 
 # ── Periodic jobs ─────────────────────────────────────────────────────────────
@@ -157,8 +162,13 @@ def cleanup_unverified_reminders() -> int:
 
 def _deliver_reminder(reminder_id: str):
     """
-    Deliver a single reminder. On failure, increments retry_count in DB.
+    Deliver a single reminder across all requested channels via ReminderDispatcher.
+
+    On partial or full failure, increments retry_count in DB.
     After _MAX_RETRIES failures, moves to DEAD_LETTER.
+
+    Attachments are loaded here (before dispatch) so the email provider
+    can access them via recipient_context["attachment_data"].
     """
     logger.info("FutureWise: _deliver_reminder START id=%s", reminder_id)
 
@@ -177,23 +187,22 @@ def _deliver_reminder(reminder_id: str):
         logger.warning("FutureWise: reminder %s not found or not QUEUED — skipping", reminder_id)
         return
 
-    # Fetch attachments via storage abstraction (DB or S3)
+    # Load attachments once so the email provider can access them
     attachment_data = []
     storage = AttachmentStorage()
-    att_count = reminder.attachments.count()
-    logger.info("FutureWise: reminder %s has %d attachment(s)", reminder_id, att_count)
-
     for att in reminder.attachments.all():
         try:
             content_bytes = storage.download_bytes(att.storage_key, attachment_instance=att)
-            attachment_data.append(
-                {
-                    "filename": att.original_filename,
-                    "content_bytes": content_bytes,
-                    "content_type": att.content_type,
-                }
+            attachment_data.append({
+                "filename": att.original_filename,
+                "content_bytes": content_bytes,
+                "content_type": att.content_type,
+            })
+            logger.debug(
+                "FutureWise: loaded attachment %s (%d bytes)",
+                att.original_filename,
+                len(content_bytes),
             )
-            logger.debug("FutureWise: loaded attachment %s (%d bytes)", att.original_filename, len(content_bytes))
         except StorageError as exc:
             logger.error(
                 "FutureWise: attachment %s unavailable for reminder %s: %s",
@@ -202,56 +211,42 @@ def _deliver_reminder(reminder_id: str):
                 exc,
             )
 
-    # Send email
+    dispatcher = ReminderDispatcher()
+    _attachment_context[reminder_id] = attachment_data or None
     try:
-        logger.info(
-            "FutureWise: sending email | id=%s to=%s subject=%s attachments=%d",
-            reminder_id,
-            reminder.email,
-            reminder.subject,
-            len(attachment_data),
-        )
-        service = BrevoEmailService()
-        service.send_reminder_email(reminder, attachment_data or None)
+        any_success = dispatcher.dispatch(reminder)
+    finally:
+        _attachment_context.pop(reminder_id, None)
 
+    if any_success:
         reminder.status = EmailReminder.Status.SENT
         reminder.sent_at = timezone.now()
         reminder.save(update_fields=["status", "sent_at", "updated_at"])
-        logger.info(
-            "FutureWise: ✅ SENT reminder %s → %s (status=SENT, sent_at=%s)",
-            reminder_id,
-            reminder.email,
-            reminder.sent_at,
-        )
+        logger.info("FutureWise: ✅ SENT reminder %s (status=SENT, sent_at=%s)", reminder_id, reminder.sent_at)
 
-        # Purge attachments after delivery if configured
-        if getattr(settings, "FUTUREWAVE_ATTACHMENT_PURGE_AFTER_SEND", True):
+        # Purge attachments after successful delivery
+        if getattr(settings, "FUTUREWAVE_ATTACHMENT_PURGE_AFTER_SEND", True) and attachment_data:
             keys = list(reminder.attachments.values_list("storage_key", flat=True))
             if keys:
                 storage.delete_many(keys)
                 logger.info("FutureWise: purged %d attachment file(s) for reminder %s", len(keys), reminder_id)
             reminder.attachments.all().delete()
-
-    except (BrevoDeliveryError, Exception) as exc:
+    else:
         reminder.retry_count = getattr(reminder, "retry_count", 0) + 1
-        reminder.last_error = str(exc)[:1000]
-
         if reminder.retry_count < _MAX_RETRIES:
             reminder.status = EmailReminder.Status.SCHEDULED
-            reminder.save(update_fields=["status", "retry_count", "last_error", "updated_at"])
+            reminder.save(update_fields=["status", "retry_count", "updated_at"])
             logger.warning(
-                "FutureWise: ⚠️  reminder %s will retry (attempt %d/%d) error=%s",
+                "FutureWise: ⚠️  reminder %s will retry (attempt %d/%d)",
                 reminder_id,
                 reminder.retry_count,
                 _MAX_RETRIES,
-                exc,
             )
         else:
             reminder.status = EmailReminder.Status.DEAD_LETTER
-            reminder.save(update_fields=["status", "retry_count", "last_error", "updated_at"])
+            reminder.save(update_fields=["status", "retry_count", "updated_at"])
             logger.error(
-                "FutureWise: ❌ reminder %s DEAD_LETTER after %d retries. last_error=%s",
+                "FutureWise: ❌ reminder %s DEAD_LETTER after %d retries",
                 reminder_id,
                 _MAX_RETRIES,
-                exc,
             )

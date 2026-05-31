@@ -1,8 +1,14 @@
 """
-FutureWise / DearTomorrow — Email Reminder Models
+FutureWise / DearTomorrow — Reminder Models
 
 Supports both anonymous verified users (email-OTP flow) and registered
 account users. Uses a UUID primary key for privacy.
+
+Multi-channel delivery (email, SMS, voice, WhatsApp, Telegram) is handled
+by the ReminderDispatcher + IReminderProvider pattern. New models:
+  - ReminderChannel              — lookup / feature-flag table per channel
+  - UserNotificationPreference   — per-user opt-in and contact details
+  - ReminderDeliveryLog          — immutable audit log per delivery attempt
 """
 
 import secrets
@@ -83,6 +89,25 @@ class EmailReminder(models.Model):
         choices=LetterType.choices,
         default=LetterType.FUTURE_SELF,
         db_index=True,
+    )
+
+    # ── Multi-Channel Fields ──────────────────────────────────────────────────
+    phone_number = models.CharField(
+        max_length=20,
+        blank=True,
+        default="",
+        help_text="E.164 format e.g. +447700900123. Required for SMS/Voice/WhatsApp channels.",
+    )
+    telegram_chat_id = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        help_text="Obtained when user sends /start to the Telegram bot.",
+    )
+    channels_requested = models.CharField(
+        max_length=200,
+        default="email",
+        help_text="Comma-separated channel codes e.g. 'email,sms,telegram'.",
     )
 
     # ── Delivery State ────────────────────────────────────────────────────────
@@ -197,3 +222,136 @@ class AbuseLog(models.Model):
 
     def __str__(self):
         return f"AbuseLog<{self.ip_address}|{self.email}> {self.action}"
+
+
+# ── Multi-Channel Reminder Models ─────────────────────────────────────────────
+
+
+class ReminderChannel(models.Model):
+    """
+    Lookup / feature-flag table for each delivery channel.
+    Seed via: python manage.py seed_channels
+    """
+
+    code = models.CharField(max_length=20, unique=True, db_index=True)
+    display_name = models.CharField(max_length=50)
+    is_active = models.BooleanField(default=True)
+    provider_class = models.CharField(
+        max_length=200,
+        help_text="Dotted Python path to the IReminderProvider subclass.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["code"]
+
+    def __str__(self):
+        flag = "✅" if self.is_active else "❌"
+        return f"{flag} {self.display_name} ({self.code})"
+
+
+class UserNotificationPreference(models.Model):
+    """
+    Per-user opt-in state and contact details for each delivery channel.
+    Anonymous users (user=None) store preferences keyed by email only.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="notification_preferences",
+    )
+    email = models.EmailField(db_index=True)
+    channel = models.ForeignKey(
+        ReminderChannel,
+        on_delete=models.PROTECT,
+        related_name="user_preferences",
+    )
+    is_opted_in = models.BooleanField(default=False)
+    phone_number = models.CharField(
+        max_length=20,
+        blank=True,
+        default="",
+        help_text="E.164 format e.g. +447700900123",
+    )
+    telegram_chat_id = models.CharField(max_length=50, blank=True, default="")
+    whatsapp_opted_in = models.BooleanField(
+        default=False,
+        help_text="True only after user sends the Twilio Sandbox join phrase.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["email", "channel__code"]
+        indexes = [
+            models.Index(fields=["email", "channel"], name="fw_notifpref_email_ch_idx"),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["email", "channel"],
+                name="fw_notifpref_email_channel_unique",
+            ),
+        ]
+
+    def __str__(self):
+        opted = "opted-in" if self.is_opted_in else "opted-out"
+        return f"NotifPref<{self.email} | {self.channel.code} | {opted}>"
+
+
+class ReminderDeliveryLog(models.Model):
+    """
+    Immutable audit log — one row per delivery attempt per channel.
+    Never deleted; accumulates a full delivery history for each reminder.
+    """
+
+    class DeliveryStatus(models.TextChoices):
+        PENDING = "pending", "Pending"
+        SUCCESS = "success", "Success"
+        FAILED = "failed", "Failed"
+        SKIPPED = "skipped", "Skipped (channel unavailable or not requested)"
+
+    reminder = models.ForeignKey(
+        EmailReminder,
+        on_delete=models.CASCADE,
+        related_name="delivery_logs",
+    )
+    channel = models.ForeignKey(
+        ReminderChannel,
+        on_delete=models.PROTECT,
+        related_name="delivery_logs",
+    )
+    attempt_number = models.PositiveSmallIntegerField(default=1)
+    status = models.CharField(
+        max_length=20,
+        choices=DeliveryStatus.choices,
+        default=DeliveryStatus.PENDING,
+        db_index=True,
+    )
+    provider_message_id = models.CharField(max_length=255, blank=True)
+    provider_response = models.TextField(blank=True)
+    error_message = models.TextField(blank=True)
+    attempted_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-attempted_at"]
+        indexes = [
+            models.Index(
+                fields=["reminder", "channel", "attempt_number"],
+                name="fw_log_reminder_ch_idx",
+            ),
+            models.Index(fields=["reminder", "status"], name="fw_log_reminder_status_idx"),
+        ]
+
+    def __str__(self):
+        return (
+            f"DeliveryLog<reminder={self.reminder_id} "
+            f"channel={self.channel.code} "
+            f"attempt={self.attempt_number} "
+            f"status={self.status}>"
+        )

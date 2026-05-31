@@ -109,6 +109,12 @@ if IS_DEVELOPMENT:
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
             "NAME": BASE_DIR / "db.sqlite3",
+            # Raise busy-timeout to 20 s so concurrent threads wait instead of
+            # immediately raising "database is locked".
+            "OPTIONS": {"timeout": 20},
+            # Do NOT pool connections in dev — each thread gets its own
+            # connection, which avoids cross-thread lock contention.
+            "CONN_MAX_AGE": 0,
         }
     }
 else:
@@ -381,6 +387,16 @@ FUTUREWAVE_VERIFY_RATE = os.getenv("FUTUREWAVE_VERIFY_RATE", "10/hour")
 # ── APScheduler (DB-backed, no Redis required) ───────────────
 APSCHEDULER_DATETIME_FORMAT = "N j, Y, f:s a"
 APSCHEDULER_RUN_NOW_TIMEOUT = 25  # seconds
+
+# ── Multi-Channel Reminder Providers ────────────────────────
+# Twilio (SMS + Voice + WhatsApp Sandbox)
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
+TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER", "")        # E.164 e.g. +15005550006
+TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER", "")  # Sandbox: +14155238886
+
+# Telegram Bot API
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 
 # ── DRF Throttle Cache ───────────────────────────────────────
 if IS_PRODUCTION and os.getenv("REDIS_URL"):

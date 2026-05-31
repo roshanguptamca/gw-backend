@@ -6,6 +6,20 @@ from django.apps import AppConfig
 
 logger = logging.getLogger(__name__)
 
+
+def _enable_sqlite_wal(sender, connection, **kwargs):
+    """Switch SQLite to WAL journal mode on every new connection.
+
+    WAL (Write-Ahead Logging) allows readers and writers to proceed
+    concurrently, which eliminates most "database is locked" errors when
+    APScheduler's background thread and Django's request threads hit the DB
+    at the same time.
+    """
+    if connection.vendor == "sqlite":
+        connection.cursor().execute("PRAGMA journal_mode=WAL;")
+        connection.cursor().execute("PRAGMA synchronous=NORMAL;")
+        connection.cursor().execute("PRAGMA busy_timeout=20000;")
+
 # Management commands that must NOT start the background scheduler
 _NO_SCHEDULER_COMMANDS = frozenset(
     {
@@ -37,6 +51,10 @@ class FutureWiseConfig(AppConfig):
     def ready(self):
         global _scheduler_started
 
+        # Enable WAL mode for every new SQLite connection (dev + test).
+        from django.db.backends.signals import connection_created
+        connection_created.connect(_enable_sqlite_wal)
+
         # Never start inside management commands that don't need it
         if len(sys.argv) >= 2 and sys.argv[1] in _NO_SCHEDULER_COMMANDS:
             return
@@ -55,12 +73,20 @@ def _start_background_scheduler():
         from apscheduler.schedulers.background import BackgroundScheduler
         from apscheduler.triggers.interval import IntervalTrigger
         from django.conf import settings
-        from django_apscheduler.jobstores import DjangoJobStore
 
         from apps.future_wise.tasks import dispatch_due_reminders, expire_unverified_reminders
 
         scheduler = BackgroundScheduler(timezone=getattr(settings, "TIME_ZONE", "UTC"))
-        scheduler.add_jobstore(DjangoJobStore(), "default")
+
+        # In development use an in-memory job store to avoid APScheduler
+        # hammering SQLite with job-state writes on every tick, which is the
+        # primary cause of "database is locked" errors in dev.
+        if getattr(settings, "IS_DEVELOPMENT", True):
+            from apscheduler.jobstores.memory import MemoryJobStore
+            scheduler.add_jobstore(MemoryJobStore(), "default")
+        else:
+            from django_apscheduler.jobstores import DjangoJobStore
+            scheduler.add_jobstore(DjangoJobStore(), "default")
 
         scheduler.add_job(
             dispatch_due_reminders,
