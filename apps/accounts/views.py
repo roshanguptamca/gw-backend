@@ -335,6 +335,7 @@ class MeView(APIView):
     auth=[],
 )
 @api_view(["GET"])
+@permission_classes([AllowAny])
 @csrf_exempt  # GET request, read-only, safe to exempt
 def session_view(request):
     """
