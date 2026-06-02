@@ -8,6 +8,7 @@ urlpatterns = [
     path("api/doc-x/", include("apps.doc_x.urls")),
     path("api/future-wise/", include("apps.future_wise.urls", namespace="future_wise")),
     path("api/insurance/", include("apps.insurance_explainer.urls")),
+    path("api/contact/", include("apps.contact.urls")),
     # OpenAPI schema + UI
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),

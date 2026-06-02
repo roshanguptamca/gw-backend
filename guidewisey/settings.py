@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     "apps.doc_x",
     "apps.future_wise",
     "apps.insurance_explainer",
+    "apps.contact",
     "django_apscheduler",
 ]
 
@@ -356,6 +357,7 @@ DEFAULT_FROM_EMAIL = os.getenv(
 )
 EMAIL_SENDER_NAME = os.getenv("EMAIL_SENDER_NAME", "FutureWise by GuideWisey")
 EMAIL_SENDER_EMAIL = os.getenv("EMAIL_SENDER_EMAIL", "noreply@guidewisey.com")
+CONTACT_ADMIN_EMAIL = os.getenv("CONTACT_ADMIN_EMAIL", "info@guidewisey.com")
 
 # Fall back to console backend in DEV if no SMTP password is set
 if ENV == "DEV" and not EMAIL_HOST_PASSWORD:
