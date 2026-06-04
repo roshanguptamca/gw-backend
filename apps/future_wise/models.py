@@ -18,6 +18,8 @@ from django.contrib.auth import get_user_model
 from django.db import models
 from django.utils import timezone
 
+from .fields import EncryptedTextField
+
 User = get_user_model()
 
 # Kept for backward-compat reference only; actual window is EMAIL_VERIFICATION_EXPIRY_HOURS from settings
@@ -75,8 +77,10 @@ class EmailReminder(models.Model):
     verification_token_expires_at = models.DateTimeField()
 
     # ── Reminder Content ──────────────────────────────────────────────────────
-    subject = models.CharField(max_length=250)
-    message = models.TextField()
+    # subject and message are stored encrypted (AES-256-GCM) via EncryptedTextField.
+    # The plaintext max_length=250 for subject is enforced in the serializer layer.
+    subject = EncryptedTextField()
+    message = EncryptedTextField()
     scheduled_at = models.DateTimeField(db_index=True)
     tier = models.CharField(
         max_length=20,
@@ -144,6 +148,7 @@ class EmailReminder(models.Model):
     @classmethod
     def make_token_expiry(cls):
         from django.conf import settings
+
         hours = getattr(settings, "EMAIL_VERIFICATION_EXPIRY_HOURS", 24)
         return timezone.now() + timezone.timedelta(hours=hours)
 

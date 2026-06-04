@@ -1,12 +1,10 @@
-import json
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.test import TestCase
-from django.urls import reverse
 from rest_framework.test import APIClient
 
-from apps.insurance_explainer.models import InsuranceSession, InsuranceMessage
+from apps.insurance_explainer.models import InsuranceSession
 
 
 MOCK_ANALYSIS = {
@@ -15,15 +13,9 @@ MOCK_ANALYSIS = {
     "coverage_highlights": [
         {"title": "Hospitalisation", "detail": "Covers in-patient hospital stays up to €50,000/year."}
     ],
-    "important_clauses": [
-        {"title": "Deductible", "detail": "€385 mandatory own risk applies before coverage starts."}
-    ],
-    "missing_coverage": [
-        {"title": "Dental", "detail": "No dental coverage included in the basic plan."}
-    ],
-    "risks": [
-        {"title": "Waiting period", "detail": "Pre-existing conditions excluded for first 12 months."}
-    ],
+    "important_clauses": [{"title": "Deductible", "detail": "€385 mandatory own risk applies before coverage starts."}],
+    "missing_coverage": [{"title": "Dental", "detail": "No dental coverage included in the basic plan."}],
+    "risks": [{"title": "Waiting period", "detail": "Pre-existing conditions excluded for first 12 months."}],
     "action_items": [
         "Check if your GP is in the insurer's network.",
         "Consider adding dental supplemental coverage.",
@@ -214,10 +206,13 @@ class InsuranceChatTest(TestCase):
 class InsuranceGeminiServiceTest(TestCase):
     """Unit tests for the Gemini service (mocked API calls)."""
 
-    @patch("apps.insurance_explainer.services.gemini.InsuranceGeminiService.analyse_policy",
-           side_effect=_mock_gemini_analyse)
+    @patch(
+        "apps.insurance_explainer.services.gemini.InsuranceGeminiService.analyse_policy",
+        side_effect=_mock_gemini_analyse,
+    )
     def test_analyse_policy_returns_parsed_json(self, mock_analyse):
         from apps.insurance_explainer.services.gemini import InsuranceGeminiService
+
         service = InsuranceGeminiService.__new__(InsuranceGeminiService)
         result = service.analyse_policy(POLICY_TEXT, "Netherlands", "English")
         self.assertEqual(result["insurance_type"], "Health Insurance")
@@ -225,7 +220,6 @@ class InsuranceGeminiServiceTest(TestCase):
 
     def test_analyse_policy_handles_invalid_json(self):
         """Service should gracefully wrap non-JSON Gemini output."""
-        import importlib
         import apps.insurance_explainer.services.gemini as gemini_module
 
         with patch.object(gemini_module, "json") as mock_json:
@@ -233,6 +227,7 @@ class InsuranceGeminiServiceTest(TestCase):
             mock_json.loads.side_effect = ValueError("No JSON")
             # Test the fallback logic directly
             import json as real_json
+
             raw = "Not valid JSON output from AI"
             try:
                 real_json.loads(raw)

@@ -9,7 +9,6 @@ S3 and DB storage backends.
 import os
 import tempfile
 import logging
-from typing import Optional
 
 from apps.doc_x.models import Document, DocumentChunk, ProcessingJob
 from apps.doc_x.extract import extract_text
@@ -143,7 +142,7 @@ class ProcessingService:
             end = start + chunk_size
             if end < len(text):
                 search_start = max(start, end - 200)
-                search_text = text[search_start: end + 200]
+                search_text = text[search_start : end + 200]
                 for delimiter in [". ", ".\n", "! ", "? "]:
                     idx = search_text.rfind(delimiter)
                     if idx != -1:

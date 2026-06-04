@@ -7,7 +7,6 @@ import logging
 from datetime import timedelta
 
 from django.conf import settings
-from django.db.models import Count
 from django.utils import timezone
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 
@@ -53,9 +52,6 @@ def check_daily_reminder_limit(email: str, user=None) -> bool:
 
     limit = getattr(settings, "EMAIL_REMINDER_FREE_DAILY_LIMIT", 3)
     return check_email_rate(email, "create_reminder", max_count=limit, window_minutes=24 * 60)
-
-
-
 
 
 class CreateReminderAnonThrottle(AnonRateThrottle):

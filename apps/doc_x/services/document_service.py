@@ -7,7 +7,6 @@ so storage is switchable between S3 and DB via FILE_STORAGE_BACKEND setting.
 """
 
 import os
-import uuid
 import logging
 from typing import Optional, List
 
@@ -53,7 +52,7 @@ class DocumentService:
         self,
         uploaded_file: UploadedFile,
         user: Optional[User] = None,
-        use_s3: bool = None,   # deprecated — kept for backward compat; ignored
+        use_s3: bool = None,  # deprecated — kept for backward compat; ignored
     ) -> tuple[Document, DocumentFile]:
         """
         Upload a file and create Document + DocumentFile records.
@@ -93,10 +92,7 @@ class DocumentService:
             doc_file.file_data = result["_data"]
         doc_file.save()
 
-        logger.info(
-            f"Uploaded '{filename}' ({file_size} bytes) via {storage.name} backend "
-            f"for document {doc.id}"
-        )
+        logger.info(f"Uploaded '{filename}' ({file_size} bytes) via {storage.name} backend " f"for document {doc.id}")
         return doc, doc_file
 
     def get_document(self, document_id: int, user: Optional[User] = None) -> Optional[Document]:

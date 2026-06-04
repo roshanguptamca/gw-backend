@@ -17,9 +17,7 @@ Endpoints:
 import logging
 
 from django.conf import settings
-from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404
-from django.utils import timezone
 from rest_framework import status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -28,7 +26,6 @@ from rest_framework.views import APIView
 from drf_spectacular.utils import (
     extend_schema,
     OpenApiExample,
-    OpenApiResponse,
     OpenApiParameter,
     inline_serializer,
 )
@@ -52,7 +49,6 @@ from .throttle import (
     CreateReminderUserThrottle,
     VerifyEmailThrottle,
     check_daily_reminder_limit,
-    check_email_rate,
     log_action,
 )
 
@@ -254,9 +250,7 @@ class ReminderListCreateView(APIView):
             letter_type=body_serializer.validated_data.get("letter_type", EmailReminder.LetterType.FUTURE_SELF),
             phone_number=body_serializer.validated_data.get("phone_number", ""),
             telegram_chat_id=body_serializer.validated_data.get("telegram_chat_id", ""),
-            channels_requested=",".join(
-                body_serializer.validated_data.get("channels") or ["email"]
-            ),
+            channels_requested=",".join(body_serializer.validated_data.get("channels") or ["email"]),
             status=(EmailReminder.Status.SCHEDULED if is_auth else EmailReminder.Status.PENDING_VERIFICATION),
         )
         reminder.save()
@@ -275,9 +269,7 @@ class ReminderListCreateView(APIView):
                     size_bytes=f.size,
                 )
                 att.save()
-                storage_key = storage.upload(
-                    content, f.name, content_type, attachment_instance=att
-                )
+                storage_key = storage.upload(content, f.name, content_type, attachment_instance=att)
                 att.storage_key = storage_key
                 att.s3_key = storage_key  # keep legacy field in sync
                 att.save(update_fields=["storage_key", "s3_key", "file_data"])
@@ -699,9 +691,11 @@ class NotificationPreferencesView(APIView):
         responses={200: NotificationPreferenceSerializer(many=True)},
     )
     def get(self, request):
-        prefs = UserNotificationPreference.objects.filter(
-            user=request.user
-        ).select_related("channel").order_by("channel__code")
+        prefs = (
+            UserNotificationPreference.objects.filter(user=request.user)
+            .select_related("channel")
+            .order_by("channel__code")
+        )
         serializer = NotificationPreferenceSerializer(prefs, many=True)
         return Response(serializer.data)
 
@@ -743,6 +737,7 @@ class NotificationPreferencesView(APIView):
             if "phone_number" in fields:
                 phone = fields["phone_number"]
                 import re as _re
+
                 if phone and not _re.match(r"^\+[1-9]\d{7,14}$", phone):
                     return Response(
                         {"detail": f"Invalid phone_number for {channel_code}. Use E.164 format."},
@@ -796,8 +791,6 @@ class TelegramWebhookView(APIView):
         message = data.get("message") or data.get("edited_message") or {}
         text: str = (message.get("text") or "").strip()
         chat_id = str(message.get("chat", {}).get("id", ""))
-        from_user = message.get("from", {})
-        tg_user_id = str(from_user.get("id", ""))
 
         logger.info(
             "TelegramWebhookView: update from chat_id=%s text='%s'",
@@ -833,6 +826,7 @@ class TelegramWebhookView(APIView):
         if start_param:
             try:
                 import uuid as _uuid
+
                 reminder_id = _uuid.UUID(start_param)
                 reminder = EmailReminder.objects.select_related("user").get(id=reminder_id)
                 if reminder.user_id:

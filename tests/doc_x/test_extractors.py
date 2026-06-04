@@ -3,7 +3,7 @@
 Unit tests for document text extractors.
 """
 import pytest
-from apps.doc_x.extract import extract_text, extract_csv, extract_xlsx, extract_txt, extract_pdf
+from apps.doc_x.extract import extract_text, extract_csv, extract_txt
 
 
 def test_extract_txt(temp_txt_file):

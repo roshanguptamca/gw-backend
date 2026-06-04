@@ -1,4 +1,5 @@
 """Insurance-specific Gemini AI service (uses shared GeminiClient / google-genai SDK)."""
+
 import json
 import re
 import logging
@@ -6,8 +7,7 @@ from services.gemini import GeminiClient
 
 logger = logging.getLogger(__name__)
 
-_SYSTEM_PROMPT = """You are an expert insurance policy analyst. Your job is to analyze insurance policy documents and explain them clearly to ordinary people.
-
+_SYSTEM_PROMPT = """You are an expert insurance policy analyst. Your job is to analyze insurance policy documents and explain them clearly to ordinary people.  # noqa: E501
 When given a policy, you must:
 1. Identify the type of insurance (health, car, home, travel, life, etc.)
 2. Highlight what IS covered (green — nice to have)

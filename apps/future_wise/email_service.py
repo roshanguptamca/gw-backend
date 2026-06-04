@@ -97,13 +97,12 @@ class BrevoEmailService:
 
         template_map = {
             ER.LetterType.FUTURE_SELF: (
-                "future_wise/reminder_email_premium.html" if is_premium
-                else "future_wise/reminder_email_free.html"
+                "future_wise/reminder_email_premium.html" if is_premium else "future_wise/reminder_email_free.html"
             ),
-            ER.LetterType.MILESTONE:    "future_wise/reminder_email_milestone.html",
-            ER.LetterType.GRIEF:        "future_wise/reminder_email_grief.html",
-            ER.LetterType.FORGIVENESS:  "future_wise/reminder_email_forgiveness.html",
-            ER.LetterType.GRATITUDE:    "future_wise/reminder_email_gratitude.html",
+            ER.LetterType.MILESTONE: "future_wise/reminder_email_milestone.html",
+            ER.LetterType.GRIEF: "future_wise/reminder_email_grief.html",
+            ER.LetterType.FORGIVENESS: "future_wise/reminder_email_forgiveness.html",
+            ER.LetterType.GRATITUDE: "future_wise/reminder_email_gratitude.html",
         }
         chosen = template_map.get(letter_type, "future_wise/reminder_email_free.html")
         logger.debug("_pick_template: letter_type=%s → %s", letter_type, chosen)
@@ -120,8 +119,9 @@ class BrevoEmailService:
     ) -> None:
         if self.api_key:
             logger.info(
-                "FutureWise: delivery path=Brevo_API to=%s subject=%s attachments=%d",
-                to_email, subject, len(attachment_data) if attachment_data else 0,
+                "FutureWise: delivery path=Brevo_API to=%s attachments=%d",
+                to_email,
+                len(attachment_data) if attachment_data else 0,
             )
             try:
                 self._deliver_via_api(to_email, subject, html, attachment_data)
@@ -138,9 +138,11 @@ class BrevoEmailService:
                     raise
 
         logger.info(
-            "FutureWise: delivery path=SMTP host=%s:%s to=%s subject=%s attachments=%d",
-            settings.EMAIL_HOST, settings.EMAIL_PORT,
-            to_email, subject, len(attachment_data) if attachment_data else 0,
+            "FutureWise: delivery path=SMTP host=%s:%s to=%s attachments=%d",
+            settings.EMAIL_HOST,
+            settings.EMAIL_PORT,
+            to_email,
+            len(attachment_data) if attachment_data else 0,
         )
         self._deliver_via_smtp(to_email, subject, html, attachment_data)
 
@@ -176,22 +178,28 @@ class BrevoEmailService:
         }
 
         logger.info(
-            "Brevo API: POST %s to=%s sender=%s subject=%s",
-            _BREVO_SEND_URL, to_email, self.sender_email, subject,
+            "Brevo API: POST %s to=%s sender=%s",
+            _BREVO_SEND_URL,
+            to_email,
+            self.sender_email,
         )
         try:
             resp = requests.post(_BREVO_SEND_URL, json=payload, headers=headers, timeout=30)
             logger.debug("Brevo API: response status=%s body=%s", resp.status_code, resp.text[:300])
             resp.raise_for_status()
             message_id = resp.json().get("messageId", "?")
-            logger.info("✅ Brevo API delivered to=%s subject=%s messageId=%s", to_email, subject, message_id)
+            logger.info("✅ Brevo API delivered to=%s messageId=%s", to_email, message_id)
         except requests.HTTPError as exc:
             body = exc.response.text[:500] if exc.response is not None else ""
             logger.error(
                 "❌ Brevo API HTTP error to=%s status=%s body=%s",
-                to_email, exc.response.status_code if exc.response is not None else "?", body,
+                to_email,
+                exc.response.status_code if exc.response is not None else "?",
+                body,
             )
-            raise BrevoDeliveryError(f"Brevo API HTTP error {exc.response.status_code if exc.response is not None else '?'}: {body}") from exc
+            raise BrevoDeliveryError(
+                f"Brevo API HTTP error {exc.response.status_code if exc.response is not None else '?'}: {body}"
+            ) from exc
         except requests.RequestException as exc:
             logger.error("❌ Brevo API request failed to=%s error=%s", to_email, exc)
             raise BrevoDeliveryError(f"Brevo API request failed: {exc}") from exc
@@ -220,18 +228,19 @@ class BrevoEmailService:
                 msg.attach(att["filename"], att["content_bytes"], att["content_type"])
 
         logger.info(
-            "Email via SMTP backend=%s host=%s:%s to=%s subject=%s",
-            settings.EMAIL_BACKEND, settings.EMAIL_HOST, settings.EMAIL_PORT,
-            to_email, subject,
+            "Email via SMTP backend=%s host=%s:%s to=%s",
+            settings.EMAIL_BACKEND,
+            settings.EMAIL_HOST,
+            settings.EMAIL_PORT,
+            to_email,
         )
         try:
             msg.send(fail_silently=False)
-            logger.info("✅ Email delivered (SMTP) to=%s subject=%s", to_email, subject)
+            logger.info("✅ Email delivered (SMTP) to=%s", to_email)
         except Exception as exc:
-            logger.error("❌ SMTP delivery failed to=%s subject=%s error=%s", to_email, subject, exc)
+            logger.error("❌ SMTP delivery failed to=%s error=%s", to_email, exc)
             raise BrevoDeliveryError(f"Email delivery failed: {exc}") from exc
 
 
 class BrevoDeliveryError(Exception):
     """Raised when email delivery fails."""
-

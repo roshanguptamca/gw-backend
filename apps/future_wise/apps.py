@@ -20,6 +20,7 @@ def _enable_sqlite_wal(sender, connection, **kwargs):
         connection.cursor().execute("PRAGMA synchronous=NORMAL;")
         connection.cursor().execute("PRAGMA busy_timeout=20000;")
 
+
 # Management commands that must NOT start the background scheduler
 _NO_SCHEDULER_COMMANDS = frozenset(
     {
@@ -53,6 +54,7 @@ class FutureWiseConfig(AppConfig):
 
         # Enable WAL mode for every new SQLite connection (dev + test).
         from django.db.backends.signals import connection_created
+
         connection_created.connect(_enable_sqlite_wal)
 
         # Never start inside management commands that don't need it
@@ -83,9 +85,11 @@ def _start_background_scheduler():
         # primary cause of "database is locked" errors in dev.
         if getattr(settings, "IS_DEVELOPMENT", True):
             from apscheduler.jobstores.memory import MemoryJobStore
+
             scheduler.add_jobstore(MemoryJobStore(), "default")
         else:
             from django_apscheduler.jobstores import DjangoJobStore
+
             scheduler.add_jobstore(DjangoJobStore(), "default")
 
         scheduler.add_job(

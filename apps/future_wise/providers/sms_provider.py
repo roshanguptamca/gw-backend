@@ -89,7 +89,4 @@ class SmsReminderProvider(IReminderProvider):
     def _build_body(self, reminder) -> str:
         brand = reminder.brand_name
         subject = reminder.subject[:100]
-        return (
-            f"[{brand}] A letter from your past self: \"{subject}\" "
-            f"— Log in to GuideWisey to read it."
-        )[:160]
+        return (f'[{brand}] A letter from your past self: "{subject}" ' f"— Log in to GuideWisey to read it.")[:160]

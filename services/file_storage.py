@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 # ── Base ──────────────────────────────────────────────────────────────────────
 
+
 class FileStorageBackend:
     name: str = "base"
 
@@ -59,6 +60,7 @@ class FileStorageBackend:
 
 # ── Database backend ──────────────────────────────────────────────────────────
 
+
 class DatabaseStorageBackend(FileStorageBackend):
     """
     Stores file bytes directly in the DocumentFile.file_data column.
@@ -79,8 +81,8 @@ class DatabaseStorageBackend(FileStorageBackend):
         # Return the raw bytes so the caller can set doc_file.file_data
         return {
             "storage_backend": "db",
-            "s3_key": key,   # reuse the s3_key column as a logical identifier
-            "_data": data,   # caller MUST save this onto doc_file.file_data
+            "s3_key": key,  # reuse the s3_key column as a logical identifier
+            "_data": data,  # caller MUST save this onto doc_file.file_data
         }
 
     def retrieve(self, doc_file) -> bytes:
@@ -98,6 +100,7 @@ class DatabaseStorageBackend(FileStorageBackend):
 
 # ── S3 backend ────────────────────────────────────────────────────────────────
 
+
 class S3StorageBackend(FileStorageBackend):
     """
     Stores files in AWS S3.
@@ -108,6 +111,7 @@ class S3StorageBackend(FileStorageBackend):
 
     def __init__(self):
         from services.s3 import S3Client
+
         self._s3 = S3Client()
 
     def store(self, file_obj, key: str) -> dict:
@@ -160,13 +164,16 @@ class S3StorageBackend(FileStorageBackend):
 
 # ── Factory ───────────────────────────────────────────────────────────────────
 
+
 def _s3_credentials_present() -> bool:
-    return all([
-        os.getenv("AWS_ACCESS_KEY_ID"),
-        os.getenv("AWS_SECRET_ACCESS_KEY"),
-        os.getenv("AWS_REGION") or os.getenv("AWS_S3_REGION_NAME"),
-        os.getenv("S3_BUCKET") or os.getenv("AWS_STORAGE_BUCKET_NAME"),
-    ])
+    return all(
+        [
+            os.getenv("AWS_ACCESS_KEY_ID"),
+            os.getenv("AWS_SECRET_ACCESS_KEY"),
+            os.getenv("AWS_REGION") or os.getenv("AWS_S3_REGION_NAME"),
+            os.getenv("S3_BUCKET") or os.getenv("AWS_STORAGE_BUCKET_NAME"),
+        ]
+    )
 
 
 def get_file_storage() -> FileStorageBackend:

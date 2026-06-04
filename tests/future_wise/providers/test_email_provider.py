@@ -56,6 +56,7 @@ class EmailReminderProviderTest(TestCase):
     @patch("apps.future_wise.providers.email_provider.BrevoEmailService")
     def test_send_brevo_error_returns_failure(self, mock_cls):
         from apps.future_wise.email_service import BrevoDeliveryError
+
         mock_cls.return_value.send_reminder_email.side_effect = BrevoDeliveryError("SMTP down")
         provider = EmailReminderProvider()
         result = provider.send(_make_reminder(), {"email": "user@example.com"})

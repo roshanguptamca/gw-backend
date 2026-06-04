@@ -16,18 +16,11 @@ from apps.future_wise.tasks import cleanup_unverified_reminders
 
 
 class Command(BaseCommand):
-    help = (
-        "Delete anonymous PENDING_VERIFICATION reminders older than "
-        "EMAIL_VERIFICATION_EXPIRY_HOURS hours."
-    )
+    help = "Delete anonymous PENDING_VERIFICATION reminders older than " "EMAIL_VERIFICATION_EXPIRY_HOURS hours."
 
     def handle(self, *args, **options):
         count = cleanup_unverified_reminders()
         if count:
-            self.stdout.write(
-                self.style.SUCCESS(
-                    f"Deleted {count} expired anonymous unverified reminder(s)."
-                )
-            )
+            self.stdout.write(self.style.SUCCESS(f"Deleted {count} expired anonymous unverified reminder(s)."))
         else:
             self.stdout.write("No expired anonymous unverified reminders found.")

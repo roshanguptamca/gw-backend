@@ -3,9 +3,8 @@
 Integration tests for Doc_X - test complete workflows.
 """
 import pytest
-from io import BytesIO
 from django.core.files.uploadedfile import SimpleUploadedFile
-from apps.doc_x.models import Document, ChatSession, ChatMessage
+from apps.doc_x.models import Document
 
 
 @pytest.mark.django_db

@@ -11,7 +11,6 @@ This lets the app run with zero external dependencies locally.
 
 import logging
 import uuid
-from typing import Optional
 
 from django.conf import settings
 
@@ -28,11 +27,13 @@ def _backend() -> str:
     if backend == "db":
         return "db"
     # auto: use S3 if all four credentials are present
-    if all([
-        getattr(settings, "AWS_ACCESS_KEY_ID", ""),
-        getattr(settings, "AWS_SECRET_ACCESS_KEY", ""),
-        getattr(settings, "S3_BUCKET", ""),
-    ]):
+    if all(
+        [
+            getattr(settings, "AWS_ACCESS_KEY_ID", ""),
+            getattr(settings, "AWS_SECRET_ACCESS_KEY", ""),
+            getattr(settings, "S3_BUCKET", ""),
+        ]
+    ):
         return "s3"
     return "db"
 
@@ -50,6 +51,7 @@ class AttachmentStorage:
         self.mode = _backend()
         if self.mode == "s3":
             import boto3
+
             self._s3 = boto3.client(
                 "s3",
                 aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
@@ -143,6 +145,7 @@ class AttachmentStorage:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _extension(filename: str) -> str:
     parts = filename.rsplit(".", 1)

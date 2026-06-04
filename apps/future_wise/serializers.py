@@ -4,19 +4,15 @@ Serializers for FutureWise / DearTomorrow API.
 
 import re
 
-from django.conf import settings
-from django.utils import timezone
 from rest_framework import serializers
 
 from .models import (
-    AbuseLog,
     EmailReminder,
     ReminderAttachment,
     ReminderDeliveryLog,
     UserNotificationPreference,
 )
 from .validators import (
-    MAX_ATTACHMENTS,
     validate_attachment_count,
     validate_attachment_file,
     validate_scheduled_at,
@@ -90,9 +86,7 @@ class CreateReminderSerializer(serializers.Serializer):
         if not value:
             return value
         if not _E164_RE.match(value):
-            raise serializers.ValidationError(
-                "Phone number must be in E.164 format, e.g. +447700900123"
-            )
+            raise serializers.ValidationError("Phone number must be in E.164 format, e.g. +447700900123")
         return value
 
     def validate(self, data: dict) -> dict:
@@ -104,8 +98,10 @@ class CreateReminderSerializer(serializers.Serializer):
             )
         if "telegram" in channels and not data.get("telegram_chat_id"):
             raise serializers.ValidationError(
-                {"telegram_chat_id": "A Telegram chat ID is required for the Telegram channel. "
-                 "Send /start to the GuideWisey bot to obtain it."}
+                {
+                    "telegram_chat_id": "A Telegram chat ID is required for the Telegram channel. "
+                    "Send /start to the GuideWisey bot to obtain it."
+                }
             )
         return data
 
@@ -273,6 +269,4 @@ class UpdateNotificationPreferencesSerializer(serializers.Serializer):
 class TestReminderSerializer(serializers.Serializer):
     """Used for POST /reminders/<id>/test/"""
 
-    channel = serializers.ChoiceField(
-        choices=["email", "sms", "voice", "whatsapp", "telegram"]
-    )
+    channel = serializers.ChoiceField(choices=["email", "sms", "voice", "whatsapp", "telegram"])
