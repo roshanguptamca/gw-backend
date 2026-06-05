@@ -64,6 +64,7 @@ class WhatsAppReminderProviderTest(TestCase):
     @patch("twilio.rest.Client")
     def test_send_permanent_failure(self, mock_client_cls):
         from twilio.base.exceptions import TwilioRestException
+
         exc = TwilioRestException(status=400, uri="", msg="User not opted in", code=63016)
         mock_client_cls.return_value.messages.create.side_effect = exc
         provider = WhatsAppReminderProvider()
@@ -74,6 +75,7 @@ class WhatsAppReminderProviderTest(TestCase):
     @patch("twilio.rest.Client")
     def test_send_transient_failure(self, mock_client_cls):
         from twilio.base.exceptions import TwilioRestException
+
         exc = TwilioRestException(status=500, uri="", msg="Service unavailable", code=20500)
         mock_client_cls.return_value.messages.create.side_effect = exc
         provider = WhatsAppReminderProvider()

@@ -20,7 +20,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from .dispatcher import ReminderDispatcher
-from .models import EmailReminder, ReminderAttachment
+from .models import EmailReminder
 from .storage import AttachmentStorage, StorageError
 
 logger = logging.getLogger(__name__)
@@ -177,10 +177,9 @@ def _deliver_reminder(reminder_id: str):
             id=reminder_id, status=EmailReminder.Status.QUEUED
         )
         logger.info(
-            "FutureWise: reminder loaded | id=%s email=%s subject=%s retry_count=%d",
+            "FutureWise: reminder loaded | id=%s email=%s retry_count=%d",
             reminder_id,
             reminder.email,
-            reminder.subject,
             reminder.retry_count,
         )
     except EmailReminder.DoesNotExist:
@@ -193,11 +192,13 @@ def _deliver_reminder(reminder_id: str):
     for att in reminder.attachments.all():
         try:
             content_bytes = storage.download_bytes(att.storage_key, attachment_instance=att)
-            attachment_data.append({
-                "filename": att.original_filename,
-                "content_bytes": content_bytes,
-                "content_type": att.content_type,
-            })
+            attachment_data.append(
+                {
+                    "filename": att.original_filename,
+                    "content_bytes": content_bytes,
+                    "content_type": att.content_type,
+                }
+            )
             logger.debug(
                 "FutureWise: loaded attachment %s (%d bytes)",
                 att.original_filename,

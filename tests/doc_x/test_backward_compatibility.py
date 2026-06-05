@@ -4,7 +4,6 @@ Regression tests to ensure all existing endpoints still work.
 CRITICAL: These tests must pass 100% to maintain backward compatibility.
 """
 import pytest
-from django.urls import reverse
 from apps.doc_x.models import Document, UserQuestionLimit
 
 
@@ -120,8 +119,6 @@ class TestBackwardCompatibility:
     def test_session_based_rate_limiting_still_works(self, api_client, document, mock_gemini_response):
         """Test that session-based rate limiting (for anonymous users) still works."""
         # Force authentication to simulate session-based access
-        from django.contrib.auth.models import AnonymousUser
-
         # Create session
         session = api_client.session
         session.save()

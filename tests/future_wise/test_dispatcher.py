@@ -126,17 +126,19 @@ class ReminderDispatcherTest(TestCase):
     @patch("apps.future_wise.dispatcher.PROVIDER_REGISTRY")
     def test_dispatch_partial_success_returns_true(self, mock_registry):
         """If at least one channel succeeds, dispatch returns True."""
-        sms_channel = _make_channel("sms")
+        _make_channel("sms")
         reminder = _make_reminder(channels_requested="email,sms", phone_number="+447700900123")
 
         def provider_factory():
             p = MagicMock()
             p.is_available.return_value = True
+
             # email succeeds, sms fails
             def side_effect(rem, ctx):
                 if mock_registry.get.call_args[0][0] == "email":
                     return DeliveryResult(success=True, provider_message_id="em_ok")
                 return DeliveryResult(success=False, error_message="sms down")
+
             p.send.side_effect = side_effect
             return p
 
@@ -171,9 +173,9 @@ class ReminderDispatcherTest(TestCase):
         dispatcher.dispatch(reminder)  # attempt 1 → FAILED
         dispatcher.dispatch(reminder)  # attempt 2 → FAILED
 
-        logs = ReminderDeliveryLog.objects.filter(
-            reminder=reminder, channel=self.email_channel
-        ).order_by("attempt_number")
+        logs = ReminderDeliveryLog.objects.filter(reminder=reminder, channel=self.email_channel).order_by(
+            "attempt_number"
+        )
         self.assertEqual(logs.count(), 2)
         self.assertEqual(logs[0].attempt_number, 1)
         self.assertEqual(logs[1].attempt_number, 2)
@@ -193,9 +195,7 @@ class ReminderDispatcherTest(TestCase):
         dispatcher.dispatch(reminder)
 
         # Telegram log should not exist (channel is inactive → not iterated)
-        self.assertFalse(
-            ReminderDeliveryLog.objects.filter(reminder=reminder, channel=inactive).exists()
-        )
+        self.assertFalse(ReminderDeliveryLog.objects.filter(reminder=reminder, channel=inactive).exists())
 
 
 class DispatcherRecipientContextTest(TestCase):

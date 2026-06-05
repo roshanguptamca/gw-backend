@@ -72,6 +72,7 @@ class VoiceCallReminderProviderTest(TestCase):
     @patch("twilio.rest.Client")
     def test_send_permanent_failure(self, mock_client_cls):
         from twilio.base.exceptions import TwilioRestException
+
         exc = TwilioRestException(status=400, uri="", msg="Invalid phone", code=13224)
         mock_client_cls.return_value.calls.create.side_effect = exc
         provider = VoiceCallReminderProvider()
@@ -82,6 +83,7 @@ class VoiceCallReminderProviderTest(TestCase):
     @patch("twilio.rest.Client")
     def test_send_transient_failure(self, mock_client_cls):
         from twilio.base.exceptions import TwilioRestException
+
         exc = TwilioRestException(status=500, uri="", msg="Server error", code=20500)
         mock_client_cls.return_value.calls.create.side_effect = exc
         provider = VoiceCallReminderProvider()

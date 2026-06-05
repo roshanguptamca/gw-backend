@@ -4,8 +4,7 @@ Unit tests for Doc_X service classes.
 """
 import pytest
 from apps.doc_x.services import DocumentService, ProcessingService, ChatService
-from apps.doc_x.models import Document, ChatSession, ChatMessage
-from django.core.files.uploadedfile import SimpleUploadedFile
+from apps.doc_x.models import Document
 
 
 @pytest.mark.django_db

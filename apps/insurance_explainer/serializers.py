@@ -49,6 +49,7 @@ class InsuranceSessionListSerializer(serializers.ModelSerializer):
 
 class ExplainRequestSerializer(serializers.Serializer):
     """Input for creating a new insurance analysis."""
+
     country = serializers.CharField(max_length=100, default="International")
     language = serializers.CharField(max_length=50, default="English")
     provider_url = serializers.URLField(required=False, allow_blank=True, default="")

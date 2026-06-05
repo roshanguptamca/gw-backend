@@ -19,6 +19,9 @@ psycopg2-binary>=2.9,<3.0
 # Remove or leave unset if using DB storage backend.
 boto3>=1.28,<2.0
 
+# Encryption (AES-256-GCM at-rest encryption for message content)
+cryptography>=42.0,<44.0
+
 # Utils
 requests>=2.31,<3.0
 pypdf>=3.11,<4.0

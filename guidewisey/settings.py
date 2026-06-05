@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 
+from corsheaders.defaults import default_headers, default_methods
+
 # Load .env file for local development (no-op in production if .env absent)
 try:
     from dotenv import load_dotenv
@@ -151,8 +153,6 @@ if IS_DEVELOPMENT:
     ]
 
 CORS_ALLOW_CREDENTIALS = True
-
-from corsheaders.defaults import default_headers, default_methods
 
 CORS_ALLOW_METHODS = list(default_methods)
 CORS_ALLOW_HEADERS = list(default_headers) + [
@@ -351,10 +351,11 @@ EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "true").lower() == "true"
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "ac98f2001@smtp-brevo.com")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", 30))  # seconds; prevents SMTP hangs
-DEFAULT_FROM_EMAIL = os.getenv(
-    "DEFAULT_FROM_EMAIL",
-    f'{os.getenv("EMAIL_SENDER_NAME", "FutureWise by GuideWisey")} <{os.getenv("EMAIL_SENDER_EMAIL", "noreply@guidewisey.com")}>',
+_default_sender = (
+    f'{os.getenv("EMAIL_SENDER_NAME", "FutureWise by GuideWisey")}'
+    f' <{os.getenv("EMAIL_SENDER_EMAIL", "noreply@guidewisey.com")}>'
 )
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", _default_sender)
 EMAIL_SENDER_NAME = os.getenv("EMAIL_SENDER_NAME", "FutureWise by GuideWisey")
 EMAIL_SENDER_EMAIL = os.getenv("EMAIL_SENDER_EMAIL", "noreply@guidewisey.com")
 CONTACT_ADMIN_EMAIL = os.getenv("CONTACT_ADMIN_EMAIL", "info@guidewisey.com")
@@ -364,6 +365,13 @@ if ENV == "DEV" and not EMAIL_HOST_PASSWORD:
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 # Legacy Brevo REST API key (kept for reference; no longer used for delivery)
 BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
+
+# ── Encryption at rest ───────────────────────────────────────
+# AES-256-GCM key for encrypting reminder subject/message in the database.
+# Generate: python -c "import secrets,base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
+# Must be a base64url-encoded 32-byte value. Required — app will raise
+# ImproperlyConfigured on first encrypt/decrypt if this is not set.
+MESSAGE_ENCRYPTION_KEY = os.getenv("MESSAGE_ENCRYPTION_KEY", "")
 
 # ── FutureWise Delivery Tuning ───────────────────────────────
 FUTUREWAVE_MAX_RETRIES = int(os.getenv("FUTUREWAVE_MAX_RETRIES", 3))
@@ -394,7 +402,7 @@ APSCHEDULER_RUN_NOW_TIMEOUT = 25  # seconds
 # Twilio (SMS + Voice + WhatsApp Sandbox)
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
-TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER", "")        # E.164 e.g. +15005550006
+TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER", "")  # E.164 e.g. +15005550006
 TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER", "")  # Sandbox: +14155238886
 
 # Telegram Bot API
@@ -431,12 +439,20 @@ REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {
 SENTRY_DSN = os.getenv("SENTRY_DSN", "")
 if SENTRY_DSN:
     import sentry_sdk
-    from sentry_sdk.integrations.celery import CeleryIntegration
     from sentry_sdk.integrations.django import DjangoIntegration
+
+    _sentry_integrations = [DjangoIntegration()]
+
+    try:
+        from sentry_sdk.integrations.celery import CeleryIntegration
+
+        _sentry_integrations.append(CeleryIntegration())
+    except Exception:
+        pass
 
     sentry_sdk.init(
         dsn=SENTRY_DSN,
-        integrations=[DjangoIntegration(), CeleryIntegration()],
+        integrations=_sentry_integrations,
         traces_sample_rate=0.1,
         send_default_pii=False,
         environment=ENV.lower(),
@@ -529,7 +545,10 @@ SPECTACULAR_SETTINGS = {
         {"name": "FutureWise", "description": "Schedule future self-email reminders with optional attachments"},
         {
             "name": "Insurance Explainer",
-            "description": "AI-powered insurance policy analysis: coverage, gaps, risks, and action items with country/language context",
+            "description": (
+                "AI-powered insurance policy analysis: coverage, gaps, risks, "
+                "and action items with country/language context"
+            ),
         },
     ],
 }

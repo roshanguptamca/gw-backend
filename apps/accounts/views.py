@@ -1,22 +1,8 @@
 from django.contrib.auth import authenticate, login, logout
-from django.views.decorators.csrf import ensure_csrf_cookie
-from django.utils.decorators import method_decorator
 from django.http import JsonResponse
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.views import APIView
-from rest_framework import status
-from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework.response import Response
-from rest_framework.parsers import JSONParser
-
-
-class PlainTextJSONParser(JSONParser):
-    """Accept text/plain bodies as JSON (sent by some fetch() calls without explicit Content-Type headers)."""
-    media_type = "text/plain"
-from django.views.decorators.csrf import csrf_exempt
-from .serializers import UserRegistrationSerializer
 from django.middleware.csrf import get_token
-from django.middleware.csrf import get_token
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from drf_spectacular.utils import (
     extend_schema,
     OpenApiExample,
@@ -24,6 +10,20 @@ from drf_spectacular.utils import (
     inline_serializer,
 )
 from rest_framework import serializers as drf_serializers
+from rest_framework import status
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.parsers import JSONParser
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from .serializers import UserRegistrationSerializer
+
+
+class PlainTextJSONParser(JSONParser):
+    """Accept text/plain bodies as JSON (sent by some fetch() calls without explicit Content-Type headers)."""
+
+    media_type = "text/plain"
 
 
 # ------------------------------------------------------------------

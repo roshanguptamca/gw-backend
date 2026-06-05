@@ -167,4 +167,3 @@ class BrevoEmailServiceTest(TestCase):
             service = BrevoEmailService()
             with self.assertRaises(BrevoDeliveryError):
                 service.send_verification_email("x@example.com", "https://verify.me")
-

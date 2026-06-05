@@ -25,6 +25,7 @@ def _mock_response(status_code=200, json_data=None):
     resp.json.return_value = json_data or {"ok": True, "result": {"message_id": 42}}
     if status_code >= 400:
         from requests import HTTPError
+
         resp.raise_for_status.side_effect = HTTPError(response=resp)
         resp.text = "Bad Request"
     else:
@@ -93,6 +94,7 @@ class TelegramReminderProviderTest(TestCase):
     @patch("apps.future_wise.providers.telegram_provider.requests.post")
     def test_send_connection_error(self, mock_post):
         from requests import ConnectionError
+
         mock_post.side_effect = ConnectionError("network down")
         provider = TelegramReminderProvider()
         result = provider.send(_make_reminder(), {"telegram_chat_id": "123456789"})

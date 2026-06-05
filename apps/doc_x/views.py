@@ -1,34 +1,36 @@
 # apps/doc_x/views.py
 import logging
+import os
 import tempfile
+import uuid
 
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from .models import Document, Conversation, UserQuestionLimit
-from .serializers import DocumentSerializer
-from .extract import extract_pdf, extract_docx, extract_image
-from services.gemini import GeminiClient
-try:
-    from services.s3 import S3Client
-    _S3_AVAILABLE = True
-except ImportError:
-    S3Client = None
-    _S3_AVAILABLE = False
-from services.ai import AIClient
-from guidewisey.decorators import question_limit
 from drf_spectacular.utils import (
     extend_schema,
     OpenApiParameter,
     OpenApiExample,
-    OpenApiResponse,
     inline_serializer,
 )
+from guidewisey.decorators import question_limit
 from rest_framework import serializers as drf_serializers
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from services.ai import AIClient
+from services.gemini import GeminiClient
+
+try:
+    from services.s3 import S3Client
+
+    _S3_AVAILABLE = True
+except ImportError:
+    S3Client = None
+    _S3_AVAILABLE = False
+
+from .extract import extract_pdf, extract_docx, extract_image
+from .models import Document, Conversation, UserQuestionLimit
+from .serializers import DocumentSerializer
 
 logger = logging.getLogger(__name__)
-import os
-import uuid
 
 MAX_QUESTIONS_PER_USER = 3
 ALLOWED_EXTENSIONS = ["pdf", "png", "jpg", "jpeg", "doc", "docx"]
@@ -261,7 +263,6 @@ def process_document(request, document=None, user_question_limit=None):
 @permission_classes([IsAuthenticated])
 @question_limit()
 def ask(request, document, user_question_limit):
-    ai_client = AIClient()
     gemini = GeminiClient()
     question = request.data.get("question")
     if not question:
@@ -303,9 +304,7 @@ def ask(request, document, user_question_limit):
     request=inline_serializer(
         "ProcessTextRequest",
         fields={
-            "text": drf_serializers.CharField(
-                help_text="Raw document text (minimum 10 characters)"
-            ),
+            "text": drf_serializers.CharField(help_text="Raw document text (minimum 10 characters)"),
             "preferred_language": drf_serializers.CharField(
                 default="English",
                 required=False,
@@ -395,7 +394,9 @@ def process_text(request, document=None, user_question_limit=None):
 @extend_schema(
     tags=["Doc-X V1 (Legacy)"],
     summary="Get remaining questions for a document",
-    description="Returns how many follow-up questions the authenticated user can still ask for a given document (max 3).",
+    description=(
+        "Returns how many follow-up questions the authenticated user can still ask " "for a given document (max 3)."
+    ),
     parameters=[
         OpenApiParameter(
             name="document_id",

@@ -8,19 +8,17 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
-from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import (
     extend_schema,
     OpenApiParameter,
     OpenApiExample,
-    OpenApiResponse,
     inline_serializer,
 )
 from rest_framework import serializers as drf_serializers
 
-from apps.doc_x.models import Document, ChatSession
+from apps.doc_x.models import ChatSession
 from apps.doc_x.services import DocumentService, ProcessingService, ChatService
-from apps.doc_x.serializers import DocumentSerializer, ConversationSerializer
+from apps.doc_x.serializers import DocumentSerializer
 import logging
 
 logger = logging.getLogger(__name__)
@@ -371,7 +369,9 @@ def delete_document(request, document_id):
             },
         ),
         404: inline_serializer("ProcessDocNotFound", fields={"error": drf_serializers.CharField()}),
-        500: inline_serializer("ProcessDocFailed", fields={"status": drf_serializers.CharField(), "error": drf_serializers.CharField()}),
+        500: inline_serializer(
+            "ProcessDocFailed", fields={"status": drf_serializers.CharField(), "error": drf_serializers.CharField()}
+        ),
     },
     examples=[
         OpenApiExample(

@@ -51,18 +51,33 @@ class EmailReminderAdmin(admin.ModelAdmin):
         "created_at",
     )
     list_filter = ("status", "tier", "email_verified")
-    search_fields = ("email", "subject", "id")
+    # subject/message are encrypted in the DB — searching by their value is not supported
+    search_fields = ("email", "id")
     readonly_fields = (
         "id",
+        "subject_masked",
+        "message_masked",
         "verification_token",
         "brevo_message_id",
         "sent_at",
         "created_at",
         "updated_at",
     )
+    # Exclude the raw fields; display via masked readonly methods instead
+    exclude = ("subject", "message")
     ordering = ("-created_at",)
     inlines = [ReminderAttachmentInline, DeliveryLogInline]
     actions = ["cancel_selected", "requeue_dead_letters"]
+
+    def subject_masked(self, obj):
+        return format_html('<span style="color:#888;font-style:italic">🔒 [encrypted — not visible in admin]</span>')
+
+    subject_masked.short_description = "Subject"
+
+    def message_masked(self, obj):
+        return format_html('<span style="color:#888;font-style:italic">🔒 [encrypted — not visible in admin]</span>')
+
+    message_masked.short_description = "Message"
 
     def status_badge(self, obj):
         colors = {

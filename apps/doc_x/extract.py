@@ -50,9 +50,8 @@ def extract_doc(path):
     # Try antiword (CLI tool, may not be installed)
     try:
         import subprocess
-        result = subprocess.run(
-            ["antiword", path], capture_output=True, text=True, timeout=30
-        )
+
+        result = subprocess.run(["antiword", path], capture_output=True, text=True, timeout=30)
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
     except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
@@ -61,6 +60,7 @@ def extract_doc(path):
     # Try textract if available
     try:
         import textract
+
         text = textract.process(path).decode("utf-8", errors="ignore")
         if text.strip():
             return text.strip()

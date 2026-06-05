@@ -51,7 +51,8 @@ class ReminderDispatcher:
         for channel in active_channels:
             if channel.code not in requested:
                 self._write_log(
-                    reminder, channel,
+                    reminder,
+                    channel,
                     attempt=1,
                     status=ReminderDeliveryLog.DeliveryStatus.SKIPPED,
                     error_message="Channel not requested for this reminder.",
@@ -71,12 +72,11 @@ class ReminderDispatcher:
 
             if not provider.is_available(recipient_ctx):
                 self._write_log(
-                    reminder, channel,
+                    reminder,
+                    channel,
                     attempt=self._next_attempt_number(reminder, channel),
                     status=ReminderDeliveryLog.DeliveryStatus.SKIPPED,
-                    error_message=(
-                        "Provider unavailable: missing contact details or opt-in consent."
-                    ),
+                    error_message=("Provider unavailable: missing contact details or opt-in consent."),
                 )
                 logger.info(
                     "ReminderDispatcher: skipping channel=%s reminder=%s (not available)",
@@ -87,7 +87,8 @@ class ReminderDispatcher:
 
             attempt_number = self._next_attempt_number(reminder, channel)
             log = self._write_log(
-                reminder, channel,
+                reminder,
+                channel,
                 attempt=attempt_number,
                 status=ReminderDeliveryLog.DeliveryStatus.PENDING,
             )
@@ -187,8 +188,7 @@ class ReminderDispatcher:
 
     def _next_attempt_number(self, reminder: EmailReminder, channel: ReminderChannel) -> int:
         last = (
-            ReminderDeliveryLog.objects
-            .filter(reminder=reminder, channel=channel)
+            ReminderDeliveryLog.objects.filter(reminder=reminder, channel=channel)
             .order_by("-attempt_number")
             .values_list("attempt_number", flat=True)
             .first()
@@ -228,10 +228,12 @@ class ReminderDispatcher:
         log.provider_response = provider_response[:2000]
         log.error_message = error_message[:1000]
         log.completed_at = timezone.now()
-        log.save(update_fields=[
-            "status",
-            "provider_message_id",
-            "provider_response",
-            "error_message",
-            "completed_at",
-        ])
+        log.save(
+            update_fields=[
+                "status",
+                "provider_message_id",
+                "provider_response",
+                "error_message",
+                "completed_at",
+            ]
+        )
