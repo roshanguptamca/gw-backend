@@ -2,7 +2,7 @@
 # GuideWisey Backend Makefile
 # ==============================
 
-PYTHON     ?= python3
+PYTHON     ?= python3.13
 VENV_DIR   ?= .venv
 ENV        ?= DEV
 MANAGE     := $(VENV_DIR)/bin/python manage.py

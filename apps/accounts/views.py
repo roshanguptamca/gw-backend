@@ -1,6 +1,11 @@
+import logging
+import secrets
+
+from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.http import JsonResponse
 from django.middleware.csrf import get_token
+from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from drf_spectacular.utils import (
@@ -18,6 +23,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .serializers import UserRegistrationSerializer
+
+logger = logging.getLogger(__name__)
 
 
 class PlainTextJSONParser(JSONParser):
@@ -154,7 +161,8 @@ class RegisterView(APIView):
     description=(
         "Authenticate with `username` and `password`. "
         "On success, a session cookie (`sessionid`) is set. "
-        "All subsequent requests to authenticated endpoints must carry this cookie."
+        "All subsequent requests to authenticated endpoints must carry this cookie. "
+        "Returns `EMAIL_CONFIRMATION_PENDING` error code if the user has not yet confirmed their email."
     ),
     request=inline_serializer(
         "LoginRequest",
@@ -170,7 +178,10 @@ class RegisterView(APIView):
         ),
         401: inline_serializer(
             "LoginErrorResponse",
-            fields={"error": drf_serializers.CharField(default="Invalid credentials")},
+            fields={
+                "error": drf_serializers.CharField(default="Invalid credentials"),
+                "code": drf_serializers.CharField(required=False),
+            },
         ),
     },
     examples=[
@@ -191,6 +202,15 @@ class RegisterView(APIView):
             response_only=True,
             status_codes=["401"],
         ),
+        OpenApiExample(
+            "Email confirmation pending",
+            value={
+                "error": "Your email confirmation is pending. Please check your inbox and confirm your email before logging in.",
+                "code": "EMAIL_CONFIRMATION_PENDING",
+            },
+            response_only=True,
+            status_codes=["401"],
+        ),
     ],
     auth=[],
 )
@@ -207,6 +227,17 @@ class LoginView(APIView):
 
         if not user:
             return Response({"error": "Invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        # Block login if email is not confirmed
+        profile = getattr(user, "profile", None)
+        if profile is not None and not profile.email_confirmed:
+            return Response(
+                {
+                    "error": "Your email confirmation is pending. Please check your inbox and confirm your email before logging in.",
+                    "code": "EMAIL_CONFIRMATION_PENDING",
+                },
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
 
         login(request, user)
         return Response({"message": "Logged in"}, status=status.HTTP_200_OK)
@@ -354,3 +385,161 @@ def session_view(request):
             }
         )
     return Response({"authenticated": False})
+
+
+# ------------------------------------------------------------------
+# CONFIRM EMAIL
+# ------------------------------------------------------------------
+@extend_schema(
+    tags=["Accounts"],
+    summary="Confirm email address",
+    description=(
+        "Validates the email-confirmation token sent during registration. "
+        "On success, marks the user's email as confirmed and clears the token. "
+        "The token is valid for 24 hours."
+    ),
+    request=None,
+    responses={
+        200: inline_serializer(
+            "ConfirmEmailResponse",
+            fields={"message": drf_serializers.CharField(default="Email confirmed successfully.")},
+        ),
+        400: inline_serializer(
+            "ConfirmEmailErrorResponse",
+            fields={"error": drf_serializers.CharField()},
+        ),
+    },
+    examples=[
+        OpenApiExample(
+            "Success",
+            value={"message": "Email confirmed successfully."},
+            response_only=True,
+            status_codes=["200"],
+        ),
+        OpenApiExample(
+            "Invalid or expired token",
+            value={"error": "This confirmation link is invalid or has expired."},
+            response_only=True,
+            status_codes=["400"],
+        ),
+    ],
+    auth=[],
+)
+@api_view(["GET"])
+@permission_classes([AllowAny])
+@csrf_exempt
+def confirm_email_view(request, token):
+    """Confirm a user's email address using the token from the confirmation email."""
+    from .models import UserProfile
+
+    try:
+        profile = UserProfile.objects.select_related("user").get(email_confirmation_token=token)
+    except UserProfile.DoesNotExist:
+        return Response(
+            {"error": "This confirmation link is invalid or has expired."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if profile.email_confirmation_token_expires_at is None or timezone.now() > profile.email_confirmation_token_expires_at:
+        return Response(
+            {"error": "This confirmation link is invalid or has expired."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    profile.email_confirmed = True
+    profile.email_confirmation_token = None
+    profile.email_confirmation_token_expires_at = None
+    profile.save(update_fields=["email_confirmed", "email_confirmation_token", "email_confirmation_token_expires_at"])
+
+    return Response({"message": "Email confirmed successfully."}, status=status.HTTP_200_OK)
+
+
+# ------------------------------------------------------------------
+# RESEND CONFIRMATION EMAIL
+# ------------------------------------------------------------------
+@extend_schema(
+    tags=["Accounts"],
+    summary="Resend confirmation email",
+    description=(
+        "Generates a new confirmation token and sends a fresh confirmation email. "
+        "Only valid for users whose email has not yet been confirmed."
+    ),
+    request=inline_serializer(
+        "ResendConfirmationRequest",
+        fields={"email": drf_serializers.EmailField()},
+    ),
+    responses={
+        200: inline_serializer(
+            "ResendConfirmationResponse",
+            fields={"message": drf_serializers.CharField(default="Confirmation email resent.")},
+        ),
+        400: inline_serializer(
+            "ResendConfirmationErrorResponse",
+            fields={"error": drf_serializers.CharField()},
+        ),
+    },
+    examples=[
+        OpenApiExample(
+            "Success",
+            value={"message": "Confirmation email resent."},
+            response_only=True,
+            status_codes=["200"],
+        ),
+        OpenApiExample(
+            "Already confirmed",
+            value={"error": "This email address is already confirmed."},
+            response_only=True,
+            status_codes=["400"],
+        ),
+    ],
+    auth=[],
+)
+@method_decorator(ensure_csrf_cookie, name="dispatch")
+class ResendConfirmationView(APIView):
+    permission_classes = [AllowAny]
+    parser_classes = [JSONParser, PlainTextJSONParser]
+
+    def post(self, request):
+        from django.contrib.auth import get_user_model
+        from .models import UserProfile
+        from apps.future_wise.email_service import BrevoEmailService, BrevoDeliveryError
+
+        email = request.data.get("email", "").strip().lower()
+        if not email:
+            return Response({"error": "Email is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        UserModel = get_user_model()
+        # Try by email first, fall back to username (frontend may send either)
+        user = (
+            UserModel.objects.filter(email__iexact=email).first()
+            or UserModel.objects.filter(username__iexact=email).first()
+        )
+        if user is None:
+            # Return generic success to avoid user enumeration
+            return Response({"message": "Confirmation email resent."}, status=status.HTTP_200_OK)
+
+        profile, _ = UserProfile.objects.get_or_create(user=user)
+
+        if profile.email_confirmed:
+            return Response(
+                {"error": "This email address is already confirmed."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Generate a fresh token
+        token = secrets.token_urlsafe(32)
+        profile.email_confirmation_token = token
+        profile.email_confirmation_token_expires_at = timezone.now() + timezone.timedelta(hours=24)
+        profile.save(update_fields=["email_confirmation_token", "email_confirmation_token_expires_at"])
+
+        frontend_base = getattr(settings, "FRONTEND_BASE_URL", "https://www.guidewisey.com")
+        confirmation_url = f"{frontend_base}/confirm-email/{token}"
+        try:
+            BrevoEmailService().send_account_confirmation_email(user.email, confirmation_url)
+        except BrevoDeliveryError as exc:
+            logger.error("Failed to resend confirmation email to %s: %s", user.email, exc)
+        except Exception as exc:
+            logger.error("Unexpected error resending confirmation email to %s: %s", user.email, exc)
+
+        return Response({"message": "Confirmation email resent."}, status=status.HTTP_200_OK)
+

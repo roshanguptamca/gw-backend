@@ -52,7 +52,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "drf_spectacular",
     "drf_spectacular_sidecar",
-    "apps.accounts",
+    "apps.accounts.apps.AccountsConfig",
     "apps.doc_x",
     "apps.future_wise",
     "apps.insurance_explainer",
@@ -382,6 +382,7 @@ FUTUREWAVE_MAX_ATTACHMENT_BYTES = int(os.getenv("FUTUREWAVE_MAX_ATTACHMENT_BYTES
 FUTUREWAVE_MAX_ATTACHMENTS = int(os.getenv("FUTUREWAVE_MAX_ATTACHMENTS", 5))
 FUTUREWAVE_ATTACHMENT_PURGE_AFTER_SEND = os.getenv("FUTUREWAVE_ATTACHMENT_PURGE_AFTER_SEND", "true").lower() == "true"
 FUTUREWAVE_FRONTEND_BASE_URL = os.getenv("FUTUREWAVE_FRONTEND_BASE_URL", "https://www.guidewisey.com")
+FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", FUTUREWAVE_FRONTEND_BASE_URL)
 
 # ── Business rules ───────────────────────────────────────────
 # Max email reminders per day for free (non-superuser) users, counted per email address

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Confirm Your Email — GuideWisey</title>
+  <style>
+    body { margin: 0; padding: 0; background: #f4f7fa; font-family: 'Helvetica Neue', Arial, sans-serif; }
+    .wrapper { max-width: 600px; margin: 40px auto; background: #ffffff; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 32px; text-align: center; }
+    .header h1 { margin: 0; color: #fff; font-size: 26px; font-weight: 700; letter-spacing: -0.5px; }
+    .header p { margin: 8px 0 0; color: rgba(255,255,255,0.85); font-size: 14px; }
+    .body { padding: 40px 32px; color: #374151; }
+    .body p { line-height: 1.7; margin: 0 0 18px; font-size: 15px; }
+    .cta-wrapper { text-align: center; margin: 32px 0; }
+    .cta-btn {
+      display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #ffffff; text-decoration: none; padding: 14px 36px; border-radius: 50px;
+      font-size: 16px; font-weight: 600; letter-spacing: 0.3px;
+    }
+    .fallback { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 14px; margin: 20px 0; word-break: break-all; font-size: 13px; color: #6b7280; }
+    .footer { background: #f9fafb; border-top: 1px solid #e5e7eb; padding: 20px 32px; text-align: center; font-size: 12px; color: #9ca3af; }
+    .footer a { color: #667eea; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="header">
+      <h1>🔐 GuideWisey</h1>
+      <p>Confirm your account</p>
+    </div>
+    <div class="body">
+      <p>Hi there,</p>
+      <p>
+        Thanks for creating a <strong>GuideWisey</strong> account!
+        Please confirm your email address to activate your account and start using our services.
+      </p>
+      <div class="cta-wrapper">
+        <a href="{{ confirmation_url }}" class="cta-btn">✅ Confirm My Email</a>
+      </div>
+      <p>This link expires in <strong>24 hours</strong>. If you did not create an account, you can safely ignore this email.</p>
+      <p>If the button above doesn't work, copy and paste this link into your browser:</p>
+      <div class="fallback">{{ confirmation_url }}</div>
+    </div>
+    <div class="footer">
+      <p>© GuideWisey · <a href="https://www.guidewisey.com">guidewisey.com</a></p>
+      <p>You received this because <strong>{{ to_email }}</strong> was used to register an account.</p>
+    </div>
+  </div>
+</body>
+</html>

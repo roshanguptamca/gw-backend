@@ -45,6 +45,18 @@ class BrevoEmailService:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
+    def send_account_confirmation_email(self, to_email: str, confirmation_url: str) -> None:
+        """Send an account email-confirmation link after user registration."""
+        html = render_to_string(
+            "accounts/confirmation_email.html",
+            {"confirmation_url": confirmation_url, "to_email": to_email},
+        )
+        self._send(
+            to_email=to_email,
+            subject="Confirm your email — GuideWisey",
+            html=html,
+        )
+
     def send_verification_email(self, to_email: str, verification_url: str) -> None:
         """Send a one-click email-verification link to an anonymous user."""
         html = render_to_string(
