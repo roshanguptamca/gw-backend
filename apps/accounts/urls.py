@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import LoginView, LogoutView, RegisterView, MeView, csrf, session_view
+from .views import LoginView, LogoutView, RegisterView, MeView, csrf, session_view, confirm_email_view, ResendConfirmationView
 
 urlpatterns = [
     path("register/", RegisterView.as_view()),
@@ -8,4 +8,6 @@ urlpatterns = [
     path("me/", MeView.as_view(), name="me"),
     path("csrf/", csrf),
     path("session/", session_view, name="session"),
+    path("confirm-email/<str:token>/", confirm_email_view, name="confirm-email"),
+    path("resend-confirmation/", ResendConfirmationView.as_view(), name="resend-confirmation"),
 ]
