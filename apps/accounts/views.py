@@ -22,7 +22,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .serializers import UserRegistrationSerializer
+from .serializers import ChangePasswordSerializer, UserRegistrationSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -323,6 +323,70 @@ class MeView(APIView):
                 "last_name": user.last_name,
             }
         )
+
+
+# ------------------------------------------------------------------
+# CHANGE PASSWORD
+# ------------------------------------------------------------------
+@extend_schema(
+    tags=["Accounts"],
+    summary="Change password",
+    description=(
+        "Change the authenticated user's password. "
+        "Requires the current password for verification. "
+        "The session remains valid after the change."
+    ),
+    request=ChangePasswordSerializer,
+    responses={
+        200: inline_serializer(
+            "ChangePasswordResponse",
+            fields={"message": drf_serializers.CharField(default="Password changed successfully.")},
+        ),
+        400: inline_serializer(
+            "ChangePasswordErrorResponse",
+            fields={
+                "current_password": drf_serializers.ListField(child=drf_serializers.CharField(), required=False),
+                "new_password": drf_serializers.ListField(child=drf_serializers.CharField(), required=False),
+            },
+        ),
+        403: OpenApiResponse(description="Not authenticated"),
+    },
+    examples=[
+        OpenApiExample(
+            "Request",
+            value={"current_password": "OldPass123!", "new_password": "NewPass456!", "new_password2": "NewPass456!"},
+            request_only=True,
+        ),
+        OpenApiExample(
+            "Success",
+            value={"message": "Password changed successfully."},
+            response_only=True,
+            status_codes=["200"],
+        ),
+        OpenApiExample(
+            "Wrong current password",
+            value={"current_password": ["Current password is incorrect."]},
+            response_only=True,
+            status_codes=["400"],
+        ),
+    ],
+)
+@method_decorator(ensure_csrf_cookie, name="dispatch")
+class ChangePasswordView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser, PlainTextJSONParser]
+
+    def post(self, request):
+        from django.contrib.auth import update_session_auth_hash
+
+        serializer = ChangePasswordSerializer(data=request.data, context={"request": request})
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer.save()
+        # Keep the current session alive after password change
+        update_session_auth_hash(request, request.user)
+        return Response({"message": "Password changed successfully."}, status=status.HTTP_200_OK)
 
 
 @extend_schema(

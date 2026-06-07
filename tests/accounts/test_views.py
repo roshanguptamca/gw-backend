@@ -266,3 +266,61 @@ class AccountsAPITestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("message", response.data)
 
+    # ---------------------------
+    # Change password tests
+    # ---------------------------
+    def test_change_password_success(self):
+        """Authenticated user can change their password"""
+        self.client.login(username=self.user_data["username"], password=self.user_data["password"])
+        response = self.client.post(
+            "/api/accounts/change-password/",
+            {"current_password": "testpass123", "new_password": "NewPass456!", "new_password2": "NewPass456!"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("message", response.data)
+
+        # Verify new password works for login
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("NewPass456!"))
+
+    def test_change_password_wrong_current(self):
+        """Change password fails if current password is wrong"""
+        self.client.login(username=self.user_data["username"], password=self.user_data["password"])
+        response = self.client.post(
+            "/api/accounts/change-password/",
+            {"current_password": "wrongpassword", "new_password": "NewPass456!", "new_password2": "NewPass456!"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("current_password", response.data)
+
+    def test_change_password_mismatch(self):
+        """Change password fails if new passwords do not match"""
+        self.client.login(username=self.user_data["username"], password=self.user_data["password"])
+        response = self.client.post(
+            "/api/accounts/change-password/",
+            {"current_password": "testpass123", "new_password": "NewPass456!", "new_password2": "DifferentPass!"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_change_password_same_as_current(self):
+        """Change password fails if new password is same as current"""
+        self.client.login(username=self.user_data["username"], password=self.user_data["password"])
+        response = self.client.post(
+            "/api/accounts/change-password/",
+            {"current_password": "testpass123", "new_password": "testpass123", "new_password2": "testpass123"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_change_password_unauthenticated(self):
+        """Change password requires authentication"""
+        response = self.client.post(
+            "/api/accounts/change-password/",
+            {"current_password": "testpass123", "new_password": "NewPass456!", "new_password2": "NewPass456!"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
