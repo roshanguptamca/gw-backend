@@ -66,7 +66,9 @@ class EmailReminder(models.Model):
     )
 
     # ── Email & Verification ───────────────────────────────────────────────────
-    email = models.EmailField(db_index=True)
+    # blank=True / default="" allows non-email delivery methods (SMS, WhatsApp, etc.)
+    # to omit the email address without breaking the NOT NULL DB constraint.
+    email = models.EmailField(blank=True, default="", db_index=True)
     email_verified = models.BooleanField(default=False)
     verification_token = models.CharField(
         max_length=128,

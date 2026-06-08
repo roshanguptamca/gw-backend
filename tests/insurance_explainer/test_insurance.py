@@ -79,14 +79,16 @@ class InsuranceExplainTextTest(TestCase):
         )
         self.assertEqual(resp.status_code, 400)
 
-    def test_unauthenticated_returns_403(self):
+    def test_unauthenticated_allowed_with_free_limit(self):
+        """Anonymous users can now use the insurance explainer (3 free analyses)."""
         self.client.logout()
         resp = self.client.post(
             "/api/insurance/sessions/",
             data={"country": "Netherlands", "language": "English", "policy_text": POLICY_TEXT},
             format="json",
         )
-        self.assertIn(resp.status_code, [401, 403])
+        # Anonymous users are allowed — 401/403 should NOT be returned
+        self.assertNotIn(resp.status_code, [401, 403])
 
 
 class InsuranceSessionDetailTest(TestCase):

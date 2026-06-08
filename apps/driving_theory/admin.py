@@ -14,10 +14,11 @@ from .models import (
 
 @admin.register(DrivingTopic)
 class DrivingTopicAdmin(admin.ModelAdmin):
-    list_display = ("title", "slug", "icon", "order", "is_active", "created_at")
-    list_filter = ("is_active",)
+    list_display = ("title", "slug", "difficulty_level", "exam_weight", "icon", "order", "is_active", "created_at")
+    list_filter = ("is_active", "difficulty_level")
     search_fields = ("title", "slug")
     ordering = ("order",)
+    readonly_fields = ("created_at",)
 
 
 @admin.register(DrivingLesson)
@@ -30,7 +31,7 @@ class DrivingLessonAdmin(admin.ModelAdmin):
 
 @admin.register(DrivingLessonSection)
 class DrivingLessonSectionAdmin(admin.ModelAdmin):
-    list_display = ("title", "lesson", "order")
+    list_display = ("title", "lesson", "illustration_hint", "order")
     search_fields = ("title", "lesson__title")
     ordering = ("lesson__topic__order", "lesson__order", "order")
 
@@ -42,8 +43,8 @@ class DrivingQuestionOptionInline(admin.TabularInline):
 
 @admin.register(DrivingQuestion)
 class DrivingQuestionAdmin(admin.ModelAdmin):
-    list_display = ("question_text", "topic", "lesson", "difficulty", "points", "is_active")
-    list_filter = ("difficulty", "is_active", "topic")
+    list_display = ("question_text", "topic", "lesson", "difficulty", "question_type", "points", "is_active")
+    list_filter = ("difficulty", "is_active", "topic", "question_type")
     search_fields = ("question_text", "explanation", "topic__title")
     inlines = [DrivingQuestionOptionInline]
 

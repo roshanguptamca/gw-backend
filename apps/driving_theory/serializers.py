@@ -16,7 +16,10 @@ from .models import (
 class DrivingLessonSectionSerializer(serializers.ModelSerializer):
     class Meta:
         model = DrivingLessonSection
-        fields = ["id", "title", "content", "examples", "dutch_keywords", "order"]
+        fields = [
+            "id", "title", "content", "examples", "dutch_keywords",
+            "callout_boxes", "illustration_hint", "order",
+        ]
         read_only_fields = fields
 
 
@@ -37,7 +40,8 @@ class DrivingQuestionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DrivingQuestion
-        fields = ["id", "question_text", "explanation", "difficulty", "points", "options"]
+        fields = ["id", "question_text", "explanation", "difficulty", "question_type",
+                  "sign_hint", "image_url", "tags", "points", "options"]
         read_only_fields = fields
 
     def get_options(self, obj):
@@ -52,7 +56,11 @@ class DrivingLessonSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DrivingLesson
-        fields = ["id", "title", "summary", "difficulty", "estimated_minutes", "sections"]
+        fields = [
+            "id", "title", "summary", "difficulty", "estimated_minutes",
+            "learning_objectives", "exam_tips", "common_mistakes", "key_takeaways",
+            "sections",
+        ]
         read_only_fields = fields
 
 
@@ -75,7 +83,11 @@ class DrivingTopicListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DrivingTopic
-        fields = ["id", "slug", "title", "summary", "icon", "order", "question_count"]
+        fields = [
+            "id", "slug", "title", "summary", "icon", "color_theme",
+            "difficulty_level", "learning_objectives", "exam_weight",
+            "recommended_next", "order", "question_count",
+        ]
         read_only_fields = fields
 
 
@@ -85,16 +97,9 @@ class DrivingTopicDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = DrivingTopic
         fields = [
-            "id",
-            "slug",
-            "title",
-            "summary",
-            "dutch_terms",
-            "icon",
-            "order",
-            "is_active",
-            "created_at",
-            "lessons",
+            "id", "slug", "title", "summary", "dutch_terms", "icon",
+            "color_theme", "difficulty_level", "learning_objectives",
+            "exam_weight", "recommended_next", "order", "is_active", "created_at", "lessons",
         ]
         read_only_fields = fields
 

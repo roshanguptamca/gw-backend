@@ -13,7 +13,7 @@ from drf_spectacular.utils import (
 from guidewisey.decorators import question_limit
 from rest_framework import serializers as drf_serializers
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from services.ai import AIClient
 from services.gemini import GeminiClient
@@ -343,7 +343,7 @@ def ask(request, document, user_question_limit):
     ],
 )
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @question_limit(use_session=True)
 def process_text(request, document=None, user_question_limit=None):
     gemini = GeminiClient()
@@ -380,7 +380,7 @@ def process_text(request, document=None, user_question_limit=None):
         content=text,
         summary=explanation,
         processing_status="completed",
-        user=request.user,
+        user=request.user if request.user.is_authenticated else None,
         filename="pasted-text.txt",
         file_type="txt",
         file_size=len(text.encode("utf-8")),
@@ -388,7 +388,16 @@ def process_text(request, document=None, user_question_limit=None):
 
     Conversation.objects.create(document=doc, role="assistant", message=explanation)
 
-    return Response({"document_id": doc.id, "summary": explanation})
+    # Tell the frontend how many free uses remain (for anonymous users)
+    remaining = None
+    if not request.user.is_authenticated:
+        used = user_question_limit.count
+        remaining = max(0, 3 - used)
+
+    response_data = {"document_id": doc.id, "summary": explanation}
+    if remaining is not None:
+        response_data["remaining"] = remaining
+    return Response(response_data)
 
 
 @extend_schema(

@@ -324,3 +324,151 @@ class AccountsAPITestCase(TestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+
+    # ---------------------------
+    # Forgot password tests
+    # ---------------------------
+    @patch("apps.future_wise.email_service.BrevoEmailService.send_password_reset_email")
+    def test_forgot_password_sends_email_for_confirmed_account(self, mock_send):
+        """Forgot password sends a reset email for a confirmed account."""
+        response = self.client.post(
+            "/api/accounts/forgot-password/",
+            {"email": self.user_data["email"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("message", response.data)
+        mock_send.assert_called_once()
+
+        profile = UserProfile.objects.get(user=self.user)
+        self.assertIsNotNone(profile.password_reset_token)
+        self.assertIsNotNone(profile.password_reset_token_expires_at)
+
+    @patch("apps.future_wise.email_service.BrevoEmailService.send_password_reset_email")
+    def test_forgot_password_returns_400_for_unknown_email(self, mock_send):
+        """Forgot password returns 400 for unknown email (clear UX error)."""
+        response = self.client.post(
+            "/api/accounts/forgot-password/",
+            {"email": "nobody@nowhere.com"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("error", response.data)
+        mock_send.assert_not_called()
+
+    @patch("apps.future_wise.email_service.BrevoEmailService.send_password_reset_email")
+    def test_forgot_password_sends_for_unconfirmed_account(self, mock_send):
+        """Forgot password sends reset email even if account email is not yet confirmed."""
+        unconfirmed = User.objects.create_user(
+            username="notconfirmed2", email="notconfirmed2@example.com", password="pass12345"
+        )
+        profile, _ = UserProfile.objects.get_or_create(user=unconfirmed)
+        profile.email_confirmed = False
+        profile.save()
+
+        response = self.client.post(
+            "/api/accounts/forgot-password/",
+            {"email": "notconfirmed2@example.com"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        mock_send.assert_called_once()
+
+        profile.refresh_from_db()
+        self.assertIsNotNone(profile.password_reset_token)
+
+    # ---------------------------
+    # Reset password tests
+    # ---------------------------
+    def _set_reset_token(self, token, hours_from_now=1):
+        from django.utils import timezone
+        profile = UserProfile.objects.get(user=self.user)
+        profile.password_reset_token = token
+        profile.password_reset_token_expires_at = timezone.now() + timezone.timedelta(hours=hours_from_now)
+        profile.save()
+
+    def test_reset_password_success(self):
+        """Valid token allows password reset."""
+        self._set_reset_token("validresettoken123")
+        response = self.client.post(
+            "/api/accounts/reset-password/",
+            {"token": "validresettoken123", "new_password": "NewSecure@99", "new_password2": "NewSecure@99"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("message", response.data)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("NewSecure@99"))
+
+    def test_reset_password_clears_token_after_use(self):
+        """Token and expiry are cleared after a successful reset."""
+        self._set_reset_token("clearmetoken")
+        self.client.post(
+            "/api/accounts/reset-password/",
+            {"token": "clearmetoken", "new_password": "NewSecure@99", "new_password2": "NewSecure@99"},
+            format="json",
+        )
+        profile = UserProfile.objects.get(user=self.user)
+        self.assertIsNone(profile.password_reset_token)
+        self.assertIsNone(profile.password_reset_token_expires_at)
+
+    def test_reset_password_invalid_token(self):
+        """Invalid token returns 400."""
+        response = self.client.post(
+            "/api/accounts/reset-password/",
+            {"token": "doesnotexist", "new_password": "NewSecure@99", "new_password2": "NewSecure@99"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("error", response.data)
+
+    def test_reset_password_expired_token(self):
+        """Expired token returns 400."""
+        self._set_reset_token("expiredresettoken", hours_from_now=-1)
+        response = self.client.post(
+            "/api/accounts/reset-password/",
+            {"token": "expiredresettoken", "new_password": "NewSecure@99", "new_password2": "NewSecure@99"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("error", response.data)
+
+    def test_reset_password_mismatch(self):
+        """Mismatched passwords return 400 validation error."""
+        self._set_reset_token("mismatchtoken")
+        response = self.client.post(
+            "/api/accounts/reset-password/",
+            {"token": "mismatchtoken", "new_password": "NewSecure@99", "new_password2": "DifferentPass@99"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_reset_password_token_cannot_be_reused(self):
+        """After a successful reset the token cannot be used again."""
+        self._set_reset_token("oneusetoken")
+        self.client.post(
+            "/api/accounts/reset-password/",
+            {"token": "oneusetoken", "new_password": "NewSecure@99", "new_password2": "NewSecure@99"},
+            format="json",
+        )
+        response = self.client.post(
+            "/api/accounts/reset-password/",
+            {"token": "oneusetoken", "new_password": "AnotherPass@99", "new_password2": "AnotherPass@99"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_login_works_after_password_reset(self):
+        """User can log in with the new password after a successful reset."""
+        self._set_reset_token("loginafterreset")
+        self.client.post(
+            "/api/accounts/reset-password/",
+            {"token": "loginafterreset", "new_password": "FreshPass@2026", "new_password2": "FreshPass@2026"},
+            format="json",
+        )
+        response = self.client.post(
+            "/api/accounts/login/",
+            {"username": self.user_data["username"], "password": "FreshPass@2026"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
