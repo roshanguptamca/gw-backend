@@ -57,6 +57,7 @@ INSTALLED_APPS = [
     "apps.future_wise",
     "apps.insurance_explainer",
     "apps.contact",
+    "apps.driving_theory",
     "django_apscheduler",
 ]
 
