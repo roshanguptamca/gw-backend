@@ -13,7 +13,7 @@ def reverse_v3_questions(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("driving_theory", "0004_seed_v2_enhanced_content"),
+        ("driving_theory", "0006_v3_add_tags_image_url_topic_breakdown"),
     ]
 
     operations = [
