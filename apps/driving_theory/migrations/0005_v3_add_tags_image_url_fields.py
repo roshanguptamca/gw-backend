@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("driving_theory", "0003_add_enhanced_fields"),
+        ("driving_theory", "0004_seed_v2_enhanced_content"),
     ]
 
     operations = [
