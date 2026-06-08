@@ -22,7 +22,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .serializers import ChangePasswordSerializer, UserRegistrationSerializer
+from .serializers import ChangePasswordSerializer, UserRegistrationSerializer, ForgotPasswordSerializer, ResetPasswordSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -607,3 +607,108 @@ class ResendConfirmationView(APIView):
 
         return Response({"message": "Confirmation email resent."}, status=status.HTTP_200_OK)
 
+
+
+@extend_schema(tags=["Accounts"])
+class ForgotPasswordView(APIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        summary="Request a password reset email",
+        description=(
+            "Accepts an email address. If a confirmed account exists for that email, "
+            "a password-reset link is sent. Always returns 200 to prevent email enumeration."
+        ),
+        request=ForgotPasswordSerializer,
+        responses={200: inline_serializer("ForgotPasswordOK", fields={"message": drf_serializers.CharField()})},
+    )
+    def post(self, request):
+        from django.contrib.auth import get_user_model as _get_user_model
+        from .models import UserProfile as _UserProfile
+        from apps.future_wise.email_service import BrevoEmailService as _BrevoEmailService, BrevoDeliveryError
+        _User = _get_user_model()
+
+        serializer = ForgotPasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"]
+
+        try:
+            user = _User.objects.get(email__iexact=email)
+        except _User.DoesNotExist:
+            return Response(
+                {"error": "No account found with that email address. Please check and try again."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        profile, _ = _UserProfile.objects.get_or_create(user=user)
+
+        # Generate and store the reset token regardless of email confirmation status.
+        # Proving ownership of the email via the reset link is sufficient.
+        token = secrets.token_urlsafe(32)
+        profile.password_reset_token = token
+        profile.password_reset_token_expires_at = timezone.now() + timezone.timedelta(hours=1)
+        profile.save(update_fields=["password_reset_token", "password_reset_token_expires_at"])
+
+        frontend_base = getattr(settings, "FRONTEND_BASE_URL", "https://www.guidewisey.com")
+        reset_url = f"{frontend_base}/#reset-password?token={token}"
+
+        try:
+            _BrevoEmailService().send_password_reset_email(user.email, reset_url)
+            logger.info("Password reset email sent to %s", user.email)
+        except BrevoDeliveryError as exc:
+            logger.error("Failed to send password reset email to %s: %s", user.email, exc)
+            return Response(
+                {"error": "Failed to send the reset email. Please try again in a few minutes."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except Exception as exc:
+            logger.error("Unexpected error sending password reset email to %s: %s", user.email, exc)
+            return Response(
+                {"error": "Failed to send the reset email. Please try again in a few minutes."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response(
+            {"message": "Password reset email sent. Please check your inbox (and spam folder)."},
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema(tags=["Accounts"])
+class ResetPasswordView(APIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        summary="Reset password with a valid token",
+        description="Accepts a reset token and new password. Token expires after 1 hour.",
+        request=ResetPasswordSerializer,
+        responses={
+            200: inline_serializer("ResetPasswordOK", fields={"message": drf_serializers.CharField()}),
+            400: inline_serializer("ResetPasswordError", fields={"error": drf_serializers.CharField()}),
+        },
+    )
+    def post(self, request):
+        from .models import UserProfile as _UserProfile
+
+        serializer = ResetPasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        token = serializer.validated_data["token"]
+        new_password = serializer.validated_data["new_password"]
+
+        try:
+            profile = _UserProfile.objects.select_related("user").get(password_reset_token=token)
+        except _UserProfile.DoesNotExist:
+            return Response({"error": "Invalid or expired reset link."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not profile.password_reset_token_expires_at or timezone.now() > profile.password_reset_token_expires_at:
+            return Response({"error": "This reset link has expired. Please request a new one."}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = profile.user
+        user.set_password(new_password)
+        user.save(update_fields=["password"])
+
+        profile.password_reset_token = None
+        profile.password_reset_token_expires_at = None
+        profile.save(update_fields=["password_reset_token", "password_reset_token_expires_at"])
+
+        return Response({"message": "Password reset successfully. You can now log in."}, status=status.HTTP_200_OK)

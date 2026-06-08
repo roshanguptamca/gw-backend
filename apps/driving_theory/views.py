@@ -191,20 +191,63 @@ class MockTestStartView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        questions = list(
-            DrivingQuestion.objects.filter(is_active=True, topic__is_active=True).prefetch_related("options").order_by("?")[:25]
+        # --- Balanced topic selection ---
+        # Get recently used question IDs to avoid immediate repeats
+        recent_q_ids = set(
+            MockTestAnswer.objects.filter(attempt__user=request.user)
+            .values_list("question_id", flat=True)
         )
+
+        active_topics = list(DrivingTopic.objects.filter(is_active=True).order_by("order"))
+        questions_per_topic = max(1, 25 // max(len(active_topics), 1))
+        selected: list = []
+
+        for topic in active_topics:
+            pool = list(
+                DrivingQuestion.objects.filter(
+                    topic=topic, is_active=True, topic__is_active=True
+                )
+                .exclude(id__in=recent_q_ids)
+                .prefetch_related("options")
+                .order_by("?")[:questions_per_topic]
+            )
+            # Fall back to any question if not enough fresh ones
+            if len(pool) < questions_per_topic:
+                fallback = list(
+                    DrivingQuestion.objects.filter(topic=topic, is_active=True)
+                    .prefetch_related("options")
+                    .order_by("?")[: questions_per_topic - len(pool)]
+                )
+                pool += [q for q in fallback if q not in pool]
+            selected.extend(pool)
+
+        # Trim or top-up to exactly 25
+        import random as _random
+        _random.shuffle(selected)
+        if len(selected) > 25:
+            selected = selected[:25]
+        elif len(selected) < 25:
+            # Top-up with any remaining active questions
+            existing_ids = {q.id for q in selected}
+            extras = list(
+                DrivingQuestion.objects.filter(is_active=True, topic__is_active=True)
+                .exclude(id__in=existing_ids)
+                .prefetch_related("options")
+                .order_by("?")[: 25 - len(selected)]
+            )
+            selected.extend(extras)
+
         attempt = MockTestAttempt.objects.create(
             user=request.user,
             attempt_number=MockTestAttempt.objects.filter(user=request.user).count() + 1,
-            total_questions=len(questions),
+            total_questions=len(selected),
         )
-        attempt.questions.set(questions)
+        attempt.questions.set(selected)
         return Response(
             {
                 "attempt": MockTestAttemptSerializer(attempt).data,
                 "questions": DrivingQuestionSerializer(
-                    questions,
+                    selected,
                     many=True,
                     context={"hide_correct_answers": True},
                 ).data,
@@ -264,11 +307,33 @@ class MockTestSubmitView(APIView):
 
         total_questions = attempt.total_questions or len(question_ids)
         score = round((correct_answers / total_questions) * 100, 2) if total_questions else 0.0
+
+        # --- Per-topic breakdown ---
+        topic_breakdown: dict = {}
+        for question_id in question_ids:
+            answer_obj = MockTestAnswer.objects.filter(attempt=attempt, question_id=question_id).first()
+            try:
+                q = DrivingQuestion.objects.select_related("topic").get(pk=question_id)
+                slug = q.topic.slug
+            except DrivingQuestion.DoesNotExist:
+                continue
+            if slug not in topic_breakdown:
+                topic_breakdown[slug] = {"title": q.topic.title, "correct": 0, "total": 0}
+            topic_breakdown[slug]["total"] += 1
+            if answer_obj and answer_obj.is_correct:
+                topic_breakdown[slug]["correct"] += 1
+
+        # Mark weak topics (score < 60%)
+        for v in topic_breakdown.values():
+            v["score_pct"] = round(v["correct"] / v["total"] * 100) if v["total"] else 0
+            v["is_weak"] = v["score_pct"] < 60
+
         attempt.correct_answers = correct_answers
         attempt.score = score
         attempt.passed = score >= 70
         attempt.completed_at = timezone.now()
-        attempt.save(update_fields=["correct_answers", "score", "passed", "completed_at"])
+        attempt.topic_breakdown = topic_breakdown
+        attempt.save(update_fields=["correct_answers", "score", "passed", "completed_at", "topic_breakdown"])
 
         return Response(
             {
@@ -277,6 +342,7 @@ class MockTestSubmitView(APIView):
                 "passed": attempt.passed,
                 "correct_answers": correct_answers,
                 "total_questions": total_questions,
+                "topic_breakdown": topic_breakdown,
             }
         )
 
@@ -325,6 +391,16 @@ class MockTestResultView(APIView):
             )
 
         completed_attempts = MockTestAttempt.objects.filter(user=request.user, completed_at__isnull=False).count()
+
+        # Build weak topic recommendations
+        topic_breakdown = attempt.topic_breakdown or {}
+        weak_topics = [
+            {"slug": slug, "title": v["title"], "score_pct": v.get("score_pct", 0)}
+            for slug, v in topic_breakdown.items()
+            if v.get("is_weak")
+        ]
+        weak_topics.sort(key=lambda x: x["score_pct"])
+
         return Response(
             {
                 "id": attempt.id,
@@ -336,6 +412,8 @@ class MockTestResultView(APIView):
                 "total_questions": attempt.total_questions,
                 "correct_answers": attempt.correct_answers,
                 "attempts_remaining": max(0, 3 - completed_attempts),
+                "topic_breakdown": topic_breakdown,
+                "weak_topics": weak_topics,
                 "questions": questions,
             }
         )

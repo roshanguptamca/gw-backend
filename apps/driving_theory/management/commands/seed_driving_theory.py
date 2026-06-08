@@ -1,13 +1,6 @@
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from apps.driving_theory.models import (
-    DrivingLesson,
-    DrivingLessonSection,
-    DrivingQuestion,
-    DrivingQuestionOption,
-    DrivingTopic,
-)
 
 
 
@@ -3783,6 +3776,10 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **options):
+        from apps.driving_theory.models import (
+            DrivingLesson, DrivingLessonSection, DrivingQuestion,
+            DrivingQuestionOption, DrivingTopic,
+        )
         if options["clear"]:
             DrivingTopic.objects.all().delete()
             self.stdout.write("Cleared all driving theory data.")

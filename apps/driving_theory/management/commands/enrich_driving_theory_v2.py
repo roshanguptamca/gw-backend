@@ -18,14 +18,6 @@ Usage:
 
 from django.core.management.base import BaseCommand
 
-from apps.driving_theory.models import (
-    DrivingLesson,
-    DrivingLessonSection,
-    DrivingQuestion,
-    DrivingQuestionOption,
-    DrivingTopic,
-)
-
 # ---------------------------------------------------------------------------
 # V2 enrichment data for existing 12 topics
 # ---------------------------------------------------------------------------
@@ -967,26 +959,29 @@ class Command(BaseCommand):
     help = "Enrich existing Dutch driving theory data with V2 fields and add 3 new beginner topics."
 
     def handle(self, *args, **options):
+        from apps.driving_theory.models import (
+            DrivingLesson, DrivingLessonSection, DrivingQuestion,
+            DrivingQuestionOption, DrivingTopic,
+        )
+        # Store as instance vars so sub-methods can access
+        self.DrivingTopic = DrivingTopic
+        self.DrivingLesson = DrivingLesson
+        self.DrivingLessonSection = DrivingLessonSection
+        self.DrivingQuestion = DrivingQuestion
+        self.DrivingQuestionOption = DrivingQuestionOption
+
         self.stdout.write(self.style.HTTP_INFO("\n=== Dutch Driving Theory V2 Enrichment ===\n"))
 
-        # 1. Enrich existing 12 topics with new fields
         self._enrich_existing_topics()
-
-        # 2. Enrich lessons with new fields
         self._enrich_lessons()
-
-        # 3. Enrich sections with callout_boxes
         self._enrich_sections()
-
-        # 4. Enrich questions with question_type
         self._enrich_questions()
-
-        # 5. Add 3 new topics
         self._add_new_topics()
 
         self.stdout.write(self.style.SUCCESS("\n✅ V2 enrichment complete.\n"))
 
     def _enrich_existing_topics(self):
+        DrivingTopic = self.DrivingTopic
         self.stdout.write("\n[1/5] Enriching existing topic fields…")
         for slug, data in TOPIC_ENRICHMENTS.items():
             updated = DrivingTopic.objects.filter(slug=slug).update(
@@ -1001,6 +996,7 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.WARNING(f"  ⚠ Topic not found: {slug}"))
 
     def _enrich_lessons(self):
+        DrivingLesson = self.DrivingLesson
         self.stdout.write("\n[2/5] Enriching lesson fields…")
         for (topic_title_fragment, lesson_title), data in LESSON_ENRICHMENTS.items():
             lessons = DrivingLesson.objects.filter(
@@ -1019,6 +1015,7 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.WARNING(f"  ⚠ Lesson not found: {lesson_title}"))
 
     def _enrich_sections(self):
+        DrivingLessonSection = self.DrivingLessonSection
         self.stdout.write("\n[3/5] Enriching section callout_boxes…")
         for (section_title, subsection_title), data in SECTION_CALLOUTS.items():
             sections = DrivingLessonSection.objects.filter(
@@ -1035,6 +1032,7 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.WARNING(f"  ⚠ Section not found: {section_title} > {subsection_title}"))
 
     def _enrich_questions(self):
+        DrivingQuestion = self.DrivingQuestion
         self.stdout.write("\n[4/5] Enriching question types…")
         count = 0
         for question in DrivingQuestion.objects.all():
@@ -1051,6 +1049,11 @@ class Command(BaseCommand):
         self.stdout.write(f"  ✓ Updated {count} questions with appropriate types")
 
     def _add_new_topics(self):
+        DrivingTopic = self.DrivingTopic
+        DrivingLesson = self.DrivingLesson
+        DrivingLessonSection = self.DrivingLessonSection
+        DrivingQuestion = self.DrivingQuestion
+        DrivingQuestionOption = self.DrivingQuestionOption
         self.stdout.write("\n[5/5] Adding 3 new beginner topics…")
         for topic_data in NEW_TOPICS:
             topic, created = DrivingTopic.objects.update_or_create(

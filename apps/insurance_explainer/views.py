@@ -5,7 +5,7 @@ import os
 from django.http import Http404
 from rest_framework import status
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema, OpenApiExample
@@ -21,6 +21,30 @@ from .serializers import (
 from .services.gemini import InsuranceGeminiService
 
 logger = logging.getLogger(__name__)
+
+ANON_FREE_LIMIT = 3
+
+
+def _ensure_session(request):
+    """Ensure Django session exists and return session key."""
+    if not request.session.session_key:
+        request.session.create()
+    return request.session.session_key
+
+
+def _check_anon_insurance_limit(request):
+    """Returns (allowed: bool, used: int). Increments counter on each call."""
+    key = "insurance_anon_count"
+    count = request.session.get(key, 0)
+    if count >= ANON_FREE_LIMIT:
+        return False, count
+    request.session[key] = count + 1
+    request.session.modified = True
+    return True, count + 1
+
+
+def _get_anon_insurance_remaining(request):
+    return max(0, ANON_FREE_LIMIT - request.session.get("insurance_anon_count", 0))
 
 
 def _extract_text_from_file(file):
@@ -53,7 +77,7 @@ def _extract_text_from_file(file):
 class InsuranceExplainView(APIView):
     """POST/GET /api/insurance/sessions/"""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     @extend_schema(
@@ -62,7 +86,11 @@ class InsuranceExplainView(APIView):
         responses={200: InsuranceSessionListSerializer(many=True)},
     )
     def get(self, request):
-        sessions = InsuranceSession.objects.filter(user=request.user)
+        if request.user.is_authenticated:
+            sessions = InsuranceSession.objects.filter(user=request.user)
+        else:
+            sk = request.session.session_key or ""
+            sessions = InsuranceSession.objects.filter(anon_session_key=sk) if sk else InsuranceSession.objects.none()
         return Response(InsuranceSessionListSerializer(sessions, many=True).data)
 
     @extend_schema(
@@ -70,7 +98,8 @@ class InsuranceExplainView(APIView):
         summary="Analyse an insurance policy",
         description=(
             "Submit an insurance policy (text or file: PDF/DOCX/TXT) with country and language. "
-            "Returns structured AI analysis: coverage, gaps, risks, and action items."
+            "Returns structured AI analysis: coverage, gaps, risks, and action items. "
+            "Anonymous users get 3 free analyses per session."
         ),
         request=ExplainRequestSerializer,
         responses={201: InsuranceSessionSerializer},
@@ -88,6 +117,21 @@ class InsuranceExplainView(APIView):
         ],
     )
     def post(self, request):
+        # Anonymous free limit check
+        anon_session_key = None
+        if not request.user.is_authenticated:
+            anon_session_key = _ensure_session(request)
+            allowed, used = _check_anon_insurance_limit(request)
+            if not allowed:
+                return Response(
+                    {
+                        "error": "free_limit_reached",
+                        "message": f"You've used all {ANON_FREE_LIMIT} free analyses. Create a free account to continue.",
+                        "remaining": 0,
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
         serializer = ExplainRequestSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -120,7 +164,8 @@ class InsuranceExplainView(APIView):
             )
 
         session = InsuranceSession.objects.create(
-            user=request.user,
+            user=request.user if request.user.is_authenticated else None,
+            anon_session_key=anon_session_key,
             country=country,
             language=language,
             provider_url=provider_url,
@@ -148,17 +193,24 @@ class InsuranceExplainView(APIView):
             )
 
         session.save()
-        return Response(InsuranceSessionSerializer(session).data, status=status.HTTP_201_CREATED)
+        data = InsuranceSessionSerializer(session).data
+        if not request.user.is_authenticated:
+            data["remaining"] = _get_anon_insurance_remaining(request)
+        return Response(data, status=status.HTTP_201_CREATED)
 
 
 class InsuranceSessionDetailView(APIView):
     """GET/DELETE /api/insurance/sessions/<pk>/"""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def _get_session(self, request, pk):
         try:
-            return InsuranceSession.objects.get(pk=pk, user=request.user)
+            if request.user.is_authenticated:
+                return InsuranceSession.objects.get(pk=pk, user=request.user)
+            else:
+                sk = request.session.session_key or ""
+                return InsuranceSession.objects.get(pk=pk, anon_session_key=sk)
         except InsuranceSession.DoesNotExist:
             raise Http404
 
@@ -183,7 +235,7 @@ class InsuranceSessionDetailView(APIView):
 class InsuranceChatView(APIView):
     """POST /api/insurance/sessions/<pk>/chat/"""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     @extend_schema(
         tags=["Insurance Explainer"],
@@ -208,7 +260,11 @@ class InsuranceChatView(APIView):
     )
     def post(self, request, pk):
         try:
-            session = InsuranceSession.objects.get(pk=pk, user=request.user)
+            if request.user.is_authenticated:
+                session = InsuranceSession.objects.get(pk=pk, user=request.user)
+            else:
+                sk = request.session.session_key or ""
+                session = InsuranceSession.objects.get(pk=pk, anon_session_key=sk)
         except InsuranceSession.DoesNotExist:
             raise Http404
 
@@ -248,7 +304,7 @@ class InsuranceChatView(APIView):
 class InsuranceMessagesView(APIView):
     """GET /api/insurance/sessions/<pk>/messages/"""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     @extend_schema(
         tags=["Insurance Explainer"],
@@ -257,7 +313,11 @@ class InsuranceMessagesView(APIView):
     )
     def get(self, request, pk):
         try:
-            session = InsuranceSession.objects.get(pk=pk, user=request.user)
+            if request.user.is_authenticated:
+                session = InsuranceSession.objects.get(pk=pk, user=request.user)
+            else:
+                sk = request.session.session_key or ""
+                session = InsuranceSession.objects.get(pk=pk, anon_session_key=sk)
         except InsuranceSession.DoesNotExist:
             raise Http404
         messages = session.messages.all()

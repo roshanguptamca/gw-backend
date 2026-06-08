@@ -11,7 +11,8 @@ class InsuranceSession(models.Model):
         COMPLETED = "ins_completed", "Completed"
         FAILED = "ins_failed", "Failed"
 
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="insurance_sessions")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="insurance_sessions", null=True, blank=True)
+    anon_session_key = models.CharField(max_length=64, blank=True, null=True, db_index=True)
 
     # Context inputs
     country = models.CharField(max_length=100, default="International")

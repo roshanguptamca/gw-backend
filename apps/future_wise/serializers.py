@@ -41,7 +41,7 @@ class CreateReminderSerializer(serializers.Serializer):
     Also accepts multi-channel delivery options.
     """
 
-    email = serializers.EmailField()
+    email = serializers.EmailField(required=False, allow_blank=True, default="")
     subject = serializers.CharField(max_length=250)
     message = serializers.CharField()
     scheduled_at = serializers.DateTimeField()
@@ -92,6 +92,14 @@ class CreateReminderSerializer(serializers.Serializer):
     def validate(self, data: dict) -> dict:
         channels = data.get("channels") or []
         phone_channels = {"sms", "voice", "whatsapp"}
+
+        # Email is required only when the email channel is selected (or no channel specified)
+        if not channels or "email" in channels:
+            if not data.get("email"):
+                raise serializers.ValidationError(
+                    {"email": "An email address is required for email delivery."}
+                )
+
         if phone_channels & set(channels) and not data.get("phone_number"):
             raise serializers.ValidationError(
                 {"phone_number": "A phone number is required for SMS, Voice, or WhatsApp channels."}

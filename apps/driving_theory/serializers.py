@@ -40,7 +40,8 @@ class DrivingQuestionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DrivingQuestion
-        fields = ["id", "question_text", "explanation", "difficulty", "question_type", "sign_hint", "points", "options"]
+        fields = ["id", "question_text", "explanation", "difficulty", "question_type",
+                  "sign_hint", "image_url", "tags", "points", "options"]
         read_only_fields = fields
 
     def get_options(self, obj):
@@ -85,7 +86,7 @@ class DrivingTopicListSerializer(serializers.ModelSerializer):
         fields = [
             "id", "slug", "title", "summary", "icon", "color_theme",
             "difficulty_level", "learning_objectives", "exam_weight",
-            "order", "question_count",
+            "recommended_next", "order", "question_count",
         ]
         read_only_fields = fields
 
@@ -98,7 +99,7 @@ class DrivingTopicDetailSerializer(serializers.ModelSerializer):
         fields = [
             "id", "slug", "title", "summary", "dutch_terms", "icon",
             "color_theme", "difficulty_level", "learning_objectives",
-            "exam_weight", "order", "is_active", "created_at", "lessons",
+            "exam_weight", "recommended_next", "order", "is_active", "created_at", "lessons",
         ]
         read_only_fields = fields
 

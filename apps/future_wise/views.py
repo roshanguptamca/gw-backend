@@ -215,15 +215,20 @@ class ReminderListCreateView(APIView):
         if not body_serializer.is_valid():
             return Response(body_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        email = body_serializer.validated_data["email"]
+        email = body_serializer.validated_data.get("email", "")
         ip = _get_client_ip(request)
+        channels = body_serializer.validated_data.get("channels") or []
+        is_email_channel = not channels or "email" in channels
+        # Methods other than email are beta — store request but don't attempt delivery
+        is_beta_channel = bool(channels) and not is_email_channel
 
         # 2. Daily free-user rate-limit check (3 reminders/day per email; superusers exempt)
-        if not check_daily_reminder_limit(email, user=request.user):
-            return Response(
-                {"detail": "Free email reminder limit reached. You can create up to 3 email reminders per day."},
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
+        if is_email_channel and email:
+            if not check_daily_reminder_limit(email, user=request.user):
+                return Response(
+                    {"detail": "Free email reminder limit reached. You can create up to 3 email reminders per day."},
+                    status=status.HTTP_429_TOO_MANY_REQUESTS,
+                )
 
         # 3. Validate attachments (if any)
         files = request.FILES.getlist("attachments")
@@ -240,7 +245,7 @@ class ReminderListCreateView(APIView):
         reminder = EmailReminder(
             user=request.user if is_auth else None,
             email=email,
-            email_verified=is_auth,  # skip verification for registered users
+            email_verified=is_auth or is_beta_channel,  # skip verification for registered users & beta channels
             verification_token=token,
             verification_token_expires_at=EmailReminder.make_token_expiry(),
             subject=body_serializer.validated_data["subject"],
@@ -250,8 +255,8 @@ class ReminderListCreateView(APIView):
             letter_type=body_serializer.validated_data.get("letter_type", EmailReminder.LetterType.FUTURE_SELF),
             phone_number=body_serializer.validated_data.get("phone_number", ""),
             telegram_chat_id=body_serializer.validated_data.get("telegram_chat_id", ""),
-            channels_requested=",".join(body_serializer.validated_data.get("channels") or ["email"]),
-            status=(EmailReminder.Status.SCHEDULED if is_auth else EmailReminder.Status.PENDING_VERIFICATION),
+            channels_requested=",".join(channels or ["email"]),
+            status=(EmailReminder.Status.SCHEDULED if (is_auth or is_beta_channel) else EmailReminder.Status.PENDING_VERIFICATION),
         )
         reminder.save()
 
@@ -274,8 +279,8 @@ class ReminderListCreateView(APIView):
                 att.s3_key = storage_key  # keep legacy field in sync
                 att.save(update_fields=["storage_key", "s3_key", "file_data"])
 
-        # 6. Send verification email for anonymous users
-        if not is_auth:
+        # 6. Send verification email for anonymous email-channel users
+        if not is_auth and is_email_channel and email:
             try:
                 verification_url = _build_verification_url(token)
                 BrevoEmailService().send_verification_email(email, verification_url)
@@ -287,13 +292,23 @@ class ReminderListCreateView(APIView):
                     status=status.HTTP_503_SERVICE_UNAVAILABLE,
                 )
 
-        log_action(email, ip, "create_reminder")
+        if is_email_channel and email:
+            log_action(email, ip, "create_reminder")
 
         serializer = ReminderDetailSerializer(reminder)
         http_status = status.HTTP_201_CREATED
         response_data = serializer.data
 
-        if not is_auth:
+        if is_beta_channel:
+            response_data = {
+                **response_data,
+                "status": "beta_request_stored",
+                "detail": (
+                    "Your reminder has been saved! This delivery method is currently in beta. "
+                    "We'll notify you by email when it becomes available."
+                ),
+            }
+        elif not is_auth:
             response_data = {
                 **response_data,
                 "detail": ("Reminder created. Please check your email to verify and confirm your reminder."),

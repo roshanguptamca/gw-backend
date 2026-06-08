@@ -57,6 +57,18 @@ class BrevoEmailService:
             html=html,
         )
 
+    def send_password_reset_email(self, to_email: str, reset_url: str) -> None:
+        """Send a password-reset link to the user."""
+        html = render_to_string(
+            "accounts/password_reset_email.html",
+            {"reset_url": reset_url, "to_email": to_email},
+        )
+        self._send(
+            to_email=to_email,
+            subject="Reset your password — GuideWisey",
+            html=html,
+        )
+
     def send_verification_email(self, to_email: str, verification_url: str) -> None:
         """Send a one-click email-verification link to an anonymous user."""
         html = render_to_string(

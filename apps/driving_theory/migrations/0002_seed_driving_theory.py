@@ -21,7 +21,7 @@ def unseed_data(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("driving_theory", "0003_add_enhanced_fields"),
+        ("driving_theory", "0006_v3_add_tags_image_url_topic_breakdown"),
     ]
 
     operations = [
