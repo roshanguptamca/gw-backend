@@ -36,6 +36,11 @@ _NO_SCHEDULER_COMMANDS = frozenset(
         "showmigrations",
         "sqlmigrate",
         "dbshell",
+        "translate_questions_nl",
+        "seed_nl_questions",
+        "seed_driving_theory",
+        "seed_v3_questions",
+        "seed_nl_driving_content",
     }
 )
 

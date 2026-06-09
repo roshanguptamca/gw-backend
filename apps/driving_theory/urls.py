@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    AnonMockTestSubmitView,
     LessonDetailView,
     MockTestResultView,
     MockTestStartView,
@@ -20,6 +21,7 @@ urlpatterns = [
     path("lessons/<int:pk>/", LessonDetailView.as_view(), name="lesson-detail"),
     path("progress/", ProgressView.as_view(), name="progress"),
     path("mock-tests/start/", MockTestStartView.as_view(), name="mock-test-start"),
+    path("mock-tests/anon-submit/", AnonMockTestSubmitView.as_view(), name="mock-test-anon-submit"),
     path("mock-tests/<int:pk>/submit/", MockTestSubmitView.as_view(), name="mock-test-submit"),
     path("mock-tests/<int:pk>/result/", MockTestResultView.as_view(), name="mock-test-result"),
 ]

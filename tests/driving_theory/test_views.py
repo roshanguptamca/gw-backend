@@ -21,42 +21,64 @@ class DrivingTheoryViewsTest(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.user = User.objects.create_user(username="driver", email="driver@example.com", password="pass1234")
-        cls.topic, _ = DrivingTopic.objects.get_or_create(
+        cls.topic, _ = DrivingTopic.objects.update_or_create(
             slug="traffic-signs",
             defaults={
                 "title": "Verkeersborden",
+                "title_nl": "Verkeersborden NL",
                 "summary": "Learn the most common Dutch traffic signs.",
+                "summary_nl": "Leer de meest voorkomende Nederlandse verkeersborden.",
                 "dutch_terms": [{"term": "verbodsbord", "meaning": "prohibition sign"}],
                 "order": 1,
             },
         )
-        cls.lesson, _ = DrivingLesson.objects.get_or_create(
+        cls.lesson, _ = DrivingLesson.objects.update_or_create(
             topic=cls.topic,
             title="Traffic signs basics",
             defaults={
+                "title_nl": "Basis verkeersborden",
                 "summary": "Understand shapes, colours, and sign priorities.",
+                "summary_nl": "Begrijp vormen, kleuren en voorrang van borden.",
+                "learning_objectives": ["Recognise sign categories."],
+                "learning_objectives_nl": ["Verkeersbordcategorieën herkennen."],
+                "exam_tips": ["Pay attention to shape first."],
+                "exam_tips_nl": ["Let eerst op de vorm van het bord."],
+                "common_mistakes": ["Ignoring temporary signs."],
+                "common_mistakes_nl": ["Tijdelijke borden negeren."],
+                "key_takeaways": ["Use colour and shape together."],
+                "key_takeaways_nl": ["Gebruik kleur en vorm samen."],
                 "difficulty": "easy",
                 "estimated_minutes": 12,
                 "order": 1,
             },
         )
-        DrivingLessonSection.objects.get_or_create(
+        DrivingLessonSection.objects.update_or_create(
             lesson=cls.lesson,
             title="Shapes and colours",
             defaults={
                 "content": "Round red signs prohibit, blue signs instruct, and triangles warn.",
+                "title_nl": "Vormen en kleuren",
+                "content_nl": "Ronde rode borden verbieden, blauwe borden gebieden en driehoeken waarschuwen.",
                 "examples": ["A red circle often bans an action."],
+                "examples_nl": ["Een rode cirkel verbiedt vaak een handeling."],
                 "dutch_keywords": ["verbodsbord", "waarschuwingsbord"],
+                "callout_boxes": [{"type": "remember", "text": "Check the border colour first."}],
+                "callout_boxes_nl": [{"type": "remember", "text": "Controleer eerst de randkleur."}],
                 "order": 1,
             },
         )
-        DrivingLessonSection.objects.get_or_create(
+        DrivingLessonSection.objects.update_or_create(
             lesson=cls.lesson,
             title="Reading context",
             defaults={
                 "content": "Always combine the sign meaning with the road layout and traffic around you.",
+                "title_nl": "Context lezen",
+                "content_nl": "Combineer de betekenis van het bord altijd met de weginrichting en het verkeer om je heen.",
                 "examples": ["A sign can be repeated after a junction."],
+                "examples_nl": ["Een bord kan na een kruispunt worden herhaald."],
                 "dutch_keywords": ["onderbord", "rijstrook"],
+                "callout_boxes": [{"type": "tip", "text": "Read the full road scene."}],
+                "callout_boxes_nl": [{"type": "tip", "text": "Lees het volledige verkeersbeeld."}],
                 "order": 2,
             },
         )
@@ -67,7 +89,9 @@ class DrivingTheoryViewsTest(TestCase):
                 topic=cls.topic,
                 lesson=cls.lesson,
                 question_text=f"Practice question {idx}?",
+                question_text_nl=f"Oefenvraag {idx}?",
                 explanation=f"Explanation for question {idx}.",
+                explanation_nl=f"Uitleg voor vraag {idx}.",
                 difficulty=1 if idx <= 10 else 2 if idx <= 20 else 3,
                 points=1,
             )
@@ -76,6 +100,7 @@ class DrivingTheoryViewsTest(TestCase):
                 option = DrivingQuestionOption.objects.create(
                     question=question,
                     option_text=f"Question {idx} option {option_idx}",
+                    option_text_nl=f"Vraag {idx} optie {option_idx}",
                     is_correct=option_idx == 1,
                     order=option_idx,
                 )
@@ -94,11 +119,43 @@ class DrivingTheoryViewsTest(TestCase):
         slugs = [t["slug"] for t in response.data]
         self.assertIn(self.topic.slug, slugs)
 
+    def test_get_topics_returns_nl_content_when_requested(self):
+        response = self.client.get("/api/driving/topics/?lang=nl")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        topic = next(item for item in response.data if item["slug"] == self.topic.slug)
+        self.assertEqual(topic["title"], self.topic.title_nl)
+        self.assertEqual(topic["summary"], self.topic.summary_nl)
+
     def test_get_topic_detail_returns_lessons(self):
         response = self.client.get(f"/api/driving/topics/{self.topic.slug}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["slug"], self.topic.slug)
         self.assertGreaterEqual(len(response.data["lessons"]), 1)
+
+    def test_get_lesson_detail_returns_nl_content_when_requested(self):
+        response = self.client.get(f"/api/driving/lessons/{self.lesson.id}/?lang=nl")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["title"], self.lesson.title_nl)
+        self.assertEqual(response.data["summary"], self.lesson.summary_nl)
+        self.assertEqual(response.data["learning_objectives"], self.lesson.learning_objectives_nl)
+        self.assertEqual(response.data["exam_tips"], self.lesson.exam_tips_nl)
+        self.assertEqual(response.data["common_mistakes"], self.lesson.common_mistakes_nl)
+        self.assertEqual(response.data["key_takeaways"], self.lesson.key_takeaways_nl)
+        self.assertEqual(response.data["sections"][0]["title"], "Vormen en kleuren")
+        self.assertEqual(
+            response.data["sections"][0]["content"],
+            "Ronde rode borden verbieden, blauwe borden gebieden en driehoeken waarschuwen.",
+        )
+        self.assertEqual(response.data["sections"][0]["examples"], ["Een rode cirkel verbiedt vaak een handeling."])
+        self.assertEqual(
+            response.data["sections"][0]["callout_boxes"],
+            [{"type": "remember", "text": "Controleer eerst de randkleur."}],
+        )
+        question = DrivingQuestion.objects.get(pk=response.data["questions"][0]["id"])
+        self.assertEqual(response.data["questions"][0]["question_text"], question.question_text_nl)
+        self.assertEqual(response.data["questions"][0]["explanation"], question.explanation_nl)
+        option = DrivingQuestionOption.objects.get(pk=response.data["questions"][0]["options"][0]["id"])
+        self.assertEqual(response.data["questions"][0]["options"][0]["option_text"], option.option_text_nl)
 
     def test_get_lesson_detail_returns_sections_and_questions(self):
         response = self.client.get(f"/api/driving/lessons/{self.lesson.id}/")
@@ -210,9 +267,12 @@ class DrivingTheoryViewsTest(TestCase):
         self.assertFalse(response.data["passed"])
 
     def test_start_mock_test_unauthenticated(self):
-        """Unauthenticated request to start a mock test is rejected."""
+        """Unauthenticated request can start a mock test without creating an attempt."""
         response = self.client.post("/api/driving/mock-tests/start/", {}, format="json")
-        self.assertIn(response.status_code, [401, 403])
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(response.data["attempt"])
+        self.assertEqual(len(response.data["questions"]), 25)
+        self.assertEqual(MockTestAttempt.objects.count(), 0)
 
     def test_in_progress_attempts_do_not_count_toward_limit(self):
         """An unsubmitted (in-progress) attempt does not reduce the 3-test allowance."""

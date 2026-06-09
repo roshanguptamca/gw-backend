@@ -5,6 +5,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
 logger = logging.getLogger(__name__)
@@ -26,12 +27,12 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 
     def validate_email(self, value):
         if User.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError("An account with this email address already exists.")
+            raise serializers.ValidationError(_("An account with this email address already exists."))
         return value
 
     def validate(self, attrs):
         if attrs["password"] != attrs["password2"]:
-            raise serializers.ValidationError({"password": "Passwords must match"})
+            raise serializers.ValidationError({"password": _("Passwords must match")})
         return attrs
 
     def create(self, validated_data):
@@ -78,14 +79,14 @@ class ChangePasswordSerializer(serializers.Serializer):
     def validate_current_password(self, value):
         user = self.context["request"].user
         if not user.check_password(value):
-            raise serializers.ValidationError("Current password is incorrect.")
+            raise serializers.ValidationError(_("Current password is incorrect."))
         return value
 
     def validate(self, attrs):
         if attrs["new_password"] != attrs["new_password2"]:
-            raise serializers.ValidationError({"new_password": "New passwords must match."})
+            raise serializers.ValidationError({"new_password": _("New passwords must match.")})
         if attrs["current_password"] == attrs["new_password"]:
-            raise serializers.ValidationError({"new_password": "New password must differ from current password."})
+            raise serializers.ValidationError({"new_password": _("New password must differ from current password.")})
         return attrs
 
     def save(self, **kwargs):
@@ -107,5 +108,5 @@ class ResetPasswordSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         if attrs["new_password"] != attrs["new_password2"]:
-            raise serializers.ValidationError({"new_password": "Passwords must match."})
+            raise serializers.ValidationError({"new_password": _("Passwords must match.")})
         return attrs
