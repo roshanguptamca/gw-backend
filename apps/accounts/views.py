@@ -5,8 +5,9 @@ from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.http import JsonResponse
 from django.middleware.csrf import get_token
-from django.utils import timezone
+from django.utils import timezone, translation
 from django.utils.decorators import method_decorator
+from django.utils.translation import gettext_lazy as _
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from drf_spectacular.utils import (
     extend_schema,
@@ -22,6 +23,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .models import LANGUAGE_CHOICES
 from .serializers import ChangePasswordSerializer, UserRegistrationSerializer, ForgotPasswordSerializer, ResetPasswordSerializer
 
 logger = logging.getLogger(__name__)
@@ -72,7 +74,7 @@ def csrf(request):
     """
     csrf_token = get_token(request)
 
-    response = JsonResponse({"detail": "CSRF cookie set", "csrfToken": csrf_token})
+    response = JsonResponse({"detail": str(_("CSRF cookie set")), "csrfToken": csrf_token})
 
     # Explicitly set cookie with correct settings for production
     response.set_cookie(
@@ -148,7 +150,7 @@ class RegisterView(APIView):
         serializer = UserRegistrationSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
-            return Response({"message": "User created", "id": user.id}, status=status.HTTP_201_CREATED)
+            return Response({"message": str(_("User created")), "id": user.id}, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -226,21 +228,26 @@ class LoginView(APIView):
         user = authenticate(request, username=username, password=password)
 
         if not user:
-            return Response({"error": "Invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response({"error": str(_("Invalid credentials"))}, status=status.HTTP_401_UNAUTHORIZED)
 
         # Block login if email is not confirmed
         profile = getattr(user, "profile", None)
         if profile is not None and not profile.email_confirmed:
             return Response(
                 {
-                    "error": "Your email confirmation is pending. Please check your inbox and confirm your email before logging in.",
+                    "error": str(_("Your email confirmation is pending. Please check your inbox and confirm your email before logging in.")),
                     "code": "EMAIL_CONFIRMATION_PENDING",
                 },
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
         login(request, user)
-        return Response({"message": "Logged in"}, status=status.HTTP_200_OK)
+
+        preferred_language = profile.preferred_language if profile else "en"
+        return Response(
+            {"message": str(_("Logged in")), "preferred_language": preferred_language},
+            status=status.HTTP_200_OK,
+        )
 
 
 # ------------------------------------------------------------------
@@ -270,7 +277,7 @@ class LoginView(APIView):
 class LogoutView(APIView):
     def post(self, request):
         logout(request)
-        return Response({"message": "Logged out"}, status=status.HTTP_200_OK)
+        return Response({"message": str(_("Logged out"))}, status=status.HTTP_200_OK)
 
 
 # ------------------------------------------------------------------
@@ -314,6 +321,8 @@ class MeView(APIView):
     @csrf_exempt
     def get(self, request):
         user = request.user
+        profile = getattr(user, "profile", None)
+        preferred_language = profile.preferred_language if profile else "en"
         return Response(
             {
                 "id": user.id,
@@ -321,6 +330,7 @@ class MeView(APIView):
                 "email": user.email,
                 "first_name": user.first_name,
                 "last_name": user.last_name,
+                "preferred_language": preferred_language,
             }
         )
 
@@ -386,7 +396,7 @@ class ChangePasswordView(APIView):
         serializer.save()
         # Keep the current session alive after password change
         update_session_auth_hash(request, request.user)
-        return Response({"message": "Password changed successfully."}, status=status.HTTP_200_OK)
+        return Response({"message": str(_("Password changed successfully."))}, status=status.HTTP_200_OK)
 
 
 @extend_schema(
@@ -438,6 +448,8 @@ def session_view(request):
     Called on page load, must work without CSRF token.
     """
     if request.user.is_authenticated:
+        profile = getattr(request.user, "profile", None)
+        preferred_language = profile.preferred_language if profile else "en"
         return Response(
             {
                 "authenticated": True,
@@ -445,6 +457,7 @@ def session_view(request):
                     "id": request.user.id,
                     "username": request.user.username,
                     "email": request.user.email,
+                    "preferred_language": preferred_language,
                 },
             }
         )
@@ -500,13 +513,13 @@ def confirm_email_view(request, token):
         profile = UserProfile.objects.select_related("user").get(email_confirmation_token=token)
     except UserProfile.DoesNotExist:
         return Response(
-            {"error": "This confirmation link is invalid or has expired."},
+            {"error": str(_("This confirmation link is invalid or has expired."))},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     if profile.email_confirmation_token_expires_at is None or timezone.now() > profile.email_confirmation_token_expires_at:
         return Response(
-            {"error": "This confirmation link is invalid or has expired."},
+            {"error": str(_("This confirmation link is invalid or has expired."))},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -515,7 +528,7 @@ def confirm_email_view(request, token):
     profile.email_confirmation_token_expires_at = None
     profile.save(update_fields=["email_confirmed", "email_confirmation_token", "email_confirmation_token_expires_at"])
 
-    return Response({"message": "Email confirmed successfully."}, status=status.HTTP_200_OK)
+    return Response({"message": str(_("Email confirmed successfully."))}, status=status.HTTP_200_OK)
 
 
 # ------------------------------------------------------------------
@@ -570,7 +583,7 @@ class ResendConfirmationView(APIView):
 
         email = request.data.get("email", "").strip().lower()
         if not email:
-            return Response({"error": "Email is required."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": str(_("Email is required."))}, status=status.HTTP_400_BAD_REQUEST)
 
         UserModel = get_user_model()
         # Try by email first, fall back to username (frontend may send either)
@@ -580,13 +593,12 @@ class ResendConfirmationView(APIView):
         )
         if user is None:
             # Return generic success to avoid user enumeration
-            return Response({"message": "Confirmation email resent."}, status=status.HTTP_200_OK)
+            return Response({"message": str(_("Confirmation email resent."))}, status=status.HTTP_200_OK)
 
-        profile, _ = UserProfile.objects.get_or_create(user=user)
-
+        profile, _created = UserProfile.objects.get_or_create(user=user)
         if profile.email_confirmed:
             return Response(
-                {"error": "This email address is already confirmed."},
+                {"error": str(_("This email address is already confirmed."))},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -605,7 +617,7 @@ class ResendConfirmationView(APIView):
         except Exception as exc:
             logger.error("Unexpected error resending confirmation email to %s: %s", user.email, exc)
 
-        return Response({"message": "Confirmation email resent."}, status=status.HTTP_200_OK)
+        return Response({"message": str(_("Confirmation email resent."))}, status=status.HTTP_200_OK)
 
 
 
@@ -636,13 +648,11 @@ class ForgotPasswordView(APIView):
             user = _User.objects.get(email__iexact=email)
         except _User.DoesNotExist:
             return Response(
-                {"error": "No account found with that email address. Please check and try again."},
+                {"error": str(_("No account found with that email address. Please check and try again."))},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        profile, _ = _UserProfile.objects.get_or_create(user=user)
-
-        # Generate and store the reset token regardless of email confirmation status.
+        profile, _created = _UserProfile.objects.get_or_create(user=user)
         # Proving ownership of the email via the reset link is sufficient.
         token = secrets.token_urlsafe(32)
         profile.password_reset_token = token
@@ -658,18 +668,18 @@ class ForgotPasswordView(APIView):
         except BrevoDeliveryError as exc:
             logger.error("Failed to send password reset email to %s: %s", user.email, exc)
             return Response(
-                {"error": "Failed to send the reset email. Please try again in a few minutes."},
+                {"error": str(_("Failed to send the reset email. Please try again in a few minutes."))},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         except Exception as exc:
             logger.error("Unexpected error sending password reset email to %s: %s", user.email, exc)
             return Response(
-                {"error": "Failed to send the reset email. Please try again in a few minutes."},
+                {"error": str(_("Failed to send the reset email. Please try again in a few minutes."))},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
         return Response(
-            {"message": "Password reset email sent. Please check your inbox (and spam folder)."},
+            {"message": str(_("Password reset email sent. Please check your inbox (and spam folder)."))},
             status=status.HTTP_200_OK,
         )
 
@@ -698,10 +708,10 @@ class ResetPasswordView(APIView):
         try:
             profile = _UserProfile.objects.select_related("user").get(password_reset_token=token)
         except _UserProfile.DoesNotExist:
-            return Response({"error": "Invalid or expired reset link."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": str(_("This reset link is invalid or has expired."))}, status=status.HTTP_400_BAD_REQUEST)
 
         if not profile.password_reset_token_expires_at or timezone.now() > profile.password_reset_token_expires_at:
-            return Response({"error": "This reset link has expired. Please request a new one."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": str(_("This reset link is invalid or has expired."))}, status=status.HTTP_400_BAD_REQUEST)
 
         user = profile.user
         user.set_password(new_password)
@@ -711,4 +721,84 @@ class ResetPasswordView(APIView):
         profile.password_reset_token_expires_at = None
         profile.save(update_fields=["password_reset_token", "password_reset_token_expires_at"])
 
-        return Response({"message": "Password reset successfully. You can now log in."}, status=status.HTTP_200_OK)
+        return Response({"message": str(_("Password reset successfully."))}, status=status.HTTP_200_OK)
+
+
+# ------------------------------------------------------------------
+# LANGUAGE PREFERENCE
+# ------------------------------------------------------------------
+VALID_LANGUAGE_CODES = {code for code, _ in LANGUAGE_CHOICES}
+
+
+@extend_schema(
+    tags=["Accounts"],
+    summary="Get or update language preference",
+    description=(
+        "GET returns the authenticated user's stored preferred language. "
+        "PATCH updates it. Accepted language codes: `en`, `nl`."
+    ),
+)
+class LanguagePreferenceView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                "LanguageGetResponse",
+                fields={"preferred_language": drf_serializers.CharField()},
+            )
+        },
+    )
+    def get(self, request):
+        profile = getattr(request.user, "profile", None)
+        preferred_language = profile.preferred_language if profile else "en"
+        return Response({"preferred_language": preferred_language})
+
+    @extend_schema(
+        request=inline_serializer(
+            "LanguagePatchRequest",
+            fields={"language": drf_serializers.CharField()},
+        ),
+        responses={
+            200: inline_serializer(
+                "LanguagePatchResponse",
+                fields={
+                    "preferred_language": drf_serializers.CharField(),
+                    "message": drf_serializers.CharField(),
+                },
+            ),
+            400: inline_serializer(
+                "LanguagePatchError",
+                fields={"error": drf_serializers.CharField()},
+            ),
+        },
+        examples=[
+            OpenApiExample("Set Dutch", value={"language": "nl"}, request_only=True),
+            OpenApiExample(
+                "Success",
+                value={"preferred_language": "nl", "message": "Language preference updated."},
+                response_only=True,
+                status_codes=["200"],
+            ),
+        ],
+    )
+    def patch(self, request):
+        from .models import UserProfile
+
+        language = request.data.get("language", "").strip().lower()
+        if language not in VALID_LANGUAGE_CODES:
+            return Response(
+                {"error": str(_("Invalid or missing language code."))},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        profile, _created = UserProfile.objects.get_or_create(user=request.user)
+        profile.preferred_language = language
+        profile.save(update_fields=["preferred_language"])
+
+        return Response(
+            {
+                "preferred_language": language,
+                "message": str(_("Language preference updated.")),
+            }
+        )

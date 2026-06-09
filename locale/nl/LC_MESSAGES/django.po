@@ -1,0 +1,123 @@
+# Dutch translations for Guidewisey backend.
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: nl\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+# ── Accounts / Authentication ─────────────────────────────────────────────────
+
+msgid "CSRF cookie set"
+msgstr "CSRF-cookie ingesteld"
+
+msgid "User created"
+msgstr "Gebruiker aangemaakt"
+
+msgid "An account with this email address already exists."
+msgstr "Er bestaat al een account met dit e-mailadres."
+
+msgid "Passwords must match"
+msgstr "Wachtwoorden moeten overeenkomen"
+
+msgid "Logged in"
+msgstr "Ingelogd"
+
+msgid "Invalid credentials"
+msgstr "Ongeldige inloggegevens"
+
+msgid "Your email confirmation is pending. Please check your inbox and confirm your email before logging in."
+msgstr "Uw e-mailbevestiging is in behandeling. Controleer uw inbox en bevestig uw e-mailadres voordat u inlogt."
+
+msgid "Logged out"
+msgstr "Uitgelogd"
+
+msgid "Password changed successfully."
+msgstr "Wachtwoord succesvol gewijzigd."
+
+msgid "Current password is incorrect."
+msgstr "Huidig wachtwoord is onjuist."
+
+msgid "New passwords must match."
+msgstr "Nieuwe wachtwoorden moeten overeenkomen."
+
+msgid "New password must differ from current password."
+msgstr "Nieuw wachtwoord moet afwijken van het huidige wachtwoord."
+
+msgid "Email confirmed successfully."
+msgstr "E-mailadres succesvol bevestigd."
+
+msgid "This confirmation link is invalid or has expired."
+msgstr "Deze bevestigingslink is ongeldig of verlopen."
+
+msgid "Confirmation email resent."
+msgstr "Bevestigingsmail opnieuw verzonden."
+
+msgid "Email is required."
+msgstr "E-mailadres is vereist."
+
+msgid "This email address is already confirmed."
+msgstr "Dit e-mailadres is al bevestigd."
+
+msgid "Password reset email sent. Please check your inbox (and spam folder)."
+msgstr "E-mail voor wachtwoordherstel verzonden. Controleer uw inbox (en map met spam)."
+
+msgid "No account found with that email address. Please check and try again."
+msgstr "Geen account gevonden met dat e-mailadres. Controleer het en probeer het opnieuw."
+
+msgid "Failed to send the reset email. Please try again in a few minutes."
+msgstr "Kan de herstelmail niet verzenden. Probeer het over een paar minuten opnieuw."
+
+msgid "This reset link is invalid or has expired."
+msgstr "Deze herstelkoppeling is ongeldig of verlopen."
+
+msgid "Password reset successfully."
+msgstr "Wachtwoord succesvol hersteld."
+
+msgid "Invalid or missing language code."
+msgstr "Ongeldige of ontbrekende taalcode."
+
+msgid "Language preference updated."
+msgstr "Taalvoorkeur bijgewerkt."
+
+# ── Serializer validation messages ────────────────────────────────────────────
+
+msgid "This field is required."
+msgstr "Dit veld is verplicht."
+
+msgid "Enter a valid email address."
+msgstr "Voer een geldig e-mailadres in."
+
+# ── Contact ───────────────────────────────────────────────────────────────────
+
+msgid "Message sent successfully."
+msgstr "Bericht succesvol verzonden."
+
+# ── Document Explainer ────────────────────────────────────────────────────────
+
+msgid "No document provided."
+msgstr "Geen document opgegeven."
+
+msgid "Document processed successfully."
+msgstr "Document succesvol verwerkt."
+
+# ── Driving Theory ────────────────────────────────────────────────────────────
+
+msgid "Question not found."
+msgstr "Vraag niet gevonden."
+
+# ── Insurance Explainer ───────────────────────────────────────────────────────
+
+msgid "Insurance information retrieved."
+msgstr "Verzekeringsgegevens opgehaald."
+
+# ── FutureWise / Email Reminders ─────────────────────────────────────────────
+
+msgid "Reminder created."
+msgstr "Herinnering aangemaakt."
+
+msgid "Reminder updated."
+msgstr "Herinnering bijgewerkt."
+
+msgid "Reminder deleted."
+msgstr "Herinnering verwijderd."

@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import (
+    AnonymousMockTestCompletion,
     DrivingLesson,
     DrivingQuestion,
     DrivingQuestionOption,
@@ -28,6 +29,16 @@ from .serializers import (
     UserDrivingProgressSerializer,
 )
 
+ANON_MOCK_LIMIT = 3
+
+
+def _get_client_ip(request):
+    """Return the real client IP, honouring X-Forwarded-For from trusted proxies."""
+    xff = request.META.get("HTTP_X_FORWARDED_FOR")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR", "")
+
 
 @extend_schema(tags=["Driving Theory"])
 class TopicsListView(APIView):
@@ -40,7 +51,7 @@ class TopicsListView(APIView):
             .annotate(question_count=Count("questions", filter=Q(questions__is_active=True), distinct=True))
             .order_by("order")
         )
-        return Response(DrivingTopicListSerializer(topics, many=True).data)
+        return Response(DrivingTopicListSerializer(topics, many=True, context={"request": request}).data)
 
 
 @extend_schema(tags=["Driving Theory"])
@@ -59,7 +70,7 @@ class TopicDetailView(APIView):
             slug=slug,
             is_active=True,
         )
-        return Response(DrivingTopicDetailSerializer(topic).data)
+        return Response(DrivingTopicDetailSerializer(topic, context={"request": request}).data)
 
 
 @extend_schema(tags=["Driving Theory"])
@@ -80,7 +91,7 @@ class LessonDetailView(APIView):
             is_active=True,
             topic__is_active=True,
         )
-        return Response(DrivingLessonDetailSerializer(lesson).data)
+        return Response(DrivingLessonDetailSerializer(lesson, context={"request": request}).data)
 
 
 @extend_schema(tags=["Driving Theory"])
@@ -102,13 +113,18 @@ class TopicQuizView(APIView):
     def get(self, request, slug):
         topic = get_object_or_404(DrivingTopic, slug=slug, is_active=True)
         questions = list(topic.questions.filter(is_active=True).prefetch_related("options").order_by("?")[:10])
+        lang = "nl" if request.GET.get("lang") == "nl" else "en"
         return Response(
             {
-                "topic": {"slug": topic.slug, "title": topic.title, "summary": topic.summary},
+                "topic": {
+                    "slug": topic.slug,
+                    "title": topic.title_nl if lang == "nl" and topic.title_nl else topic.title,
+                    "summary": topic.summary_nl if lang == "nl" and topic.summary_nl else topic.summary,
+                },
                 "questions": DrivingQuestionSerializer(
                     questions,
                     many=True,
-                    context={"hide_correct_answers": True},
+                    context={"request": request, "hide_correct_answers": True},
                 ).data,
             }
         )
@@ -121,11 +137,11 @@ class ProgressView(APIView):
     @extend_schema(summary="List user driving progress", responses={200: UserDrivingProgressSerializer(many=True)})
     def get(self, request):
         progress = UserDrivingProgress.objects.filter(user=request.user).select_related("topic", "lesson").order_by("topic__order")
-        return Response(UserDrivingProgressSerializer(progress, many=True).data)
+        return Response(UserDrivingProgressSerializer(progress, many=True, context={"request": request}).data)
 
     @extend_schema(summary="Save or update user driving progress", request=ProgressUpdateSerializer, responses={200: UserDrivingProgressSerializer})
     def post(self, request):
-        serializer = ProgressUpdateSerializer(data=request.data)
+        serializer = ProgressUpdateSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
 
         data = serializer.validated_data
@@ -157,50 +173,23 @@ class ProgressView(APIView):
                 progress.questions_correct += 1
 
         progress.save()
-        return Response(UserDrivingProgressSerializer(progress).data)
+        return Response(UserDrivingProgressSerializer(progress, context={"request": request}).data)
 
 
 @extend_schema(tags=["Driving Theory"])
 class MockTestStartView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
-    @extend_schema(
-        summary="Start a mock driving theory test",
-        responses={
-            201: inline_serializer(
-                "MockTestStartResponse",
-                fields={
-                    "attempt": MockTestAttemptSerializer(),
-                    "questions": DrivingQuestionSerializer(many=True),
-                },
-            ),
-            403: inline_serializer(
-                "MockTestLimitError",
-                fields={"error": drf_serializers.CharField(), "code": drf_serializers.CharField()},
-            ),
-        },
-    )
-    def post(self, request):
-        completed_attempts = MockTestAttempt.objects.filter(user=request.user, completed_at__isnull=False).count()
-        if completed_attempts >= 3:
-            return Response(
-                {
-                    "error": "You have used all 3 free mock tests.",
-                    "code": "MOCK_TEST_LIMIT_REACHED",
-                },
-                status=status.HTTP_403_FORBIDDEN,
+    def _get_selected_questions(self, user=None):
+        recent_q_ids = set()
+        if user and user.is_authenticated:
+            recent_q_ids = set(
+                MockTestAnswer.objects.filter(attempt__user=user).values_list("question_id", flat=True)
             )
-
-        # --- Balanced topic selection ---
-        # Get recently used question IDs to avoid immediate repeats
-        recent_q_ids = set(
-            MockTestAnswer.objects.filter(attempt__user=request.user)
-            .values_list("question_id", flat=True)
-        )
 
         active_topics = list(DrivingTopic.objects.filter(is_active=True).order_by("order"))
         questions_per_topic = max(1, 25 // max(len(active_topics), 1))
-        selected: list = []
+        selected = []
 
         for topic in active_topics:
             pool = list(
@@ -211,23 +200,22 @@ class MockTestStartView(APIView):
                 .prefetch_related("options")
                 .order_by("?")[:questions_per_topic]
             )
-            # Fall back to any question if not enough fresh ones
             if len(pool) < questions_per_topic:
                 fallback = list(
-                    DrivingQuestion.objects.filter(topic=topic, is_active=True)
+                    DrivingQuestion.objects.filter(topic=topic, is_active=True, topic__is_active=True)
+                    .exclude(id__in=[question.id for question in pool])
                     .prefetch_related("options")
                     .order_by("?")[: questions_per_topic - len(pool)]
                 )
-                pool += [q for q in fallback if q not in pool]
+                pool += fallback
             selected.extend(pool)
 
-        # Trim or top-up to exactly 25
         import random as _random
+
         _random.shuffle(selected)
         if len(selected) > 25:
             selected = selected[:25]
         elif len(selected) < 25:
-            # Top-up with any remaining active questions
             existing_ids = {q.id for q in selected}
             extras = list(
                 DrivingQuestion.objects.filter(is_active=True, topic__is_active=True)
@@ -237,6 +225,63 @@ class MockTestStartView(APIView):
             )
             selected.extend(extras)
 
+        return selected
+
+    @extend_schema(
+        summary="Start a mock driving theory test",
+        responses={
+            201: inline_serializer(
+                "MockTestStartResponse",
+                fields={
+                    "attempt": MockTestAttemptSerializer(allow_null=True),
+                    "questions": DrivingQuestionSerializer(many=True),
+                },
+            ),
+            403: inline_serializer(
+                "MockTestLimitError",
+                fields={"error": drf_serializers.CharField(), "code": drf_serializers.CharField()},
+            ),
+        },
+    )
+    def post(self, request):
+        if not request.user.is_authenticated:
+            ip = _get_client_ip(request)
+            completed = AnonymousMockTestCompletion.objects.filter(ip_address=ip).count()
+            if completed >= ANON_MOCK_LIMIT:
+                return Response(
+                    {
+                        "error": "You have used all 3 free mock tests.",
+                        "code": "MOCK_TEST_LIMIT_REACHED",
+                        "completed": completed,
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            selected = self._get_selected_questions()
+            return Response(
+                {
+                    "attempt": None,
+                    "questions": DrivingQuestionSerializer(
+                        selected,
+                        many=True,
+                        context={"request": request, "hide_correct_answers": True},
+                    ).data,
+                    "anon_completed": completed,
+                    "anon_limit": ANON_MOCK_LIMIT,
+                },
+                status=status.HTTP_201_CREATED,
+            )
+
+        completed_attempts = MockTestAttempt.objects.filter(user=request.user, completed_at__isnull=False).count()
+        if completed_attempts >= 3:
+            return Response(
+                {
+                    "error": "You have used all 3 free mock tests.",
+                    "code": "MOCK_TEST_LIMIT_REACHED",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        selected = self._get_selected_questions(request.user)
         attempt = MockTestAttempt.objects.create(
             user=request.user,
             attempt_number=MockTestAttempt.objects.filter(user=request.user).count() + 1,
@@ -245,11 +290,11 @@ class MockTestStartView(APIView):
         attempt.questions.set(selected)
         return Response(
             {
-                "attempt": MockTestAttemptSerializer(attempt).data,
+                "attempt": MockTestAttemptSerializer(attempt, context={"request": request}).data,
                 "questions": DrivingQuestionSerializer(
                     selected,
                     many=True,
-                    context={"hide_correct_answers": True},
+                    context={"request": request, "hide_correct_answers": True},
                 ).data,
             },
             status=status.HTTP_201_CREATED,
@@ -281,7 +326,7 @@ class MockTestSubmitView(APIView):
         if attempt.completed_at:
             return Response({"error": "This mock test has already been submitted."}, status=status.HTTP_400_BAD_REQUEST)
 
-        serializer = MockTestSubmitSerializer(data=request.data)
+        serializer = MockTestSubmitSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         submitted_answers = {item["question_id"]: item.get("option_id") for item in serializer.validated_data["answers"]}
 
@@ -343,6 +388,85 @@ class MockTestSubmitView(APIView):
                 "correct_answers": correct_answers,
                 "total_questions": total_questions,
                 "topic_breakdown": topic_breakdown,
+            }
+        )
+
+
+@extend_schema(tags=["Driving Theory"])
+class AnonMockTestSubmitView(APIView):
+    """Submit a completed anonymous mock test. Records completion against IP so the
+    3-free-test limit is enforced server-side on real completions only."""
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        summary="Submit an anonymous mock test (IP-based limit)",
+        request=inline_serializer(
+            "AnonMockSubmitRequest",
+            fields={"answers": drf_serializers.ListField(child=drf_serializers.DictField())},
+        ),
+        responses={
+            200: inline_serializer(
+                "AnonMockSubmitResponse",
+                fields={
+                    "score": drf_serializers.FloatField(),
+                    "passed": drf_serializers.BooleanField(),
+                    "correct_answers": drf_serializers.IntegerField(),
+                    "total_questions": drf_serializers.IntegerField(),
+                    "anon_completed": drf_serializers.IntegerField(),
+                    "anon_limit": drf_serializers.IntegerField(),
+                },
+            )
+        },
+    )
+    def post(self, request):
+        if request.user.is_authenticated:
+            return Response(
+                {"error": "Use the authenticated submit endpoint."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        ip = _get_client_ip(request)
+        completed_count = AnonymousMockTestCompletion.objects.filter(ip_address=ip).count()
+        if completed_count >= ANON_MOCK_LIMIT:
+            return Response(
+                {"error": "You have used all 3 free mock tests.", "code": "MOCK_TEST_LIMIT_REACHED"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        answers = request.data.get("answers", [])
+        question_ids = [int(a["question_id"]) for a in answers if "question_id" in a]
+        answer_map = {int(a["question_id"]): int(a["selected_option_id"]) for a in answers if "question_id" in a and "selected_option_id" in a}
+
+        options = DrivingQuestionOption.objects.filter(
+            question_id__in=question_ids
+        ).select_related("question")
+        option_lookup = {o.id: o for o in options}
+
+        correct = 0
+        total = len(question_ids)
+        for qid in question_ids:
+            opt_id = answer_map.get(qid)
+            if opt_id and option_lookup.get(opt_id) and option_lookup[opt_id].is_correct:
+                correct += 1
+
+        score = round((correct / total) * 100, 2) if total else 0.0
+
+        AnonymousMockTestCompletion.objects.create(
+            ip_address=ip,
+            score=score,
+            correct_answers=correct,
+            total_questions=total,
+        )
+
+        return Response(
+            {
+                "score": score,
+                "passed": score >= 70,
+                "correct_answers": correct,
+                "total_questions": total,
+                "anon_completed": completed_count + 1,
+                "anon_limit": ANON_MOCK_LIMIT,
             }
         )
 

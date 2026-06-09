@@ -1,5 +1,22 @@
 from django.conf import settings
+from django.utils import timezone
 from django.db import models
+
+
+class AnonymousMockTestCompletion(models.Model):
+    """Tracks completed mock tests for anonymous users identified by IP address."""
+    ip_address = models.GenericIPAddressField(db_index=True)
+    completed_at = models.DateTimeField(default=timezone.now)
+    score = models.FloatField(null=True, blank=True)
+    correct_answers = models.PositiveIntegerField(default=0)
+    total_questions = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["-completed_at"]
+
+    def __str__(self):
+        return f"Anon mock {self.ip_address} at {self.completed_at:%Y-%m-%d %H:%M}"
+
 
 
 class DrivingTopic(models.Model):
@@ -11,7 +28,9 @@ class DrivingTopic(models.Model):
 
     slug = models.SlugField(unique=True)
     title = models.CharField(max_length=200)
+    title_nl = models.CharField(max_length=200, blank=True, default="")
     summary = models.TextField()
+    summary_nl = models.TextField(blank=True, default="")
     dutch_terms = models.JSONField(default=list)
     icon = models.CharField(max_length=50, default="bi-sign-stop")
     color_theme = models.CharField(max_length=80, default="rgba(99,102,241,0.15)")
@@ -35,14 +54,20 @@ class DrivingLesson(models.Model):
 
     topic = models.ForeignKey(DrivingTopic, on_delete=models.CASCADE, related_name="lessons")
     title = models.CharField(max_length=200)
+    title_nl = models.CharField(max_length=200, blank=True, default="")
     summary = models.TextField()
+    summary_nl = models.TextField(blank=True, default="")
     order = models.PositiveIntegerField(default=0)
     difficulty = models.CharField(max_length=10, choices=DIFFICULTY_CHOICES, default="easy")
     estimated_minutes = models.PositiveIntegerField(default=10)
     learning_objectives = models.JSONField(default=list)
+    learning_objectives_nl = models.JSONField(default=list, blank=True)
     exam_tips = models.JSONField(default=list)
+    exam_tips_nl = models.JSONField(default=list, blank=True)
     common_mistakes = models.JSONField(default=list)
+    common_mistakes_nl = models.JSONField(default=list, blank=True)
     key_takeaways = models.JSONField(default=list)
+    key_takeaways_nl = models.JSONField(default=list, blank=True)
     is_active = models.BooleanField(default=True)
 
     class Meta:
@@ -55,10 +80,14 @@ class DrivingLesson(models.Model):
 class DrivingLessonSection(models.Model):
     lesson = models.ForeignKey(DrivingLesson, on_delete=models.CASCADE, related_name="sections")
     title = models.CharField(max_length=200)
+    title_nl = models.CharField(max_length=200, blank=True, default="")
     content = models.TextField()
+    content_nl = models.TextField(blank=True, default="")
     examples = models.JSONField(default=list)
+    examples_nl = models.JSONField(default=list, blank=True)
     dutch_keywords = models.JSONField(default=list)
     callout_boxes = models.JSONField(default=list)
+    callout_boxes_nl = models.JSONField(default=list, blank=True)
     illustration_hint = models.CharField(max_length=100, blank=True, default="")
     order = models.PositiveIntegerField(default=0)
 
@@ -87,7 +116,9 @@ class DrivingQuestion(models.Model):
         related_name="questions",
     )
     question_text = models.TextField()
+    question_text_nl = models.TextField(blank=True, default="")
     explanation = models.TextField()
+    explanation_nl = models.TextField(blank=True, default="")
     difficulty = models.IntegerField(choices=DIFFICULTY, default=1)
     question_type = models.CharField(max_length=20, choices=QUESTION_TYPE, default="multiple_choice")
     sign_hint = models.CharField(max_length=100, blank=True, default="")
@@ -104,6 +135,7 @@ class DrivingQuestion(models.Model):
 class DrivingQuestionOption(models.Model):
     question = models.ForeignKey(DrivingQuestion, on_delete=models.CASCADE, related_name="options")
     option_text = models.CharField(max_length=500)
+    option_text_nl = models.CharField(max_length=500, blank=True, default="")
     is_correct = models.BooleanField(default=False)
     order = models.PositiveIntegerField(default=0)
 

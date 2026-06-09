@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from .models import (
+    AnonymousMockTestCompletion,
     DrivingLesson,
     DrivingLessonSection,
     DrivingQuestion,
@@ -82,3 +83,12 @@ class MockTestAnswerAdmin(admin.ModelAdmin):
     list_display = ("attempt", "question", "selected_option", "is_correct")
     list_filter = ("is_correct",)
     search_fields = ("attempt__user__username", "question__question_text")
+
+
+@admin.register(AnonymousMockTestCompletion)
+class AnonymousMockTestCompletionAdmin(admin.ModelAdmin):
+    list_display = ("ip_address", "score", "correct_answers", "total_questions", "completed_at")
+    list_filter = ("completed_at",)
+    search_fields = ("ip_address",)
+    readonly_fields = ("ip_address", "score", "correct_answers", "total_questions", "completed_at")
+    ordering = ("-completed_at",)

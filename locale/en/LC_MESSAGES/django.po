@@ -1,0 +1,124 @@
+# English translations for Guidewisey backend.
+# This file is the source language (English) – strings are identical to msgid.
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: en\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+# ── Accounts / Authentication ─────────────────────────────────────────────────
+
+msgid "CSRF cookie set"
+msgstr "CSRF cookie set"
+
+msgid "User created"
+msgstr "User created"
+
+msgid "An account with this email address already exists."
+msgstr "An account with this email address already exists."
+
+msgid "Passwords must match"
+msgstr "Passwords must match"
+
+msgid "Logged in"
+msgstr "Logged in"
+
+msgid "Invalid credentials"
+msgstr "Invalid credentials"
+
+msgid "Your email confirmation is pending. Please check your inbox and confirm your email before logging in."
+msgstr "Your email confirmation is pending. Please check your inbox and confirm your email before logging in."
+
+msgid "Logged out"
+msgstr "Logged out"
+
+msgid "Password changed successfully."
+msgstr "Password changed successfully."
+
+msgid "Current password is incorrect."
+msgstr "Current password is incorrect."
+
+msgid "New passwords must match."
+msgstr "New passwords must match."
+
+msgid "New password must differ from current password."
+msgstr "New password must differ from current password."
+
+msgid "Email confirmed successfully."
+msgstr "Email confirmed successfully."
+
+msgid "This confirmation link is invalid or has expired."
+msgstr "This confirmation link is invalid or has expired."
+
+msgid "Confirmation email resent."
+msgstr "Confirmation email resent."
+
+msgid "Email is required."
+msgstr "Email is required."
+
+msgid "This email address is already confirmed."
+msgstr "This email address is already confirmed."
+
+msgid "Password reset email sent. Please check your inbox (and spam folder)."
+msgstr "Password reset email sent. Please check your inbox (and spam folder)."
+
+msgid "No account found with that email address. Please check and try again."
+msgstr "No account found with that email address. Please check and try again."
+
+msgid "Failed to send the reset email. Please try again in a few minutes."
+msgstr "Failed to send the reset email. Please try again in a few minutes."
+
+msgid "This reset link is invalid or has expired."
+msgstr "This reset link is invalid or has expired."
+
+msgid "Password reset successfully."
+msgstr "Password reset successfully."
+
+msgid "Invalid or missing language code."
+msgstr "Invalid or missing language code."
+
+msgid "Language preference updated."
+msgstr "Language preference updated."
+
+# ── Serializer validation messages ────────────────────────────────────────────
+
+msgid "This field is required."
+msgstr "This field is required."
+
+msgid "Enter a valid email address."
+msgstr "Enter a valid email address."
+
+# ── Contact ───────────────────────────────────────────────────────────────────
+
+msgid "Message sent successfully."
+msgstr "Message sent successfully."
+
+# ── Document Explainer ────────────────────────────────────────────────────────
+
+msgid "No document provided."
+msgstr "No document provided."
+
+msgid "Document processed successfully."
+msgstr "Document processed successfully."
+
+# ── Driving Theory ────────────────────────────────────────────────────────────
+
+msgid "Question not found."
+msgstr "Question not found."
+
+# ── Insurance Explainer ───────────────────────────────────────────────────────
+
+msgid "Insurance information retrieved."
+msgstr "Insurance information retrieved."
+
+# ── FutureWise / Email Reminders ─────────────────────────────────────────────
+
+msgid "Reminder created."
+msgstr "Reminder created."
+
+msgid "Reminder updated."
+msgstr "Reminder updated."
+
+msgid "Reminder deleted."
+msgstr "Reminder deleted."

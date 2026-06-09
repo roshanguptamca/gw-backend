@@ -4140,7 +4140,7 @@ class Command(BaseCommand):
         total = 0
         for slug, questions in QUESTIONS_BY_TOPIC.items():
             try:
-                topic = DrivingTopic.objects.get(slug=slug)
+                topic = DrivingTopic.objects.only("id", "slug", "title").get(slug=slug)
             except DrivingTopic.DoesNotExist:
                 self.stdout.write(f"  ⚠ Topic not found: {slug}")
                 continue
