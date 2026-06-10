@@ -10,6 +10,11 @@ urlpatterns = [
     path("api/insurance/", include("apps.insurance_explainer.urls")),
     path("api/contact/", include("apps.contact.urls")),
     path("api/driving/", include("apps.driving_theory.urls")),
+    path("api/", include("apps.resumes.urls")),
+    path("api/", include("apps.templates_app.urls")),
+    path("api/", include("apps.autocomplete.urls")),
+    path("api/", include("apps.jobs.urls")),
+    path("api/", include("apps.files.urls")),
     # OpenAPI schema + UI
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),

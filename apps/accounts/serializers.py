@@ -96,7 +96,6 @@ class ChangePasswordSerializer(serializers.Serializer):
         return user
 
 
-
 class ForgotPasswordSerializer(serializers.Serializer):
     email = serializers.EmailField(required=True)
 

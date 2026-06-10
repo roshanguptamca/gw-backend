@@ -12,6 +12,7 @@ def create_user_profile(sender, instance, created, **kwargs):
     """
     if created:
         from .models import UserProfile
+
         profile, _ = UserProfile.objects.get_or_create(user=instance)
         if instance.is_staff or instance.is_superuser:
             profile.email_confirmed = True

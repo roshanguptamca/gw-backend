@@ -821,7 +821,13 @@ NEW_TOPICS = [
                             "The light turns amber as you approach at 50 km/h and are only 15 metres from the line. You may continue — stopping safely is not possible.",
                             "A green arrow allows you to turn right on red. A pedestrian is crossing with a green walking signal. You must yield to the pedestrian.",
                         ],
-                        "dutch_keywords": ["rood licht", "groen licht", "oranje licht", "groenpijl", "knipperend oranje"],
+                        "dutch_keywords": [
+                            "rood licht",
+                            "groen licht",
+                            "oranje licht",
+                            "groenpijl",
+                            "knipperend oranje",
+                        ],
                         "order": 2,
                         "callout_boxes": [
                             {
@@ -955,14 +961,19 @@ NEW_TOPICS = [
 # Command
 # ---------------------------------------------------------------------------
 
+
 class Command(BaseCommand):
     help = "Enrich existing Dutch driving theory data with V2 fields and add 3 new beginner topics."
 
     def handle(self, *args, **options):
         from apps.driving_theory.models import (
-            DrivingLesson, DrivingLessonSection, DrivingQuestion,
-            DrivingQuestionOption, DrivingTopic,
+            DrivingLesson,
+            DrivingLessonSection,
+            DrivingQuestion,
+            DrivingQuestionOption,
+            DrivingTopic,
         )
+
         # Store as instance vars so sub-methods can access
         self.DrivingTopic = DrivingTopic
         self.DrivingLesson = DrivingLesson
@@ -1122,4 +1133,6 @@ class Command(BaseCommand):
                             defaults={"is_correct": is_correct, "order": order_idx},
                         )
 
-            self.stdout.write(f"    → {lesson_data['title']}: {len(lesson_data.get('sections', []))} sections, {len(lesson_data.get('questions', []))} questions")
+            self.stdout.write(
+                f"    → {lesson_data['title']}: {len(lesson_data.get('sections', []))} sections, {len(lesson_data.get('questions', []))} questions"
+            )

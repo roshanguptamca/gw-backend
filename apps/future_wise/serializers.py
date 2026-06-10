@@ -96,9 +96,7 @@ class CreateReminderSerializer(serializers.Serializer):
         # Email is required only when the email channel is selected (or no channel specified)
         if not channels or "email" in channels:
             if not data.get("email"):
-                raise serializers.ValidationError(
-                    {"email": "An email address is required for email delivery."}
-                )
+                raise serializers.ValidationError({"email": "An email address is required for email delivery."})
 
         if phone_channels & set(channels) and not data.get("phone_number"):
             raise serializers.ValidationError(

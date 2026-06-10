@@ -49,6 +49,28 @@ AI-powered insurance policy analysis.
 - Structured output: coverage highlights, important clauses, missing coverage, risks, action items, overall score
 - Follow-up chat with full context
 
+### Career Suite
+Self-hosted resume building, parsing, ATS analysis, job matching, AI optimization, and PDF/DOCX export.
+
+Resume generation uses an explicit template flow. New and imported resumes start without a template; clients list `/api/resume-templates/`, save a choice through `/api/resumes/{id}/select-template/`, and request `/api/resumes/{id}/preview/` before export. PDF and DOCX export reject resumes without a selected template.
+
+Resume Builder is also available as a live beta for anonymous users. Anonymous visitors can create one resume, make up to ten edits, and claim that resume after signing in. Anonymous ownership is resolved through a minimal identity record using IP address, email, phone number, and session data. The claim flow is exposed at `/api/resumes/my-anonymous/` and `/api/resumes/claim-anonymous/`.
+
+- Apps: `resumes`, `jobs`, `ai_services`, `exports`, `uploads`, `files`, `templates_app`
+- Storage: PostgreSQL/SQLite binary fields only; no cloud storage
+- Jobs: existing DB-backed APScheduler process; no Redis or Celery
+- AI providers: OpenAI, Azure OpenAI, Ollama, or deterministic dummy provider
+- Export: WeasyPrint PDF and `python-docx` DOCX
+- Optional protected profile photos (JPG/PNG/WebP, maximum 5 MB)
+- Stable-ID CRUD for skills, education, experience, projects, certifications, languages, awards, and references
+- Honest target-score optimization using only existing facts and explicitly confirmed skills/evidence
+- Independent English/Dutch resume, report, optimization, preview, and export languages
+- Cross-language English/Dutch skill matching and localized ATS recommendations
+- Access: every resume, upload, match, optimization, and download is owner-scoped
+- Access: anonymous beta users can create one resume and make ten edits before claiming it into an account; logged-in users can create up to three resumes
+
+Detailed language contract: [`CAREER_SUITE_I18N.md`](CAREER_SUITE_I18N.md).
+
 ---
 
 ## API Reference
@@ -149,6 +171,17 @@ DB_PORT=
 # Google Gemini AI
 GEMINI_API_KEY=
 
+# Career Suite AI (dummy requires no external service)
+AI_PROVIDER=dummy
+AI_MODEL=gpt-4o-mini
+OPENAI_API_KEY=
+AZURE_OPENAI_API_KEY=
+AZURE_OPENAI_ENDPOINT=
+AZURE_OPENAI_API_VERSION=2024-10-21
+OLLAMA_BASE_URL=http://localhost:11434
+CAREER_SUITE_TEMP_TTL_HOURS=24
+CAREER_SUITE_RUN_JOBS_INLINE=true
+
 # File storage: "db" (default, no S3 needed) | "s3" | "auto"
 FILE_STORAGE_BACKEND=db
 
@@ -218,6 +251,44 @@ Controlled by `FILE_STORAGE_BACKEND` in `.env`:
 | `db` | Store file bytes in the Django database — **default for local dev** |
 | `s3` | Store in AWS S3 |
 | `auto` | Use S3 if all 4 AWS credentials are present, else DB |
+
+Career Suite uploads and generated exports always use database storage and never use S3.
+
+---
+
+## Career Suite API
+
+The main endpoints are:
+
+```text
+POST/GET        /api/resumes/
+GET/PUT/DELETE  /api/resumes/{id}/
+PUT             /api/resumes/{id}/personal/
+PUT             /api/resumes/{id}/summary/
+POST            /api/resumes/{id}/{experiences|education|projects|skills|certifications|languages}/
+PUT/DELETE      /api/{section}/{item_id}/
+POST            /api/resumes/{id}/photo/upload/
+GET/DELETE      /api/resumes/{id}/photo/
+GET             /api/resume-templates/
+GET             /api/resume-templates/{id}/
+POST            /api/resumes/{id}/select-template/
+POST            /api/resumes/{id}/preview/
+GET             /api/autocomplete/{skills|job-titles|companies|schools|degrees|locations}/?q=...
+POST            /api/resumes/upload/
+POST            /api/resumes/parse/
+POST            /api/jobs/parse-text/
+POST            /api/jobs/parse-url/
+POST            /api/job-match/analyze/
+POST            /api/job-match/{id}/optimize/
+POST            /api/resumes/{id}/export/{pdf|docx}/
+GET             /api/files/download/{file_id}/
+```
+
+Run the DB-backed scheduler in a second process:
+
+```bash
+python manage.py runapscheduler
+```
 
 ---
 
@@ -320,4 +391,3 @@ make test-parallel  # parallel with pytest-xdist
 ## License
 
 MIT License
-

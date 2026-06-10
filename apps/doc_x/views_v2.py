@@ -5,7 +5,7 @@ These are the enhanced REST APIs that use the service layer.
 """
 from rest_framework.decorators import api_view, permission_classes, parser_classes
 from rest_framework.parsers import MultiPartParser, FormParser
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from drf_spectacular.utils import (
@@ -92,7 +92,7 @@ chat_service = ChatService()
     ],
 )
 @api_view(["POST"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 @parser_classes([MultiPartParser, FormParser])
 def upload_document(request):
     """
@@ -136,7 +136,9 @@ def upload_document(request):
         )
 
     try:
-        doc, doc_file = document_service.upload_file(uploaded_file, user=request.user if request.user.is_authenticated else None, use_s3=use_s3)
+        doc, doc_file = document_service.upload_file(
+            uploaded_file, user=request.user if request.user.is_authenticated else None, use_s3=use_s3
+        )
 
         return Response(
             {
@@ -206,7 +208,7 @@ def upload_document(request):
     ],
 )
 @api_view(["GET"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def list_documents(request):
     """
     GET /api/doc-x/documents
@@ -221,7 +223,9 @@ def list_documents(request):
         - count: Number of documents returned
     """
     limit = int(request.query_params.get("limit", 100))
-    documents = document_service.list_documents(user=request.user if request.user.is_authenticated else None, limit=limit)
+    documents = document_service.list_documents(
+        user=request.user if request.user.is_authenticated else None, limit=limit
+    )
 
     return Response(
         {"documents": DocumentSerializer(documents, many=True).data, "count": len(documents)}, status=status.HTTP_200_OK
@@ -268,7 +272,7 @@ def list_documents(request):
     ],
 )
 @api_view(["GET"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def get_document(request, document_id):
     """
     GET /api/doc-x/documents/{document_id}
@@ -316,7 +320,7 @@ def get_document(request, document_id):
     ],
 )
 @api_view(["DELETE"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def delete_document(request, document_id):
     """
     DELETE /api/doc-x/documents/{document_id}
@@ -326,7 +330,9 @@ def delete_document(request, document_id):
     Response:
         - message: Success message
     """
-    success = document_service.delete_document(document_id, user=request.user if request.user.is_authenticated else None)
+    success = document_service.delete_document(
+        document_id, user=request.user if request.user.is_authenticated else None
+    )
 
     if not success:
         return Response({"error": "Document not found or permission denied"}, status=status.HTTP_404_NOT_FOUND)
@@ -394,7 +400,7 @@ def delete_document(request, document_id):
     ],
 )
 @api_view(["POST"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def process_document_endpoint(request, document_id):
     """
     POST /api/doc-x/documents/{document_id}/process
@@ -480,7 +486,7 @@ def process_document_endpoint(request, document_id):
     ],
 )
 @api_view(["GET"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def get_processing_status(request, document_id):
     """
     GET /api/doc-x/documents/{document_id}/status
@@ -591,7 +597,7 @@ def get_processing_status(request, document_id):
     ],
 )
 @api_view(["POST"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def chat_with_document(request, document_id):
     """
     POST /api/doc-x/documents/{document_id}/chat
@@ -622,7 +628,9 @@ def chat_with_document(request, document_id):
         return Response({"error": "Message is required"}, status=status.HTTP_400_BAD_REQUEST)
 
     # Check question limit
-    can_ask, remaining = chat_service.check_question_limit(doc, user=request.user if request.user.is_authenticated else None)
+    can_ask, remaining = chat_service.check_question_limit(
+        doc, user=request.user if request.user.is_authenticated else None
+    )
     if not can_ask:
         return Response({"error": "Question limit reached for this document"}, status=status.HTTP_403_FORBIDDEN)
 
@@ -630,7 +638,9 @@ def chat_with_document(request, document_id):
     session = chat_service.get_or_create_session(doc, user=request.user if request.user.is_authenticated else None)
 
     # Send message and get response
-    user_msg, assistant_msg = chat_service.send_message(session, message, user=request.user if request.user.is_authenticated else None)
+    user_msg, assistant_msg = chat_service.send_message(
+        session, message, user=request.user if request.user.is_authenticated else None
+    )
 
     # Increment question count
     chat_service.increment_question_count(doc, user=request.user if request.user.is_authenticated else None)
@@ -730,7 +740,7 @@ def chat_with_document(request, document_id):
     ],
 )
 @api_view(["GET"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def get_chat_messages(request, document_id):
     """
     GET /api/doc-x/documents/{document_id}/messages
@@ -750,7 +760,9 @@ def get_chat_messages(request, document_id):
         return Response({"error": "Document not found"}, status=status.HTTP_404_NOT_FOUND)
 
     # Get active session
-    session = ChatSession.objects.filter(document=doc, user=request.user if request.user.is_authenticated else None, is_active=True).first()
+    session = ChatSession.objects.filter(
+        document=doc, user=request.user if request.user.is_authenticated else None, is_active=True
+    ).first()
 
     if not session:
         return Response({"messages": [], "count": 0}, status=status.HTTP_200_OK)

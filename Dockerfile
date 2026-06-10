@@ -16,6 +16,12 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     gettext \
     netcat-openbsd \
+    libcairo2 \
+    libpango-1.0-0 \
+    libpangoft2-1.0-0 \
+    libharfbuzz-subset0 \
+    libjpeg62-turbo \
+    libopenjp2-7 \
     && rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip + install Python deps

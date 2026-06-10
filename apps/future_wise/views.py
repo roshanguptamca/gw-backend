@@ -256,7 +256,11 @@ class ReminderListCreateView(APIView):
             phone_number=body_serializer.validated_data.get("phone_number", ""),
             telegram_chat_id=body_serializer.validated_data.get("telegram_chat_id", ""),
             channels_requested=",".join(channels or ["email"]),
-            status=(EmailReminder.Status.SCHEDULED if (is_auth or is_beta_channel) else EmailReminder.Status.PENDING_VERIFICATION),
+            status=(
+                EmailReminder.Status.SCHEDULED
+                if (is_auth or is_beta_channel)
+                else EmailReminder.Status.PENDING_VERIFICATION
+            ),
         )
         reminder.save()
 

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="{{ resume.locale|default:'en' }}">
+<head>
+  <meta charset="utf-8">
+  <style>
+    @page { size: A4; margin: 14mm; }
+    :root { --accent: {{ settings.primary_color }}; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; color: #172033; font-family: "{{ settings.font_family }}", Arial, sans-serif;
+      font-size: {% if settings.font_size == "small" %}9.5pt{% elif settings.font_size == "large" %}12pt{% else %}10.5pt{% endif %};
+      line-height: {% if settings.spacing == "compact" %}1.25{% elif settings.spacing == "relaxed" %}1.65{% else %}1.45{% endif %};
+    }
+    header { border-bottom: 3px solid var(--accent); padding-bottom: 12px; margin-bottom: 16px; }
+    h1 { margin: 0 0 2px; color: var(--accent); font-size: 28pt; line-height: 1.1; }
+    h2 { color: var(--accent); font-size: 13pt; text-transform: uppercase; letter-spacing: .06em; margin: 16px 0 7px; }
+    h3 { font-size: 11pt; margin: 0; }
+    p { margin: 3px 0 8px; }
+    .title { font-weight: 700; }
+    .contact, .meta { color: #566174; font-size: .92em; }
+    .photo { width: 92px; height: 92px; object-fit: cover; border-radius: 12px; float: right; margin-left: 18px; }
+    .item { margin-bottom: 11px; break-inside: avoid; }
+    .skills { display: flex; flex-wrap: wrap; gap: 6px; }
+    .skill { border: 1px solid #cbd5e1; border-radius: 999px; padding: 3px 8px; }
+    {% block template_style %}{% endblock %}
+  </style>
+</head>
+<body class="template-{{ resume_template.slug }}">
+  <header>
+    {% if photo_data_uri %}<img class="photo" src="{{ photo_data_uri }}" alt="Profile photo">{% endif %}
+    <h1>{{ resume.personal.first_name }} {{ resume.personal.last_name }}</h1>
+    <div class="title">{{ resume.personal.professional_title }}</div>
+    <div class="contact">{{ resume.personal.email }} | {{ resume.personal.phone }} | {{ resume.personal.city }}, {{ resume.personal.country }}</div>
+  </header>
+
+  {% for section in settings.section_order %}
+    {% if section == "summary" and resume.summary %}
+      <section><h2>{{ labels.summary }}</h2><p>{{ resume.summary }}</p></section>
+    {% elif section == "experience" and resume.experiences %}
+      <section><h2>{{ labels.experience }}</h2>{% for item in resume.experiences %}
+        <div class="item"><h3>{{ item.job_title }}{% if item.employer %} · {{ item.employer }}{% endif %}</h3>
+          <div class="meta">{{ item.start_date|default:"" }}{% if item.end_date %} - {{ item.end_date }}{% elif item.current %} - {{ labels.present }}{% endif %}</div>
+          <p>{{ item.description }}</p></div>
+      {% endfor %}</section>
+    {% elif section == "education" and resume.education %}
+      <section><h2>{{ labels.education }}</h2>{% for item in resume.education %}
+        <div class="item"><h3>{{ item.degree }} · {{ item.institution }}</h3><div class="meta">{{ item.field_of_study }}</div><p>{{ item.description }}</p></div>
+      {% endfor %}</section>
+    {% elif section == "skills" and resume.skills %}
+      <section><h2>{{ labels.skills }}</h2><div class="skills">{% for item in resume.skills %}<span class="skill">{{ item.name }}</span>{% endfor %}</div></section>
+    {% elif section == "projects" and resume.projects %}
+      <section><h2>{{ labels.projects }}</h2>{% for item in resume.projects %}
+        <div class="item"><h3>{{ item.name }}{% if item.role %} · {{ item.role }}{% endif %}</h3><p>{{ item.description }}</p></div>
+      {% endfor %}</section>
+    {% elif section == "certifications" and resume.certifications %}
+      <section><h2>{{ labels.certifications }}</h2>{% for item in resume.certifications %}
+        <div class="item"><h3>{{ item.name }}</h3><div class="meta">{{ item.issuer }}</div></div>
+      {% endfor %}</section>
+    {% elif section == "languages" and resume.languages %}
+      <section><h2>{{ labels.languages }}</h2><p>{% for item in resume.languages %}{{ item.name }} ({{ item.proficiency }}){% if not forloop.last %} · {% endif %}{% endfor %}</p></section>
+    {% elif section == "awards" and resume.awards %}
+      <section><h2>{{ labels.awards }}</h2>{% for item in resume.awards %}
+        <div class="item"><h3>{{ item.title }}</h3><div class="meta">{{ item.issuer }}</div><p>{{ item.description }}</p></div>
+      {% endfor %}</section>
+    {% elif section == "references" and resume.references %}
+      <section><h2>{{ labels.references }}</h2>{% for item in resume.references %}
+        <div class="item"><h3>{{ item.name }}</h3><div class="meta">{{ item.job_title }}{% if item.company %} · {{ item.company }}{% endif %}</div></div>
+      {% endfor %}</section>
+    {% endif %}
+  {% endfor %}
+</body>
+</html>

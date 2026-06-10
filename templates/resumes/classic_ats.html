@@ -1,0 +1,8 @@
+{% extends "resumes/base.html" %}
+{% block template_style %}
+  body { color: #111827; }
+  h1, h2 { color: #111827; }
+  h2 { border-bottom: 1px solid #9ca3af; }
+  .skill { border: 0; padding: 0; }
+  .skill:not(:last-child)::after { content: " ·"; }
+{% endblock %}

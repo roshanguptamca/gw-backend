@@ -24,7 +24,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import LANGUAGE_CHOICES
-from .serializers import ChangePasswordSerializer, UserRegistrationSerializer, ForgotPasswordSerializer, ResetPasswordSerializer
+from .serializers import (
+    ChangePasswordSerializer,
+    UserRegistrationSerializer,
+    ForgotPasswordSerializer,
+    ResetPasswordSerializer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -235,7 +240,11 @@ class LoginView(APIView):
         if profile is not None and not profile.email_confirmed:
             return Response(
                 {
-                    "error": str(_("Your email confirmation is pending. Please check your inbox and confirm your email before logging in.")),
+                    "error": str(
+                        _(
+                            "Your email confirmation is pending. Please check your inbox and confirm your email before logging in."
+                        )
+                    ),
                     "code": "EMAIL_CONFIRMATION_PENDING",
                 },
                 status=status.HTTP_401_UNAUTHORIZED,
@@ -517,7 +526,10 @@ def confirm_email_view(request, token):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    if profile.email_confirmation_token_expires_at is None or timezone.now() > profile.email_confirmation_token_expires_at:
+    if (
+        profile.email_confirmation_token_expires_at is None
+        or timezone.now() > profile.email_confirmation_token_expires_at
+    ):
         return Response(
             {"error": str(_("This confirmation link is invalid or has expired."))},
             status=status.HTTP_400_BAD_REQUEST,
@@ -620,7 +632,6 @@ class ResendConfirmationView(APIView):
         return Response({"message": str(_("Confirmation email resent."))}, status=status.HTTP_200_OK)
 
 
-
 @extend_schema(tags=["Accounts"])
 class ForgotPasswordView(APIView):
     permission_classes = [AllowAny]
@@ -638,6 +649,7 @@ class ForgotPasswordView(APIView):
         from django.contrib.auth import get_user_model as _get_user_model
         from .models import UserProfile as _UserProfile
         from apps.future_wise.email_service import BrevoEmailService as _BrevoEmailService, BrevoDeliveryError
+
         _User = _get_user_model()
 
         serializer = ForgotPasswordSerializer(data=request.data)
@@ -708,10 +720,14 @@ class ResetPasswordView(APIView):
         try:
             profile = _UserProfile.objects.select_related("user").get(password_reset_token=token)
         except _UserProfile.DoesNotExist:
-            return Response({"error": str(_("This reset link is invalid or has expired."))}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": str(_("This reset link is invalid or has expired."))}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         if not profile.password_reset_token_expires_at or timezone.now() > profile.password_reset_token_expires_at:
-            return Response({"error": str(_("This reset link is invalid or has expired."))}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": str(_("This reset link is invalid or has expired."))}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         user = profile.user
         user.set_password(new_password)

@@ -2,8 +2,6 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 
-
-
 def section(title, content, examples, dutch_keywords, callouts, illustration_hint):
     return {
         "title": title,
@@ -13,7 +11,6 @@ def section(title, content, examples, dutch_keywords, callouts, illustration_hin
         "callout_boxes": [{"type": box_type, "text": text} for box_type, text in callouts],
         "illustration_hint": illustration_hint,
     }
-
 
 
 def question(
@@ -48,7 +45,6 @@ def question(
     }
 
 
-
 def lesson(
     title,
     summary,
@@ -76,7 +72,6 @@ def lesson(
         "order": order,
         "is_active": True,
     }
-
 
 
 def topic(
@@ -166,8 +161,14 @@ TOPICS = [
                         ],
                         dutch_keywords=["rechts rijden", "fietspad", "inhalen", "verkeersinzicht"],
                         callouts=[
-                            ("remember", "In Dutch traffic, vulnerable road users often determine how much space and speed you should use."),
-                            ("tip", "If you are unsure, reduce speed first. Time gained is never worth a rushed decision."),
+                            (
+                                "remember",
+                                "In Dutch traffic, vulnerable road users often determine how much space and speed you should use.",
+                            ),
+                            (
+                                "tip",
+                                "If you are unsure, reduce speed first. Time gained is never worth a rushed decision.",
+                            ),
                         ],
                         illustration_hint="shared-road-overview",
                     ),
@@ -183,8 +184,14 @@ TOPICS = [
                         ],
                         dutch_keywords=["rijbewijs", "kenteken", "APK", "WA-verzekering"],
                         callouts=[
-                            ("info", "A legal vehicle can still be unsafe if visibility, tyre condition, or driver fitness is poor."),
-                            ("warning", "Never assume that a short trip excuses missing documents or poor concentration."),
+                            (
+                                "info",
+                                "A legal vehicle can still be unsafe if visibility, tyre condition, or driver fitness is poor.",
+                            ),
+                            (
+                                "warning",
+                                "Never assume that a short trip excuses missing documents or poor concentration.",
+                            ),
                         ],
                         illustration_hint="licence-and-documents",
                     ),
@@ -410,7 +417,10 @@ TOPICS = [
                         dutch_keywords=["fietser", "voetganger", "zebrapad", "kwetsbare weggebruiker"],
                         callouts=[
                             ("warning", "Never rely on eye contact alone with children or distracted pedestrians."),
-                            ("tip", "A cyclist looking over one shoulder may be preparing to turn or move around an obstacle."),
+                            (
+                                "tip",
+                                "A cyclist looking over one shoulder may be preparing to turn or move around an obstacle.",
+                            ),
                         ],
                         illustration_hint="cyclist-pedestrian-street",
                     ),
@@ -426,8 +436,14 @@ TOPICS = [
                         ],
                         dutch_keywords=["tram", "bus", "bromfiets", "scootmobiel"],
                         callouts=[
-                            ("remember", "Different vehicles have different blind spots, braking ability, and lane position."),
-                            ("info", "A bus leaving a stop within a built-up area may require you to let it merge when the driver indicates."),
+                            (
+                                "remember",
+                                "Different vehicles have different blind spots, braking ability, and lane position.",
+                            ),
+                            (
+                                "info",
+                                "A bus leaving a stop within a built-up area may require you to let it merge when the driver indicates.",
+                            ),
                         ],
                         illustration_hint="tram-bus-moped",
                     ),
@@ -653,7 +669,10 @@ TOPICS = [
                         dutch_keywords=["driehoek", "cirkel", "stopbord", "voorrang"],
                         callouts=[
                             ("remember", "Shape often tells you the category before the symbol confirms the detail."),
-                            ("tip", "If you spot a priority sign, immediately think about which vehicles may expect you to yield or proceed."),
+                            (
+                                "tip",
+                                "If you spot a priority sign, immediately think about which vehicles may expect you to yield or proceed.",
+                            ),
                         ],
                         illustration_hint="sign-shapes-grid",
                     ),
@@ -669,8 +688,14 @@ TOPICS = [
                         ],
                         dutch_keywords=["oranje omleiding", "gele ruit", "blauwe borden", "tijdelijke borden"],
                         callouts=[
-                            ("info", "Temporary orange signs deserve immediate attention because they may change the usual route or priority pattern."),
-                            ("warning", "Do not follow other vehicles blindly if the sign says something different from what you expected."),
+                            (
+                                "info",
+                                "Temporary orange signs deserve immediate attention because they may change the usual route or priority pattern.",
+                            ),
+                            (
+                                "warning",
+                                "Do not follow other vehicles blindly if the sign says something different from what you expected.",
+                            ),
                         ],
                         illustration_hint="priority-and-detour-signs",
                     ),
@@ -901,8 +926,14 @@ TOPICS = [
                         ],
                         dutch_keywords=["richting aangeven", "spiegels", "blind spot", "rechts voor links"],
                         callouts=[
-                            ("tip", "A signal is a message, not permission. Always check if the movement is truly safe."),
-                            ("remember", "Priority from the right applies at equal roads, even when one road looks wider."),
+                            (
+                                "tip",
+                                "A signal is a message, not permission. Always check if the movement is truly safe.",
+                            ),
+                            (
+                                "remember",
+                                "Priority from the right applies at equal roads, even when one road looks wider.",
+                            ),
                         ],
                         illustration_hint="basic-junction-turn",
                     ),
@@ -1162,7 +1193,10 @@ TOPICS = [
                         dutch_keywords=["afslaand verkeer", "tram", "fietsoversteek", "kruisen"],
                         callouts=[
                             ("warning", "Having priority does not justify forcing another road user to brake sharply."),
-                            ("info", "Turning right or left often creates extra crossing conflicts that must be checked separately."),
+                            (
+                                "info",
+                                "Turning right or left often creates extra crossing conflicts that must be checked separately.",
+                            ),
                         ],
                         illustration_hint="turning-cyclist-priority",
                     ),
@@ -1387,8 +1421,14 @@ TOPICS = [
                         ],
                         dutch_keywords=["50 km/h", "30-zone", "autosnelweg", "bebouwde kom"],
                         callouts=[
-                            ("remember", "The last valid sign and the road category together determine the legal maximum."),
-                            ("tip", "When entering a town, look early for the built-up area sign because it changes several rules at once."),
+                            (
+                                "remember",
+                                "The last valid sign and the road category together determine the legal maximum.",
+                            ),
+                            (
+                                "tip",
+                                "When entering a town, look early for the built-up area sign because it changes several rules at once.",
+                            ),
                         ],
                         illustration_hint="speed-zone-signs",
                     ),
@@ -1404,8 +1444,14 @@ TOPICS = [
                         ],
                         dutch_keywords=["weersomstandigheden", "zicht", "remsafstand", "veilige snelheid"],
                         callouts=[
-                            ("warning", "Driving at the maximum can still be dangerous if you cannot stop within the distance you can see."),
-                            ("info", "Examiners often reward the safer adjusted speed rather than the highest legal number."),
+                            (
+                                "warning",
+                                "Driving at the maximum can still be dangerous if you cannot stop within the distance you can see.",
+                            ),
+                            (
+                                "info",
+                                "Examiners often reward the safer adjusted speed rather than the highest legal number.",
+                            ),
                         ],
                         illustration_hint="wet-road-speed",
                     ),
@@ -1631,7 +1677,10 @@ TOPICS = [
                         ],
                         dutch_keywords=["doorgetrokken", "onderbroken", "rijstrookpijl", "fietssymbool"],
                         callouts=[
-                            ("remember", "A broken line is not a promise that changing lanes is safe. It only means the marking itself does not forbid it."),
+                            (
+                                "remember",
+                                "A broken line is not a promise that changing lanes is safe. It only means the marking itself does not forbid it.",
+                            ),
                             ("tip", "Use markings to predict where others may move next, especially near lane arrows."),
                         ],
                         illustration_hint="solid-and-broken-lines",
@@ -1648,8 +1697,14 @@ TOPICS = [
                         ],
                         dutch_keywords=["haaientanden", "gele markering", "stilstaan", "parkeren"],
                         callouts=[
-                            ("warning", "Stopping 'for only a moment' can still be illegal or dangerous where markings forbid it."),
-                            ("info", "Road markings are legally meaningful even when there is no extra roadside sign next to them."),
+                            (
+                                "warning",
+                                "Stopping 'for only a moment' can still be illegal or dangerous where markings forbid it.",
+                            ),
+                            (
+                                "info",
+                                "Road markings are legally meaningful even when there is no extra roadside sign next to them.",
+                            ),
                         ],
                         illustration_hint="kerb-yellow-markings",
                     ),
@@ -1877,7 +1932,10 @@ TOPICS = [
                         dutch_keywords=["kruispunt", "oprit", "zicht", "verboden te parkeren"],
                         callouts=[
                             ("warning", "Hazard lights do not give permission to stop in a prohibited place."),
-                            ("remember", "A legal parking place should leave enough space for others to see and move safely."),
+                            (
+                                "remember",
+                                "A legal parking place should leave enough space for others to see and move safely.",
+                            ),
                         ],
                         illustration_hint="parking-near-junction",
                     ),
@@ -1893,8 +1951,14 @@ TOPICS = [
                         ],
                         dutch_keywords=["blauwe zone", "parkeerschijf", "stilstaan", "laden en lossen"],
                         callouts=[
-                            ("info", "A time-controlled bay still needs careful placement so you do not obstruct others."),
-                            ("tip", "Before leaving the car, ask whether you are stopping because of traffic or because of your own plan."),
+                            (
+                                "info",
+                                "A time-controlled bay still needs careful placement so you do not obstruct others.",
+                            ),
+                            (
+                                "tip",
+                                "Before leaving the car, ask whether you are stopping because of traffic or because of your own plan.",
+                            ),
                         ],
                         illustration_hint="parking-disc-zone",
                     ),
@@ -2120,8 +2184,14 @@ TOPICS = [
                         ],
                         dutch_keywords=["rotonde", "invoegen", "haaientanden", "rijstrookkeuze"],
                         callouts=[
-                            ("remember", "Entering slowly is usually faster overall than braking hard at the last second."),
-                            ("tip", "Check for lane arrows before the roundabout so you are not forced into a late cut across another lane."),
+                            (
+                                "remember",
+                                "Entering slowly is usually faster overall than braking hard at the last second.",
+                            ),
+                            (
+                                "tip",
+                                "Check for lane arrows before the roundabout so you are not forced into a late cut across another lane.",
+                            ),
                         ],
                         illustration_hint="roundabout-entry",
                     ),
@@ -2137,8 +2207,14 @@ TOPICS = [
                         ],
                         dutch_keywords=["uitrijden", "richtingaanwijzer", "fietspad", "blinde hoek"],
                         callouts=[
-                            ("warning", "A cyclist near the exit can be hidden by the vehicle pillar if you do not move your head and check properly."),
-                            ("info", "Priority signs at cycle crossings differ by location, so always read the actual markings."),
+                            (
+                                "warning",
+                                "A cyclist near the exit can be hidden by the vehicle pillar if you do not move your head and check properly.",
+                            ),
+                            (
+                                "info",
+                                "Priority signs at cycle crossings differ by location, so always read the actual markings.",
+                            ),
                         ],
                         illustration_hint="roundabout-cycle-exit",
                     ),
@@ -2363,8 +2439,14 @@ TOPICS = [
                         ],
                         dutch_keywords=["fietspad", "dode hoek", "rechtsaf", "inhalen"],
                         callouts=[
-                            ("warning", "A cyclist may be hidden beside the front passenger pillar or mirror if you do not move your head."),
-                            ("tip", "Treat every cycle crossing as an active traffic stream, not as a painted decoration."),
+                            (
+                                "warning",
+                                "A cyclist may be hidden beside the front passenger pillar or mirror if you do not move your head.",
+                            ),
+                            (
+                                "tip",
+                                "Treat every cycle crossing as an active traffic stream, not as a painted decoration.",
+                            ),
                         ],
                         illustration_hint="cyclist-right-turn",
                     ),
@@ -2380,8 +2462,14 @@ TOPICS = [
                         ],
                         dutch_keywords=["zebrapad", "schoolzone", "oversteken", "zichtbelemmering"],
                         callouts=[
-                            ("remember", "If a pedestrian is hard to see, your speed should make up for the missing information."),
-                            ("info", "A safe pass near a crossing often means waiting rather than squeezing through first."),
+                            (
+                                "remember",
+                                "If a pedestrian is hard to see, your speed should make up for the missing information.",
+                            ),
+                            (
+                                "info",
+                                "A safe pass near a crossing often means waiting rather than squeezing through first.",
+                            ),
                         ],
                         illustration_hint="zebra-crossing-child",
                     ),
@@ -2623,7 +2711,10 @@ TOPICS = [
                         ],
                         dutch_keywords=["volgafstand", "vluchtstrook", "uitrit", "pech"],
                         callouts=[
-                            ("warning", "A last-second motorway exit is often more dangerous than missing the exit completely."),
+                            (
+                                "warning",
+                                "A last-second motorway exit is often more dangerous than missing the exit completely.",
+                            ),
                             ("info", "The shoulder is a safety space, not a convenience space."),
                         ],
                         illustration_hint="motorway-exit-shoulder",
@@ -2850,7 +2941,10 @@ TOPICS = [
                         dutch_keywords=["anticiperen", "remweg", "reactietijd", "onzekerheid"],
                         callouts=[
                             ("tip", "If a scene gives you less information, lower your speed to buy time."),
-                            ("remember", "The earliest safe response is often the smallest one: lift off, look wider, and prepare."),
+                            (
+                                "remember",
+                                "The earliest safe response is often the smallest one: lift off, look wider, and prepare.",
+                            ),
                         ],
                         illustration_hint="hazard-ball-road",
                     ),
@@ -2867,7 +2961,10 @@ TOPICS = [
                         dutch_keywords=["mist", "volgafstand", "grip", "uitwijken"],
                         callouts=[
                             ("warning", "A sudden swerve can create a worse collision than the original hazard."),
-                            ("info", "Good hazard recognition balances braking, steering, and space rather than using one response automatically."),
+                            (
+                                "info",
+                                "Good hazard recognition balances braking, steering, and space rather than using one response automatically.",
+                            ),
                         ],
                         illustration_hint="fog-follow-distance",
                     ),
@@ -3352,8 +3449,14 @@ TOPICS = [
                         ],
                         dutch_keywords=["bandenspanning", "stationair", "onderhoud", "weerstand"],
                         callouts=[
-                            ("info", "Correct tyre pressure helps with braking, handling, and fuel economy at the same time."),
-                            ("warning", "Do not switch attention from the road to eco-driving displays when the traffic situation is complex."),
+                            (
+                                "info",
+                                "Correct tyre pressure helps with braking, handling, and fuel economy at the same time.",
+                            ),
+                            (
+                                "warning",
+                                "Do not switch attention from the road to eco-driving displays when the traffic situation is complex.",
+                            ),
                         ],
                         illustration_hint="tyre-pressure-and-leaf",
                     ),
@@ -3579,7 +3682,10 @@ TOPICS = [
                         dutch_keywords=["banden", "profiel", "ruitenwissers", "verlichting"],
                         callouts=[
                             ("remember", "Your tyres are the only contact points between the car and the road."),
-                            ("tip", "A two-minute check before departure is easier than solving a preventable problem on the road."),
+                            (
+                                "tip",
+                                "A two-minute check before departure is easier than solving a preventable problem on the road.",
+                            ),
                         ],
                         illustration_hint="tyres-lights-check",
                     ),
@@ -3595,8 +3701,14 @@ TOPICS = [
                         ],
                         dutch_keywords=["dashboard", "rood lampje", "geel lampje", "olie"],
                         callouts=[
-                            ("warning", "A warning light is part of the safety system, not an inconvenience to ignore."),
-                            ("info", "Knowing the difference between urgent and soon-to-be-checked warnings helps you react properly."),
+                            (
+                                "warning",
+                                "A warning light is part of the safety system, not an inconvenience to ignore.",
+                            ),
+                            (
+                                "info",
+                                "Knowing the difference between urgent and soon-to-be-checked warnings helps you react properly.",
+                            ),
                         ],
                         illustration_hint="dashboard-warning-cluster",
                     ),
@@ -3777,9 +3889,13 @@ class Command(BaseCommand):
     @transaction.atomic
     def handle(self, *args, **options):
         from apps.driving_theory.models import (
-            DrivingLesson, DrivingLessonSection, DrivingQuestion,
-            DrivingQuestionOption, DrivingTopic,
+            DrivingLesson,
+            DrivingLessonSection,
+            DrivingQuestion,
+            DrivingQuestionOption,
+            DrivingTopic,
         )
+
         if options["clear"]:
             DrivingTopic.objects.all().delete()
             self.stdout.write("Cleared all driving theory data.")
@@ -3809,7 +3925,9 @@ class Command(BaseCommand):
                     DrivingLessonSection.objects.create(lesson=lesson_obj, order=index, **section_data)
 
                 desired_texts = [item["question_text"] for item in lesson_data.get("questions", [])]
-                stale_questions = DrivingQuestion.objects.filter(topic=topic_obj).exclude(question_text__in=desired_texts)
+                stale_questions = DrivingQuestion.objects.filter(topic=topic_obj).exclude(
+                    question_text__in=desired_texts
+                )
                 for stale_question in stale_questions:
                     if stale_question.mocktestattempt_set.exists() or stale_question.mocktestanswer_set.exists():
                         stale_question.is_active = False
