@@ -60,6 +60,7 @@ Resume Builder is also available as a live beta for anonymous users. Anonymous v
 - Storage: PostgreSQL/SQLite binary fields only; no cloud storage
 - Jobs: existing DB-backed APScheduler process; no Redis or Celery
 - AI providers: OpenAI, Azure OpenAI, Ollama, or deterministic dummy provider
+- Speaking Buddy: OpenAI-backed realtime/text practice with isolated buddy memory and avatar support
 - Export: WeasyPrint PDF and `python-docx` DOCX
 - Optional protected profile photos (JPG/PNG/WebP, maximum 5 MB)
 - Stable-ID CRUD for skills, education, experience, projects, certifications, languages, awards, and references
@@ -201,6 +202,10 @@ GOOGLE_CLIENT_SECRET=
 OAUTH_REDIRECT_BASE_URL=http://localhost:8000
 FRONTEND_AUTH_SUCCESS_URL=https://www.guidewisey.com/auth-callback?status=success
 FRONTEND_AUTH_ERROR_URL=https://www.guidewisey.com/auth-callback?error=
+
+# Speaking Buddy
+SPEAKING_BUDDY_MODEL=gpt-4o-mini
+SPEAKING_BUDDY_MAX_AVATAR_BYTES=5242880
 
 # Email — Brevo SMTP relay
 EMAIL_HOST=smtp-relay.brevo.com
