@@ -70,7 +70,7 @@ def resolve_anonymous_identity(request, email=None, phone_number=None, create=Tr
         return None
     email = normalize_email(email)
     phone = normalize_phone(phone_number)
-    session_key = _ensure_session_key(request)
+    session_key = _ensure_session_key(request) if create else request.session.session_key
     ip_address = get_client_ip(request)
     request_data = getattr(request, "data", {})
     fingerprint = request.headers.get("X-Resume-Fingerprint") or request_data.get("fingerprint_hash")
@@ -87,12 +87,16 @@ def resolve_anonymous_identity(request, email=None, phone_number=None, create=Tr
     ):
         if value:
             query |= Q(**{key: value})
-    matches = (
-        list(AnonymousResumeIdentity.objects.select_for_update().filter(query).order_by("created_at")) if query else []
-    )
+    queryset = AnonymousResumeIdentity.objects.filter(query).order_by("created_at") if query else None
+    if queryset is None:
+        matches = []
+    else:
+        matches = list(queryset.select_for_update() if create else queryset)
     if not matches and not create:
         return None
     identity = matches[0] if matches else AnonymousResumeIdentity()
+    if not create:
+        return identity
     if len(matches) > 1:
         identity = _merge_identities(identity, matches[1:])
     changed = []

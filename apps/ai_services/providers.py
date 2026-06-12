@@ -63,6 +63,33 @@ class OllamaProvider(BaseAIProvider):
         return response.json().get("response", "")
 
 
+class GeminiProvider(BaseAIProvider):
+    def __init__(self):
+        from services.gemini import GeminiClient
+
+        self.client = GeminiClient()
+        if self.client.native is None and self.client.openai_style is None:
+            raise RuntimeError("Gemini is not configured. Set GEMINI_API_KEY.")
+
+    def generate(self, system_prompt: str, user_prompt: str) -> str:
+        prompt = f"{system_prompt}\n\n{user_prompt}"
+        if self.client.native is not None:
+            response = self.client.native.models.generate_content(
+                model=settings.GEMINI_MODEL,
+                contents=[prompt],
+            )
+            return (response.text or "").strip()
+        response = self.client.openai_style.chat.completions.create(
+            model=settings.GEMINI_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.1,
+        )
+        return (response.choices[0].message.content or "").strip()
+
+
 class DummyProvider(BaseAIProvider):
     def generate(self, system_prompt: str, user_prompt: str) -> str:
         try:
@@ -85,6 +112,7 @@ def get_ai_provider() -> BaseAIProvider:
     providers = {
         "openai": OpenAIProvider,
         "azure_openai": AzureOpenAIProvider,
+        "gemini": GeminiProvider,
         "ollama": OllamaProvider,
         "dummy": DummyProvider,
     }
@@ -92,3 +120,26 @@ def get_ai_provider() -> BaseAIProvider:
     if not provider_class:
         raise ValueError(f"Unsupported AI_PROVIDER: {settings.AI_PROVIDER}")
     return provider_class()
+
+
+def get_ai_providers():
+    provider_names = [
+        name.strip().casefold()
+        for name in getattr(settings, "AI_PROVIDER_FALLBACKS", "gemini,openai").split(",")
+        if name.strip()
+    ]
+    providers = []
+    for name in provider_names:
+        provider_class = {
+            "openai": OpenAIProvider,
+            "azure_openai": AzureOpenAIProvider,
+            "gemini": GeminiProvider,
+            "ollama": OllamaProvider,
+        }.get(name)
+        if not provider_class:
+            continue
+        try:
+            providers.append((name, provider_class()))
+        except Exception:
+            continue
+    return providers

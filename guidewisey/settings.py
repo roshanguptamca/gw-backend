@@ -418,8 +418,10 @@ APSCHEDULER_DATETIME_FORMAT = "N j, Y, f:s a"
 APSCHEDULER_RUN_NOW_TIMEOUT = 25  # seconds
 
 # ── Career Suite ────────────────────────────────────────────
-AI_PROVIDER = os.getenv("AI_PROVIDER", "dummy")
+AI_PROVIDER = os.getenv("AI_PROVIDER", "gemini" if os.getenv("GEMINI_API_KEY") else "dummy")
+AI_PROVIDER_FALLBACKS = os.getenv("AI_PROVIDER_FALLBACKS", "gemini,openai")
 AI_MODEL = os.getenv("AI_MODEL", "gpt-4o-mini")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY", "")
 AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "")
