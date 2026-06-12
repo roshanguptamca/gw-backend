@@ -14,6 +14,9 @@ def default_dict():
 LANGUAGE_CHOICES = [
     ("en", "English"),
     ("nl", "Dutch"),
+    ("hi", "Hindi"),
+    ("ur", "Urdu"),
+    ("ar", "Arabic"),
     ("es", "Spanish"),
     ("fr", "French"),
     ("de", "German"),
