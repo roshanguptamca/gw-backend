@@ -2,7 +2,7 @@ import logging
 import secrets
 
 from django.conf import settings
-from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.http import JsonResponse
 from django.middleware.csrf import get_token
 from django.utils import timezone, translation
@@ -23,7 +23,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import LANGUAGE_CHOICES
+from .models import LANGUAGE_CHOICES, UserProfile
 from .serializers import (
     ChangePasswordSerializer,
     UserRegistrationSerializer,
@@ -231,6 +231,10 @@ class LoginView(APIView):
         password = request.data.get("password")
 
         user = authenticate(request, username=username, password=password)
+        if not user and username:
+            matched_user = get_user_model().objects.filter(email__iexact=username).first()
+            if matched_user:
+                user = authenticate(request, username=matched_user.username, password=password)
 
         if not user:
             return Response({"error": str(_("Invalid credentials"))}, status=status.HTTP_401_UNAUTHORIZED)
@@ -340,6 +344,38 @@ class MeView(APIView):
                 "first_name": user.first_name,
                 "last_name": user.last_name,
                 "preferred_language": preferred_language,
+                "profile_complete": profile.profile_completed if profile else False,
+                "avatar_url": profile.avatar_url if profile else "",
+                "has_password": user.has_usable_password(),
+            }
+        )
+
+    def patch(self, request):
+        user = request.user
+        first_name = str(request.data.get("first_name", user.first_name)).strip()
+        last_name = str(request.data.get("last_name", user.last_name)).strip()
+        if not first_name or not last_name:
+            return Response(
+                {"error": str(_("First name and last name are required."))},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user.first_name = first_name[:150]
+        user.last_name = last_name[:150]
+        user.save(update_fields=["first_name", "last_name"])
+        profile, _ = UserProfile.objects.get_or_create(user=user)
+        profile.profile_completed = bool(user.email and user.first_name and user.last_name)
+        profile.save(update_fields=["profile_completed"])
+        return Response(
+            {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "preferred_language": profile.preferred_language,
+                "profile_complete": profile.profile_completed,
+                "avatar_url": profile.avatar_url,
+                "has_password": user.has_usable_password(),
             }
         )
 
@@ -351,8 +387,8 @@ class MeView(APIView):
     tags=["Accounts"],
     summary="Change password",
     description=(
-        "Change the authenticated user's password. "
-        "Requires the current password for verification. "
+        "Change the authenticated user's password, or set the first password for a social-only account. "
+        "Requires the current password when the account already has one. "
         "The session remains valid after the change."
     ),
     request=ChangePasswordSerializer,

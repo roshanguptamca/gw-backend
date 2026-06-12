@@ -285,6 +285,41 @@ class AccountsAPITestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("current_password", response.data)
 
+    def test_social_user_can_set_first_password_without_current_password(self):
+        self.user.set_unusable_password()
+        self.user.save(update_fields=["password"])
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(
+            "/api/accounts/change-password/",
+            {"new_password": "NewSocialPass456!", "new_password2": "NewSocialPass456!"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("NewSocialPass456!"))
+
+        self.client.force_authenticate(user=None)
+        login_response = self.client.post(
+            "/api/accounts/login/",
+            {"username": self.user.email, "password": "NewSocialPass456!"},
+            format="json",
+        )
+        self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+
+    def test_password_user_must_supply_current_password(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(
+            "/api/accounts/change-password/",
+            {"new_password": "NewPass456!", "new_password2": "NewPass456!"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("current_password", response.data)
+
     def test_change_password_mismatch(self):
         """Change password fails if new passwords do not match"""
         self.client.login(username=self.user_data["username"], password=self.user_data["password"])

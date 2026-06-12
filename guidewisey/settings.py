@@ -402,6 +402,28 @@ FUTUREWAVE_ATTACHMENT_PURGE_AFTER_SEND = os.getenv("FUTUREWAVE_ATTACHMENT_PURGE_
 FUTUREWAVE_FRONTEND_BASE_URL = os.getenv("FUTUREWAVE_FRONTEND_BASE_URL", "https://www.guidewisey.com")
 FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", FUTUREWAVE_FRONTEND_BASE_URL)
 
+# ── Social authentication ──────────────────────────────────
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+FACEBOOK_CLIENT_ID = os.getenv("FACEBOOK_CLIENT_ID", "")
+FACEBOOK_CLIENT_SECRET = os.getenv("FACEBOOK_CLIENT_SECRET", "")
+FACEBOOK_GRAPH_API_VERSION = os.getenv("FACEBOOK_GRAPH_API_VERSION", "v23.0")
+LINKEDIN_CLIENT_ID = os.getenv("LINKEDIN_CLIENT_ID", "")
+LINKEDIN_CLIENT_SECRET = os.getenv("LINKEDIN_CLIENT_SECRET", "")
+OIDC_ISSUER_URL = os.getenv("OIDC_ISSUER_URL", "")
+OIDC_CLIENT_ID = os.getenv("OIDC_CLIENT_ID", "")
+OIDC_CLIENT_SECRET = os.getenv("OIDC_CLIENT_SECRET", "")
+OAUTH_REDIRECT_BASE_URL = os.getenv("OAUTH_REDIRECT_BASE_URL", "http://localhost:8000")
+FRONTEND_AUTH_SUCCESS_URL = os.getenv(
+    "FRONTEND_AUTH_SUCCESS_URL",
+    f"{FRONTEND_BASE_URL.rstrip('/')}/auth/callback",
+)
+FRONTEND_AUTH_ERROR_URL = os.getenv(
+    "FRONTEND_AUTH_ERROR_URL",
+    f"{FRONTEND_BASE_URL.rstrip('/')}/auth/callback",
+)
+OAUTH_TRANSACTION_TTL_MINUTES = int(os.getenv("OAUTH_TRANSACTION_TTL_MINUTES", 10))
+
 # ── Business rules ───────────────────────────────────────────
 # Max email reminders per day for free (non-superuser) users, counted per email address
 EMAIL_REMINDER_FREE_DAILY_LIMIT = int(os.getenv("EMAIL_REMINDER_FREE_DAILY_LIMIT", 3))
@@ -457,6 +479,8 @@ REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {
     "futurewave_anon_create": FUTUREWAVE_ANON_CREATE_RATE,
     "futurewave_user_create": FUTUREWAVE_USER_CREATE_RATE,
     "futurewave_verify": FUTUREWAVE_VERIFY_RATE,
+    "oauth_start": os.getenv("OAUTH_START_RATE", "20/hour"),
+    "oauth_callback": os.getenv("OAUTH_CALLBACK_RATE", "30/hour"),
 }
 
 # ── Sentry Observability ─────────────────────────────────────
