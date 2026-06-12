@@ -76,6 +76,18 @@ class OAuthViewsTests(TestCase):
 
         self.assertIn("error=invalid_or_expired", response["Location"])
 
+    def test_linkedin_missing_oidc_permissions_returns_actionable_error(self):
+        response = self.client.get(
+            "/api/auth/oauth/linkedin/callback",
+            {
+                "error": "unauthorized_scope_error",
+                "error_description": "Scope openid is not authorized for your application",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("error=provider_permissions_missing", response["Location"])
+
     @patch("apps.accounts.oauth_views.fetch_social_profile")
     def test_callback_creates_user_profile_provider_and_session(self, fetch_profile):
         fetch_profile.return_value = SocialProfile(

@@ -77,7 +77,22 @@ def oauth_start(request, provider):
 @throttle_classes([OAuthCallbackThrottle])
 def oauth_callback(request, provider):
     if request.query_params.get("error"):
-        error = "oauth_cancelled" if request.query_params.get("error") == "access_denied" else "provider_unavailable"
+        provider_error = request.query_params.get("error", "")
+        error_description = request.query_params.get("error_description", "")
+        logger.warning(
+            "OAuth authorization rejected for %s: error=%s description=%s",
+            provider,
+            provider_error,
+            error_description[:300],
+        )
+        if provider_error in {"access_denied", "user_cancelled_login", "user_cancelled_authorize"}:
+            error = "oauth_cancelled"
+        elif provider_error in {"unauthorized_scope_error", "invalid_scope"} or "scope" in error_description.lower():
+            error = "provider_permissions_missing"
+        elif "redirect" in error_description.lower():
+            error = "provider_redirect_mismatch"
+        else:
+            error = "provider_unavailable"
         return _frontend_redirect(False, error=error)
     try:
         oauth_transaction = consume_oauth_transaction(

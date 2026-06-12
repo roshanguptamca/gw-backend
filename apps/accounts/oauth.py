@@ -191,7 +191,16 @@ def _exchange_code(oauth_transaction, code):
                 provider_error.get("error", "unknown"),
                 provider_error.get("error_description", "")[:300],
             )
-            raise OAuthError("provider_unavailable")
+            error_code = provider_error.get("error", "")
+            error_description = provider_error.get("error_description", "").lower()
+            if oauth_transaction.provider == "linkedin":
+                if error_code in {"unauthorized_scope_error", "invalid_scope"} or "scope" in error_description:
+                    raise OAuthError("provider_permissions_missing")
+                if error_code == "invalid_redirect_uri" or "redirect uri" in error_description:
+                    raise OAuthError("provider_redirect_mismatch")
+                if error_code in {"invalid_client", "client_authentication_failed"}:
+                    raise OAuthError("provider_configuration_invalid")
+            raise OAuthError("provider_token_exchange_failed")
         payload = response.json()
     except OAuthError:
         raise
