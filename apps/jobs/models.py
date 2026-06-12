@@ -11,7 +11,7 @@ class JobDescription(models.Model):
     )
     title = models.CharField(max_length=255, blank=True)
     company = models.CharField(max_length=255, blank=True)
-    source_url = models.URLField(blank=True)
+    source_url = models.URLField(max_length=2048, blank=True)
     raw_text = models.TextField()
     parsed_json = models.JSONField(default=dict, blank=True)
     language = models.CharField(max_length=10, choices=[("en", "English"), ("nl", "Dutch")], default="en")
@@ -25,7 +25,7 @@ class TemporaryJobDescription(models.Model):
     )
     raw_text = models.TextField()
     parsed_json = models.JSONField(default=dict, blank=True)
-    source_url = models.URLField(blank=True)
+    source_url = models.URLField(max_length=2048, blank=True)
     expires_at = models.DateTimeField(db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

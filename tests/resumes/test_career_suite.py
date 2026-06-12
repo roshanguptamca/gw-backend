@@ -15,7 +15,7 @@ from rest_framework.test import APIClient
 from apps.exports.services import generate_docx, get_export_photo, render_resume_html
 from apps.files.models import UserFile
 from apps.jobs.services import analyze_match, parse_job_text, parse_job_url
-from apps.jobs.models import JobDescription
+from apps.jobs.models import JobDescription, TemporaryJobDescription
 from apps.resumes.models import (
     AnonymousResumeIdentity,
     Education,
@@ -1239,6 +1239,44 @@ def test_job_url_endpoint_success_and_graceful_failure(client):
     assert failure.status_code == 400
     assert failure.data["success"] is False
     assert "paste the job description manually" in failure.data["error"]
+
+
+@pytest.mark.django_db
+def test_job_url_endpoint_persists_long_tracking_url(client):
+    long_url = "https://jobs.example.com/customer-support?" + "&".join(
+        f"tracking_parameter_{index}={'x' * 40}" for index in range(8)
+    )
+    assert len(long_url) > 200
+    parsed = {
+        "title": "Customer Support Specialist",
+        "job_title": "Customer Support Specialist",
+        "company": "Example",
+        "location": "Amsterdam",
+        "raw_text": "Required skills: Customer Service",
+        "required_skills": ["Customer Service"],
+        "preferred_skills": [],
+        "responsibilities": [],
+        "education": [],
+        "education_requirements": [],
+        "certifications": [],
+        "tools": [],
+        "technologies": [],
+        "keywords": ["customer", "service"],
+        "language_requirements": [],
+    }
+
+    with patch("apps.jobs.views.parse_job_url", return_value=parsed):
+        response = client.post(
+            "/api/jobs/parse-url/",
+            {"url": long_url, "language": "en"},
+            format="json",
+        )
+
+    assert response.status_code == 201
+    job = JobDescription.objects.get(id=response.data["job_description"]["id"])
+    temporary = TemporaryJobDescription.objects.get(id=response.data["temporary_id"])
+    assert job.source_url == long_url
+    assert temporary.source_url == long_url
 
 
 @pytest.mark.django_db
