@@ -37,18 +37,22 @@ class OAuthViewsTests(TestCase):
 
     @patch("apps.accounts.oauth._provider_settings")
     def test_start_generates_pkce_url_and_transaction_cookie_for_each_provider(self, provider_settings):
-        provider_settings.return_value = {
-            "client_id": "google-client",
-            "client_secret": "google-secret",
+        provider_settings.side_effect = lambda provider: {
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "authorization_endpoint": "https://provider.example/authorize",
             "scopes": "openid profile email",
+            "supports_pkce": provider != "linkedin",
         }
 
         for provider in ("google", "facebook", "linkedin", "oidc"):
             with self.subTest(provider=provider):
                 response = self.client.get(f"/api/auth/oauth/{provider}/start")
                 self.assertEqual(response.status_code, 302)
-                self.assertIn("code_challenge_method=S256", response["Location"])
+                if provider == "linkedin":
+                    self.assertNotIn("code_challenge=", response["Location"])
+                else:
+                    self.assertIn("code_challenge_method=S256", response["Location"])
                 self.assertIn("state=", response["Location"])
                 self.assertIn("gw_oauth_transaction", response.cookies)
         self.assertEqual(OAuthTransaction.objects.count(), 4)
@@ -231,6 +235,7 @@ class OAuthAccountTests(TestCase):
             "client_id": "client",
             "client_secret": "secret",
             "token_endpoint": "https://provider.example/token",
+            "supports_pkce": True,
         }
         response = Mock()
         response.json.return_value = {"access_token": "server-only-token", "id_token": "id-token"}
@@ -257,7 +262,25 @@ class OAuthAccountTests(TestCase):
 
         self.assertEqual(config["token_endpoint"], "https://www.linkedin.com/oauth/v2/accessToken")
         self.assertEqual(config["issuer"], "https://www.linkedin.com/oauth")
+        self.assertFalse(config["supports_pkce"])
         get.assert_not_called()
+
+    @override_settings(LINKEDIN_CLIENT_ID="linkedin-client", LINKEDIN_CLIENT_SECRET="linkedin-secret")
+    @patch("apps.accounts.oauth.requests.post")
+    def test_linkedin_token_exchange_omits_unsupported_pkce_verifier(self, post):
+        response = Mock()
+        response.ok = True
+        response.json.return_value = {"access_token": "access-token", "id_token": "id-token"}
+        post.return_value = response
+        oauth_transaction = OAuthTransaction(
+            provider="linkedin",
+            redirect_uri="http://testserver/api/auth/oauth/linkedin/callback",
+            code_verifier="verifier",
+        )
+
+        _exchange_code(oauth_transaction, "authorization-code")
+
+        self.assertNotIn("code_verifier", post.call_args.kwargs["data"])
 
     @patch("apps.accounts.oauth._exchange_code")
     @patch("apps.accounts.oauth._validated_oidc_claims")

@@ -44,6 +44,7 @@ OIDC_PROVIDER_METADATA = {
         "token_endpoint": "https://oauth2.googleapis.com/token",
         "userinfo_endpoint": "https://openidconnect.googleapis.com/v1/userinfo",
         "jwks_uri": "https://www.googleapis.com/oauth2/v3/certs",
+        "supports_pkce": True,
     },
     "linkedin": {
         "issuer": "https://www.linkedin.com/oauth",
@@ -51,6 +52,7 @@ OIDC_PROVIDER_METADATA = {
         "token_endpoint": "https://www.linkedin.com/oauth/v2/accessToken",
         "userinfo_endpoint": "https://api.linkedin.com/v2/userinfo",
         "jwks_uri": "https://www.linkedin.com/oauth/openid/jwks",
+        "supports_pkce": False,
     },
 }
 
@@ -76,6 +78,7 @@ def _provider_settings(provider):
             "scopes": "email public_profile",
             "issuer": "",
             "jwks_uri": "",
+            "supports_pkce": True,
         }
 
     if provider in OIDC_PROVIDER_METADATA:
@@ -102,6 +105,7 @@ def _provider_settings(provider):
         client_id=client_id,
         client_secret=client_secret,
         scopes="openid profile email",
+        supports_pkce="S256" in metadata.get("code_challenge_methods_supported", []),
     )
     return metadata
 
@@ -136,9 +140,10 @@ def create_oauth_transaction(provider, link_user=None):
         "response_type": "code",
         "scope": config["scopes"],
         "state": state,
-        "code_challenge": _code_challenge(verifier),
-        "code_challenge_method": "S256",
     }
+    if config.get("supports_pkce"):
+        params["code_challenge"] = _code_challenge(verifier)
+        params["code_challenge_method"] = "S256"
     if nonce:
         params["nonce"] = nonce
     return oauth_transaction, f"{config['authorization_endpoint']}?{urlencode(params)}"
@@ -167,16 +172,18 @@ def consume_oauth_transaction(transaction_id, provider, state):
 def _exchange_code(oauth_transaction, code):
     config = _provider_settings(oauth_transaction.provider)
     try:
+        token_data = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": oauth_transaction.redirect_uri,
+            "client_id": config["client_id"],
+            "client_secret": config["client_secret"],
+        }
+        if config.get("supports_pkce"):
+            token_data["code_verifier"] = oauth_transaction.code_verifier
         response = requests.post(
             config["token_endpoint"],
-            data={
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": oauth_transaction.redirect_uri,
-                "client_id": config["client_id"],
-                "client_secret": config["client_secret"],
-                "code_verifier": oauth_transaction.code_verifier,
-            },
+            data=token_data,
             timeout=15,
         )
         if not response.ok:
