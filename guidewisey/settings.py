@@ -424,11 +424,11 @@ OIDC_CLIENT_SECRET = os.getenv("OIDC_CLIENT_SECRET", "")
 OAUTH_REDIRECT_BASE_URL = os.getenv("OAUTH_REDIRECT_BASE_URL", "http://localhost:8000")
 FRONTEND_AUTH_SUCCESS_URL = os.getenv(
     "FRONTEND_AUTH_SUCCESS_URL",
-    f"{FRONTEND_BASE_URL.rstrip('/')}/auth/callback",
+    f"{FRONTEND_BASE_URL.rstrip('/')}/auth-callback?status=success",
 )
 FRONTEND_AUTH_ERROR_URL = os.getenv(
     "FRONTEND_AUTH_ERROR_URL",
-    f"{FRONTEND_BASE_URL.rstrip('/')}/auth/callback",
+    f"{FRONTEND_BASE_URL.rstrip('/')}/auth-callback?error=",
 )
 OAUTH_TRANSACTION_TTL_MINUTES = int(os.getenv("OAUTH_TRANSACTION_TTL_MINUTES", 10))
 
