@@ -43,6 +43,7 @@ class OAuthViewsTests(TestCase):
             "authorization_endpoint": "https://provider.example/authorize",
             "scopes": "openid profile email",
             "supports_pkce": provider != "linkedin",
+            "supports_nonce": provider not in {"facebook", "linkedin"},
         }
 
         for provider in ("google", "facebook", "linkedin", "oidc"):
@@ -51,6 +52,7 @@ class OAuthViewsTests(TestCase):
                 self.assertEqual(response.status_code, 302)
                 if provider == "linkedin":
                     self.assertNotIn("code_challenge=", response["Location"])
+                    self.assertNotIn("nonce=", response["Location"])
                 else:
                     self.assertIn("code_challenge_method=S256", response["Location"])
                 self.assertIn("state=", response["Location"])
@@ -263,6 +265,7 @@ class OAuthAccountTests(TestCase):
         self.assertEqual(config["token_endpoint"], "https://www.linkedin.com/oauth/v2/accessToken")
         self.assertEqual(config["issuer"], "https://www.linkedin.com/oauth")
         self.assertFalse(config["supports_pkce"])
+        self.assertFalse(config["supports_nonce"])
         get.assert_not_called()
 
     @override_settings(LINKEDIN_CLIENT_ID="linkedin-client", LINKEDIN_CLIENT_SECRET="linkedin-secret")

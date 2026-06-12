@@ -45,6 +45,7 @@ OIDC_PROVIDER_METADATA = {
         "userinfo_endpoint": "https://openidconnect.googleapis.com/v1/userinfo",
         "jwks_uri": "https://www.googleapis.com/oauth2/v3/certs",
         "supports_pkce": True,
+        "supports_nonce": True,
     },
     "linkedin": {
         "issuer": "https://www.linkedin.com/oauth",
@@ -53,6 +54,7 @@ OIDC_PROVIDER_METADATA = {
         "userinfo_endpoint": "https://api.linkedin.com/v2/userinfo",
         "jwks_uri": "https://www.linkedin.com/oauth/openid/jwks",
         "supports_pkce": False,
+        "supports_nonce": False,
     },
 }
 
@@ -79,6 +81,7 @@ def _provider_settings(provider):
             "issuer": "",
             "jwks_uri": "",
             "supports_pkce": True,
+            "supports_nonce": False,
         }
 
     if provider in OIDC_PROVIDER_METADATA:
@@ -106,6 +109,7 @@ def _provider_settings(provider):
         client_secret=client_secret,
         scopes="openid profile email",
         supports_pkce="S256" in metadata.get("code_challenge_methods_supported", []),
+        supports_nonce="nonce" in metadata.get("claims_supported", []),
     )
     return metadata
 
@@ -123,7 +127,7 @@ def create_oauth_transaction(provider, link_user=None):
     config = _provider_settings(provider)
     state = secrets.token_urlsafe(32)
     verifier = secrets.token_urlsafe(64)
-    nonce = "" if provider == "facebook" else secrets.token_urlsafe(32)
+    nonce = secrets.token_urlsafe(32) if config.get("supports_nonce") else ""
     redirect_uri = _callback_url(provider)
     oauth_transaction = OAuthTransaction.objects.create(
         provider=provider,
