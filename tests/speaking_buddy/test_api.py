@@ -70,6 +70,21 @@ class SpeakingBuddyApiTests(TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertTrue(BuddyAvatar.objects.filter(profile=self.profile1, is_active=True).exists())
 
+    def test_avatar_endpoint_returns_absolute_media_url(self):
+        self.auth(self.user1)
+        avatar = BuddyAvatar.objects.create(
+            profile=self.profile1,
+            avatar_type="uploaded",
+            name="Uploaded",
+            image_url="/media/speaking_buddy/avatars/example.jpg",
+            consent_confirmed=True,
+            is_active=True,
+        )
+        response = self.client.get("/api/buddy/avatar/")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["active_avatar"]["resolved_image_url"].startswith("http://"))
+        self.assertIn("/media/", response.data["active_avatar"]["resolved_image_url"])
+
     def test_memory_is_scoped_to_current_user(self):
         self.auth(self.user2)
         response = self.client.get("/api/buddy/memory/")

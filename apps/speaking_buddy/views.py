@@ -42,16 +42,17 @@ def _ensure_profile(user):
     return profile
 
 
-def _profile_payload(profile):
+def _profile_payload(profile, request=None):
     settings_obj = BuddySettings.objects.filter(profile=profile).first()
     avatars = BuddyAvatar.objects.filter(profile=profile).order_by("-is_active", "-updated_at")
     sessions = BuddySession.objects.filter(profile=profile).order_by("-started_at")[:10]
     memories = BuddyMemory.objects.filter(profile=profile, is_active=True).order_by("-updated_at")[:20]
+    context = {"request": request} if request is not None else {}
     return {
-        "profile": BuddyProfileSerializer(profile).data,
-        "settings": BuddySettingsSerializer(settings_obj).data if settings_obj else None,
-        "avatars": BuddyAvatarSerializer(avatars, many=True, context={}).data,
-        "active_avatar": BuddyAvatarSerializer(avatars.filter(is_active=True).first(), context={}).data if avatars.filter(is_active=True).first() else None,
+        "profile": BuddyProfileSerializer(profile, context=context).data,
+        "settings": BuddySettingsSerializer(settings_obj, context=context).data if settings_obj else None,
+        "avatars": BuddyAvatarSerializer(avatars, many=True, context=context).data,
+        "active_avatar": BuddyAvatarSerializer(avatars.filter(is_active=True).first(), context=context).data if avatars.filter(is_active=True).first() else None,
         "recent_sessions": BuddySessionSerializer(sessions, many=True).data,
         "recent_memory": BuddyMemorySerializer(memories, many=True).data,
     }
@@ -79,12 +80,12 @@ def _session_transcript(session):
 def buddy_profile_view(request):
     profile = _ensure_profile(request.user)
     if request.method == "GET":
-        return Response(_profile_payload(profile))
+        return Response(_profile_payload(profile, request=request))
 
     serializer = BuddyProfileSerializer(profile, data=request.data, partial=True)
     serializer.is_valid(raise_exception=True)
     serializer.save()
-    return Response(_profile_payload(serializer.instance))
+    return Response(_profile_payload(serializer.instance, request=request))
 
 
 @api_view(["GET", "PATCH"])
@@ -93,7 +94,7 @@ def buddy_settings_view(request):
     profile = _ensure_profile(request.user)
     settings_obj, _ = BuddySettings.objects.get_or_create(profile=profile)
     if request.method == "GET":
-        return Response(BuddySettingsSerializer(settings_obj).data)
+        return Response(BuddySettingsSerializer(settings_obj, context={"request": request}).data)
 
     serializer = BuddySettingsSerializer(settings_obj, data=request.data, partial=True)
     serializer.is_valid(raise_exception=True)
@@ -108,8 +109,8 @@ def buddy_avatar_view(request):
     if request.method == "GET":
         avatars = BuddyAvatar.objects.filter(profile=profile).order_by("-is_active", "-updated_at")
         return Response({
-            "avatars": BuddyAvatarSerializer(avatars, many=True).data,
-            "active_avatar": BuddyAvatarSerializer(avatars.filter(is_active=True).first()).data if avatars.filter(is_active=True).exists() else None,
+            "avatars": BuddyAvatarSerializer(avatars, many=True, context={"request": request}).data,
+            "active_avatar": BuddyAvatarSerializer(avatars.filter(is_active=True).first(), context={"request": request}).data if avatars.filter(is_active=True).exists() else None,
         })
 
     if request.data.get("avatar_id"):
@@ -117,7 +118,7 @@ def buddy_avatar_view(request):
         BuddyAvatar.objects.filter(profile=profile).update(is_active=False)
         avatar.is_active = True
         avatar.save(update_fields=["is_active", "updated_at"])
-        return Response(BuddyAvatarSerializer(avatar).data)
+        return Response(BuddyAvatarSerializer(avatar, context={"request": request}).data)
 
     serializer = BuddyAvatarSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
@@ -126,7 +127,7 @@ def buddy_avatar_view(request):
     if avatar.image and not avatar.image_url:
         avatar.image_url = request.build_absolute_uri(avatar.image.url)
         avatar.save(update_fields=["image_url", "updated_at"])
-    return Response(BuddyAvatarSerializer(avatar).data, status=status.HTTP_201_CREATED)
+    return Response(BuddyAvatarSerializer(avatar, context={"request": request}).data, status=status.HTTP_201_CREATED)
 
 
 @api_view(["GET", "PATCH"])

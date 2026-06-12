@@ -75,12 +75,30 @@ class BuddyAvatarSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "resolved_image_url", "created_at", "updated_at")
 
     def get_resolved_image_url(self, obj):
+        request = self.context.get("request") if hasattr(self, "context") else None
+        def absolute(url):
+            if not url:
+                return url
+            if str(url).startswith(("http://", "https://")):
+                return url
+            if request:
+                host = getattr(request, "_current_scheme_host", "") or ""
+                if not host and hasattr(request, "build_absolute_uri"):
+                    try:
+                        host = request.build_absolute_uri("/").rstrip("/")
+                    except Exception:
+                        host = ""
+                if host:
+                    return f"{host}{url if str(url).startswith('/') else '/' + str(url)}"
+            return url
+
         if obj.image:
             try:
-                return obj.image.url
+                if getattr(obj.image, "name", "") and obj.image.storage.exists(obj.image.name):
+                    return absolute(obj.image.url)
             except Exception:
-                return obj.image_url
-        return obj.image_url
+                return absolute(obj.image_url)
+        return absolute(obj.image_url)
 
     def validate(self, attrs):
         avatar_type = attrs.get("avatar_type") or getattr(self.instance, "avatar_type", "default")
@@ -207,4 +225,3 @@ class BuddyMemoryUpdateSerializer(serializers.Serializer):
     value = serializers.JSONField(required=False)
     importance = serializers.IntegerField(required=False, min_value=1, max_value=5)
     is_active = serializers.BooleanField(required=False)
-
