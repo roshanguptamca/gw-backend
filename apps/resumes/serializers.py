@@ -376,3 +376,8 @@ class AutoFillResumeRequestSerializer(serializers.Serializer):
                 {"resume_id": "Choose either an existing resume or an uploaded resume, not both."}
             )
         return attrs
+
+
+class GenerateSummaryRequestSerializer(serializers.Serializer):
+    job_title = serializers.CharField(max_length=180)
+    language = serializers.ChoiceField(choices=["en", "nl"], required=False)

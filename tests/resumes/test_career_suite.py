@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
 
 import pytest
 import requests
@@ -28,7 +29,7 @@ from apps.resumes.models import (
     TemporaryGeneratedResume,
     WorkExperience,
 )
-from apps.resumes.services import create_resume_from_snapshot
+from apps.resumes.services import create_resume_from_snapshot, parse_resume_text, parse_resume_text_with_ai
 from apps.templates_app.models import ResumeTemplate
 
 
@@ -108,6 +109,37 @@ def test_anonymous_resume_limit_edit_limit_and_owner_scope():
     other = APIClient()
     assert other.get(f"/api/resumes/{resume_id}/", REMOTE_ADDR="203.0.113.11").status_code == 404
     assert anonymous.get(f"/api/resumes/{resume_id}/", REMOTE_ADDR="203.0.113.10").status_code == 200
+
+
+@pytest.mark.django_db
+def test_anonymous_preview_ownership_lookup_does_not_write_identity():
+    browser = APIClient()
+    created = browser.post(
+        "/api/resumes/",
+        {
+            "title": "Anonymous Preview",
+            "owner_email": "preview@example.com",
+            "owner_phone": "+31612345678",
+        },
+        format="json",
+        REMOTE_ADDR="203.0.113.20",
+    )
+    resume = Resume.objects.get(id=created.data["id"])
+    template = ResumeTemplate.objects.create(slug="preview-safe", name="Preview Safe")
+    before = resume.anonymous_identity.last_seen_at
+
+    with patch("apps.resumes.models.AnonymousResumeIdentity.save") as identity_save:
+        response = browser.post(
+            f"/api/resumes/{resume.id}/preview/",
+            {"template_id": template.id},
+            format="json",
+            REMOTE_ADDR="203.0.113.20",
+        )
+
+    assert response.status_code == 200
+    identity_save.assert_not_called()
+    resume.anonymous_identity.refresh_from_db()
+    assert resume.anonymous_identity.last_seen_at == before
 
 
 @pytest.mark.django_db
@@ -254,6 +286,296 @@ def test_docx_upload_parse_and_create_resume(client):
     assert parse_response.status_code == 200
     assert parse_response.data["resume"]["personal"]["email"] == "grace@example.com"
     assert len(parse_response.data["resume"]["skills"]) == 3
+
+
+@pytest.mark.django_db
+def test_pdf_layout_resume_parser_persists_personal_education_and_experience(client):
+    extracted_text = """Curriculum Vitae
+Personal
+First name Rati
+Last name Gupta
+Address: Vuurdoornpark 2
+2724HE, Zoetermeer
+Phone number 0647696248
+E-mail guptarati024@gmail.com
+Birth date 23-05-1986
+Education & Training
+Periode Naam opleiding en school
+2008 – 2011 Bachelor of science, Madhya Pradesh Bhoj University,
+Bhopal
+2001 – 2008 Secondary school – High school (Middlebare school)
+Work experience.
+Working at Casa (https://casaschool.nl/) as Kitchen assistant from Sep-2024.
+Worked at Disha computer Vashi Navi Mumbai India as marketing adviser from June-2013 to Dec-
+2015"""
+    parsed = parse_resume_text(extracted_text)
+
+    assert parsed["personal"] == {
+        "first_name": "Rati",
+        "last_name": "Gupta",
+        "email": "guptarati024@gmail.com",
+        "phone": "0647696248",
+        "address": "Vuurdoornpark 2 2724HE, Zoetermeer",
+    }
+    assert parsed["education"][0]["degree"] == "Bachelor of science"
+    assert parsed["education"][0]["institution"] == "Madhya Pradesh Bhoj University, Bhopal"
+    assert parsed["experiences"][0]["employer"] == "Casa"
+    assert parsed["experiences"][0]["job_title"] == "Kitchen assistant"
+    assert parsed["experiences"][0]["current"] is True
+    assert parsed["experiences"][1]["end_date"] == "2015-12-31"
+
+    upload = ResumeUpload.objects.create(
+        user=client.handler._force_user,
+        filename="rati_cv.pdf",
+        content_type="application/pdf",
+        file_size=100,
+        file_data=b"already parsed",
+        status="completed",
+        extracted_text=extracted_text,
+        parsed_json=parsed,
+    )
+    response = client.post(
+        "/api/resumes/parse/",
+        {"upload_id": str(upload.id), "create_resume": True},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    resume = Resume.objects.get(id=response.data["resume"]["id"])
+    assert resume.personal.first_name == "Rati"
+    assert Education.objects.filter(resume=resume).count() == 2
+    assert WorkExperience.objects.filter(resume=resume).count() == 2
+
+
+@pytest.mark.django_db
+def test_parse_endpoint_reprocesses_completed_upload_from_old_parser(client):
+    document = Document()
+    document.add_paragraph("Grace Hopper")
+    document.add_paragraph("grace@example.com")
+    document.add_heading("Skills")
+    document.add_paragraph("COBOL")
+    content = io.BytesIO()
+    document.save(content)
+    upload = ResumeUpload.objects.create(
+        user=client.handler._force_user,
+        filename="legacy.docx",
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        file_size=len(content.getvalue()),
+        file_data=content.getvalue(),
+        status="completed",
+        parsed_json={"personal": {"first_name": "Wrong"}},
+    )
+
+    response = client.post("/api/resumes/parse/", {"upload_id": str(upload.id)}, format="json")
+
+    assert response.status_code == 200
+    assert response.data["parsed_json"]["personal"]["first_name"] == "Grace"
+    assert response.data["parsed_json"]["parser_version"] == 2
+
+
+@override_settings(AI_PROVIDER_FALLBACKS="gemini,openai")
+def test_ai_resume_parser_structures_source_facts_and_rejects_inventions():
+    source = (
+        "Rati Gupta can be reached at guptarati024@gmail.com. "
+        "She worked at Casa as Kitchen assistant from September 2024. "
+        "Her listed skill is Customer Service."
+    )
+    provider = Mock()
+    provider.generate.return_value = """{
+      "personal": {
+        "first_name": "Rati",
+        "last_name": "Gupta",
+        "email": "guptarati024@gmail.com"
+      },
+      "summary": "",
+      "skills": [
+        {"name": "Customer Service", "category": ""},
+        {"name": "AWS", "category": "Technical"}
+      ],
+      "experiences": [{
+        "employer": "Casa",
+        "job_title": "Kitchen assistant",
+        "start_date": "2024-09-01",
+        "end_date": null,
+        "current": true,
+        "description": "worked at Casa as Kitchen assistant from September 2024"
+      }],
+      "education": [],
+      "certifications": [],
+      "languages": []
+    }"""
+
+    with patch("apps.ai_services.providers.get_ai_providers", return_value=[("gemini", provider)]):
+        parsed = parse_resume_text_with_ai(source)
+
+    assert parsed["parsing_method"] == "ai_assisted"
+    assert parsed["parsing_provider"] == "gemini"
+    assert parsed["personal"]["first_name"] == "Rati"
+    assert parsed["experiences"][0]["employer"] == "Casa"
+    assert parsed["experiences"][0]["start_date"] == "2024-09-01"
+    assert [item["name"] for item in parsed["skills"]] == ["Customer Service"]
+
+
+@override_settings(AI_PROVIDER_FALLBACKS="gemini,openai")
+def test_ai_resume_parser_uses_openai_when_gemini_fails():
+    gemini = Mock()
+    gemini.generate.side_effect = RuntimeError("quota exceeded")
+    openai = Mock()
+    openai.generate.return_value = """{
+      "personal": {"first_name": "Grace", "last_name": "Hopper", "email": "grace@example.com"},
+      "summary": "",
+      "skills": [{"name": "COBOL", "category": ""}],
+      "experiences": [],
+      "education": [],
+      "certifications": [],
+      "languages": []
+    }"""
+    source = "Grace Hopper\ngrace@example.com\nSkills\nCOBOL"
+
+    with patch(
+        "apps.ai_services.providers.get_ai_providers",
+        return_value=[("gemini", gemini), ("openai", openai)],
+    ):
+        parsed = parse_resume_text_with_ai(source)
+
+    assert parsed["parsing_method"] == "ai_assisted"
+    assert parsed["parsing_provider"] == "openai"
+    assert parsed["personal"]["email"] == "grace@example.com"
+    assert parsed["skills"] == [{"name": "COBOL"}]
+
+
+@override_settings(AI_PROVIDER_FALLBACKS="gemini,openai")
+def test_ai_resume_parser_uses_deterministic_fallback_when_all_providers_fail():
+    gemini = Mock()
+    gemini.generate.side_effect = RuntimeError("quota exceeded")
+    openai = Mock()
+    openai.generate.side_effect = RuntimeError("provider unavailable")
+    source = "Grace Hopper\ngrace@example.com\nSkills\nCOBOL"
+
+    with patch(
+        "apps.ai_services.providers.get_ai_providers",
+        return_value=[("gemini", gemini), ("openai", openai)],
+    ):
+        parsed = parse_resume_text_with_ai(source)
+
+    assert parsed["parsing_method"] == "deterministic"
+    assert "parsing_provider" not in parsed
+    assert parsed["personal"]["email"] == "grace@example.com"
+
+
+@pytest.mark.django_db
+def test_generate_professional_summary_uses_resume_facts_and_target_title(client, user):
+    resume = Resume.objects.create(user=user, title="Support Resume", locale="en")
+    PersonalDetail.objects.create(resume=resume, professional_title="Kitchen Assistant")
+    WorkExperience.objects.create(
+        resume=resume,
+        employer="Casa",
+        job_title="Kitchen Assistant",
+        start_date="2024-09-01",
+        description="Supported daily kitchen operations.",
+    )
+    Skill.objects.create(resume=resume, name="Customer Service", category="Functional")
+    provider = Mock()
+    provider.generate.return_value = (
+        "Customer-focused professional with experience supporting daily kitchen operations at Casa. "
+        "Brings customer service skills to a Customer Support Specialist role."
+    )
+
+    with patch("apps.resumes.summary_generator.get_ai_providers", return_value=[("gemini", provider)]):
+        response = client.post(
+            f"/api/resumes/{resume.id}/generate-summary/",
+            {"job_title": "Customer Support Specialist", "language": "en"},
+            format="json",
+        )
+
+    assert response.status_code == 200
+    assert response.data["provider"] == "gemini"
+    assert response.data["requires_user_review"] is True
+    assert "Customer Support Specialist" in response.data["summary"]
+    prompt = provider.generate.call_args.args[1]
+    assert '"target_job_title": "Customer Support Specialist"' in prompt
+    assert '"employer": "Casa"' in prompt
+    assert "years of experience" not in response.data["summary"]
+    assert not ResumeSummary.objects.filter(resume=resume).exists()
+
+
+@pytest.mark.django_db
+def test_generate_professional_summary_falls_back_in_dutch(client, user):
+    resume = Resume.objects.create(user=user, title="Support Resume", locale="nl")
+    PersonalDetail.objects.create(resume=resume, professional_title="Keukenassistent")
+    Skill.objects.create(resume=resume, name="Klantenservice", category="Functioneel")
+    gemini = Mock()
+    gemini.generate.side_effect = RuntimeError("quota exceeded")
+    openai = Mock()
+    openai.generate.side_effect = RuntimeError("provider unavailable")
+
+    with patch(
+        "apps.resumes.summary_generator.get_ai_providers",
+        return_value=[("gemini", gemini), ("openai", openai)],
+    ):
+        response = client.post(
+            f"/api/resumes/{resume.id}/generate-summary/",
+            {"job_title": "Klantenservice Medewerker", "language": "nl"},
+            format="json",
+        )
+
+    assert response.status_code == 200
+    assert response.data["provider"] == "deterministic"
+    assert response.data["generated_by_ai"] is False
+    assert "Klantenservice Medewerker" in response.data["summary"]
+    assert "Klantenservice" in response.data["summary"]
+
+
+@pytest.mark.django_db
+def test_generate_skill_suggestions_requires_user_confirmation_and_excludes_saved_skills(client, user):
+    resume = Resume.objects.create(user=user, title="Support Resume", locale="en")
+    Skill.objects.create(resume=resume, name="Communication", category="Soft Skill")
+    provider = Mock()
+    provider.generate.return_value = """{
+      "skills": [
+        {"name": "Communication", "category": "Soft Skill"},
+        {"name": "Customer Service", "category": "Functional"},
+        {"name": "CRM", "category": "Tool"}
+      ]
+    }"""
+
+    with patch("apps.resumes.summary_generator.get_ai_providers", return_value=[("gemini", provider)]):
+        response = client.post(
+            f"/api/resumes/{resume.id}/generate-skills/",
+            {"job_title": "Customer Support Specialist", "language": "en"},
+            format="json",
+        )
+
+    assert response.status_code == 200
+    assert response.data["provider"] == "gemini"
+    assert response.data["requires_user_confirmation"] is True
+    assert [item["name"] for item in response.data["skills"]] == ["Customer Service", "CRM"]
+    assert all(item["status"] == "needs_confirmation" for item in response.data["skills"])
+    assert list(resume.skill_set.values_list("name", flat=True)) == ["Communication"]
+
+
+@pytest.mark.django_db
+def test_generate_skill_suggestions_has_dutch_fallback(client, user):
+    resume = Resume.objects.create(user=user, title="Support Resume", locale="nl")
+    gemini = Mock()
+    gemini.generate.side_effect = RuntimeError("quota exceeded")
+    openai = Mock()
+    openai.generate.side_effect = RuntimeError("provider unavailable")
+
+    with patch(
+        "apps.resumes.summary_generator.get_ai_providers",
+        return_value=[("gemini", gemini), ("openai", openai)],
+    ):
+        response = client.post(
+            f"/api/resumes/{resume.id}/generate-skills/",
+            {"job_title": "Customer Support Specialist", "language": "nl"},
+            format="json",
+        )
+
+    assert response.status_code == 200
+    assert response.data["provider"] == "deterministic"
+    assert response.data["skills"][0]["name"] == "Klantenservice"
+    assert not resume.skill_set.exists()
 
 
 @pytest.mark.django_db
@@ -1182,6 +1504,7 @@ def test_auto_fill_from_parsed_upload_uses_only_uploaded_facts(client, user):
             "personal": {"first_name": "Grace", "email": "grace@example.com"},
             "summary": "Experienced in customer communication.",
             "skills": [{"name": "Communication"}],
+            "parser_version": 2,
         },
     )
 

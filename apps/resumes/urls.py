@@ -16,6 +16,8 @@ urlpatterns = [
     path("resumes/parse/", views.parse_resume),
     path("resumes/<int:resume_id>/personal/", views.update_personal),
     path("resumes/<int:resume_id>/summary/", views.update_summary),
+    path("resumes/<int:resume_id>/generate-summary/", views.generate_summary),
+    path("resumes/<int:resume_id>/generate-skills/", views.generate_skills),
     path("resumes/<int:resume_id>/experiences/", views.create_experience),
     path("experiences/<int:item_id>/", views.section_detail, {"section": "experiences"}),
     path("resumes/<int:resume_id>/education/", views.create_education),

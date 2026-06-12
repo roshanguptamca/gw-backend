@@ -43,6 +43,7 @@ from .serializers import (
     AwardSerializer,
     CertificationSerializer,
     EducationSerializer,
+    GenerateSummaryRequestSerializer,
     PersonalDetailSerializer,
     ProjectSerializer,
     ReferenceSerializer,
@@ -53,7 +54,8 @@ from .serializers import (
     SkillSerializer,
     WorkExperienceSerializer,
 )
-from .services import apply_parsed_resume, create_version, parse_upload
+from .services import apply_parsed_resume, create_version, parsed_resume_is_current, parse_upload
+from .summary_generator import generate_professional_summary, generate_skill_suggestions
 from .auto_fill import AutoFillResumeService
 from .anonymous_identity import resolve_anonymous_identity
 from .limits import (
@@ -195,6 +197,54 @@ def update_summary(request, resume_id):
             increment_resume_edit_count(resume, request)
             create_version(resume)
     return Response({**serializer.data, "usage": usage_for_request(request, resume)})
+
+
+@extend_schema(request=GenerateSummaryRequestSerializer, responses=OpenApiTypes.OBJECT)
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def generate_summary(request, resume_id):
+    resume = get_owned_resume(request, id=resume_id)
+    serializer = GenerateSummaryRequestSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    language = serializer.validated_data.get("language") or resume.locale
+    result = generate_professional_summary(
+        resume,
+        serializer.validated_data["job_title"].strip(),
+        language,
+    )
+    return Response(
+        {
+            "success": True,
+            "resume_id": resume.id,
+            "language": language,
+            **result,
+            "requires_user_review": True,
+        }
+    )
+
+
+@extend_schema(request=GenerateSummaryRequestSerializer, responses=OpenApiTypes.OBJECT)
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def generate_skills(request, resume_id):
+    resume = get_owned_resume(request, id=resume_id)
+    serializer = GenerateSummaryRequestSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    language = serializer.validated_data.get("language") or resume.locale
+    result = generate_skill_suggestions(
+        resume,
+        serializer.validated_data["job_title"].strip(),
+        language,
+    )
+    return Response(
+        {
+            "success": True,
+            "resume_id": resume.id,
+            "language": language,
+            **result,
+            "requires_user_confirmation": True,
+        }
+    )
 
 
 def create_section_view(model, serializer_class):
@@ -413,7 +463,7 @@ def parse_resume(request):
     identity = None if request.user.is_authenticated else resolve_anonymous_identity(request, create=False)
     owner_filter = {"user": request.user} if request.user.is_authenticated else {"anonymous_identity": identity}
     upload = get_object_or_404(ResumeUpload, id=request.data.get("upload_id"), **owner_filter)
-    parsed = upload.parsed_json if upload.status == "completed" else parse_upload(upload)
+    parsed = upload.parsed_json if parsed_resume_is_current(upload) else parse_upload(upload)
     response = {"upload_id": upload.id, "parsed_json": parsed}
     if request.data.get("create_resume"):
         identity = can_create_resume(

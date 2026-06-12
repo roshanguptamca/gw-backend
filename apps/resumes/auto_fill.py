@@ -17,7 +17,13 @@ from .models import (
     Skill,
     TemporaryGeneratedResume,
 )
-from .services import create_resume_from_snapshot, create_version, parse_upload, resume_snapshot
+from .services import (
+    create_resume_from_snapshot,
+    create_version,
+    parsed_resume_is_current,
+    parse_upload,
+    resume_snapshot,
+)
 
 
 TEXT = {
@@ -163,7 +169,7 @@ class AutoFillResumeService:
 
     @staticmethod
     def _parsed_upload(upload):
-        return upload.parsed_json if upload.status == "completed" else parse_upload(upload)
+        return upload.parsed_json if parsed_resume_is_current(upload) else parse_upload(upload)
 
     def _save_job(self, parsed, raw_text, source_url, language, identity):
         return JobDescription.objects.create(
