@@ -2,7 +2,6 @@ import hashlib
 import uuid
 from unittest.mock import Mock, patch
 
-import requests
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
@@ -285,26 +284,113 @@ class OAuthAccountTests(TestCase):
 
         self.assertNotIn("code_verifier", post.call_args.kwargs["data"])
 
+    @override_settings(FACEBOOK_CLIENT_ID="facebook-client", FACEBOOK_CLIENT_SECRET="facebook-secret")
+    @patch("apps.accounts.oauth._exchange_code")
+    @patch("apps.accounts.oauth.requests.get")
+    def test_facebook_profile_mapping_uses_graph_fields(self, get, exchange_code):
+        profile_response = Mock()
+        profile_response.raise_for_status.return_value = None
+        profile_response.json.return_value = {
+            "id": "fb-123",
+            "name": "Facebook User",
+            "first_name": "Facebook",
+            "last_name": "User",
+            "email": "fb@example.com",
+            "picture": {"data": {"url": "https://example.com/fb.jpg"}},
+        }
+        get.return_value = profile_response
+        exchange_code.return_value = (
+            {
+                "client_id": "facebook-client",
+                "client_secret": "facebook-secret",
+                "authorization_endpoint": "https://www.facebook.com/v23.0/dialog/oauth",
+                "token_endpoint": "https://graph.facebook.com/v23.0/oauth/access_token",
+                "userinfo_endpoint": "https://graph.facebook.com/v23.0/me",
+                "scopes": "email public_profile",
+                "issuer": "",
+                "jwks_uri": "",
+                "supports_pkce": True,
+                "supports_nonce": False,
+            },
+            {"access_token": "facebook-token"},
+        )
+
+        oauth_transaction = OAuthTransaction(
+            provider="facebook",
+            redirect_uri="http://testserver/api/auth/oauth/facebook/callback",
+            code_verifier="verifier",
+            state_digest="state",
+            expires_at=timezone.now() + timezone.timedelta(minutes=10),
+        )
+        oauth_transaction.save()
+
+        profile = fetch_social_profile(oauth_transaction, "code")
+
+        self.assertEqual(profile.provider_user_id, "fb-123")
+        self.assertEqual(profile.email, "fb@example.com")
+        self.assertEqual(profile.first_name, "Facebook")
+        self.assertEqual(profile.avatar_url, "https://example.com/fb.jpg")
+
+    @override_settings(FACEBOOK_CLIENT_ID="facebook-client", FACEBOOK_CLIENT_SECRET="facebook-secret")
+    @patch("apps.accounts.oauth.requests.post")
+    def test_facebook_token_exchange_uses_post(self, post):
+        response = Mock()
+        response.ok = True
+        response.json.return_value = {"access_token": "facebook-token"}
+        post.return_value = response
+
+        oauth_transaction = OAuthTransaction(
+            provider="facebook",
+            redirect_uri="http://testserver/api/auth/oauth/facebook/callback",
+            code_verifier="verifier",
+            state_digest="state",
+            expires_at=timezone.now() + timezone.timedelta(minutes=10),
+        )
+        oauth_transaction.save()
+
+        with patch("apps.accounts.oauth._provider_settings") as provider_settings:
+            provider_settings.return_value = {
+                "client_id": "facebook-client",
+                "client_secret": "facebook-secret",
+                "authorization_endpoint": "https://www.facebook.com/v23.0/dialog/oauth",
+                "token_endpoint": "https://graph.facebook.com/v23.0/oauth/access_token",
+                "userinfo_endpoint": "https://graph.facebook.com/v23.0/me",
+                "scopes": "email public_profile",
+                "issuer": "",
+                "jwks_uri": "",
+                "supports_pkce": True,
+                "supports_nonce": False,
+            }
+            _exchange_code(oauth_transaction, "code")
+
+        self.assertEqual(post.call_args.kwargs["data"]["grant_type"], "authorization_code")
+        self.assertEqual(post.call_args.kwargs["data"]["client_id"], "facebook-client")
+
     @patch("apps.accounts.oauth._exchange_code")
     @patch("apps.accounts.oauth._validated_oidc_claims")
     @patch("apps.accounts.oauth.requests.get")
-    def test_linkedin_uses_validated_id_token_when_userinfo_is_unavailable(
+    def test_linkedin_uses_userinfo_as_authoritative_profile(
         self,
         get,
         validated_claims,
         exchange_code,
     ):
-        get.side_effect = requests.ConnectionError("userinfo unavailable")
+        response = Mock()
+        response.json.return_value = {
+            "sub": "linkedin-123",
+            "email": "linkedin@example.com",
+            "email_verified": True,
+            "given_name": "Linked",
+            "family_name": "User",
+        }
+        get.return_value = response
         exchange_code.return_value = (
             {"userinfo_endpoint": "https://api.linkedin.com/v2/userinfo"},
             {"access_token": "access-token", "id_token": "id-token"},
         )
         validated_claims.return_value = {
             "sub": "linkedin-123",
-            "email": "linkedin@example.com",
-            "email_verified": True,
-            "given_name": "Linked",
-            "family_name": "User",
+            "name": "Linked User",
         }
         oauth_transaction = OAuthTransaction(provider="linkedin")
 
@@ -312,3 +398,32 @@ class OAuthAccountTests(TestCase):
 
         self.assertEqual(profile.provider_user_id, "linkedin-123")
         self.assertEqual(profile.email, "linkedin@example.com")
+
+    @patch("apps.accounts.oauth._exchange_code")
+    @patch("apps.accounts.oauth._validated_oidc_claims")
+    @patch("apps.accounts.oauth.requests.get")
+    def test_linkedin_userinfo_still_works_when_id_token_validation_fails(
+        self,
+        get,
+        validated_claims,
+        exchange_code,
+    ):
+        validated_claims.side_effect = OAuthError("provider_account_not_verified")
+        response = Mock()
+        response.json.return_value = {
+            "sub": "linkedin-456",
+            "email": "fallback@example.com",
+            "email_verified": True,
+            "given_name": "Fallback",
+            "family_name": "User",
+        }
+        get.return_value = response
+        exchange_code.return_value = (
+            {"userinfo_endpoint": "https://api.linkedin.com/v2/userinfo"},
+            {"access_token": "access-token", "id_token": "id-token"},
+        )
+
+        profile = fetch_social_profile(OAuthTransaction(provider="linkedin"), "code")
+
+        self.assertEqual(profile.provider_user_id, "linkedin-456")
+        self.assertEqual(profile.email, "fallback@example.com")

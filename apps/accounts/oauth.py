@@ -270,8 +270,13 @@ def fetch_social_profile(oauth_transaction, code):
                 avatar_url=picture,
             )
 
-        claims = _validated_oidc_claims(config, token_payload, oauth_transaction)
-        try:
+        if provider == "linkedin":
+            claims = {}
+            if token_payload.get("id_token"):
+                try:
+                    claims = _validated_oidc_claims(config, token_payload, oauth_transaction)
+                except OAuthError as exc:
+                    logger.warning("LinkedIn ID token validation failed; falling back to userinfo: %s", exc.code)
             response = requests.get(
                 config["userinfo_endpoint"],
                 headers={"Authorization": f"Bearer {access_token}"},
@@ -279,10 +284,15 @@ def fetch_social_profile(oauth_transaction, code):
             )
             response.raise_for_status()
             claims.update(response.json())
-        except (requests.RequestException, ValueError) as exc:
-            if provider != "linkedin":
-                raise
-            logger.warning("LinkedIn userinfo unavailable; using validated ID token claims: %s", exc)
+        else:
+            claims = _validated_oidc_claims(config, token_payload, oauth_transaction)
+            response = requests.get(
+                config["userinfo_endpoint"],
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=10,
+            )
+            response.raise_for_status()
+            claims.update(response.json())
     except (requests.RequestException, ValueError) as exc:
         logger.warning("OAuth profile fetch failed for %s: %s", provider, exc)
         raise OAuthError("provider_unavailable") from exc
