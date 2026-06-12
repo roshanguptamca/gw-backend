@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
-from .models import UserProfile
+from .models import OAuthTransaction, UserAuthProvider, UserProfile
 
 User = get_user_model()
 
@@ -91,3 +91,38 @@ class UserProfileAdmin(admin.ModelAdmin):
             email_confirmation_token_expires_at=None,
         )
         self.message_user(request, f"Confirmation token cleared for {updated} user(s).")
+
+
+@admin.register(UserAuthProvider)
+class UserAuthProviderAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "user",
+        "provider",
+        "provider_user_id",
+        "email",
+        "email_verified",
+        "created_at",
+        "updated_at",
+    )
+    search_fields = ("user__email", "user__username", "email", "provider_user_id", "display_name")
+    list_filter = ("provider", "email_verified", "created_at")
+    readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(OAuthTransaction)
+class OAuthTransactionAdmin(admin.ModelAdmin):
+    list_display = ("id", "provider", "link_user", "created_at", "expires_at", "used_at")
+    list_filter = ("provider", "created_at", "used_at")
+    readonly_fields = (
+        "id",
+        "provider",
+        "state_digest",
+        "nonce",
+        "code_verifier",
+        "redirect_uri",
+        "link_user",
+        "created_at",
+        "expires_at",
+        "used_at",
+    )

@@ -23,7 +23,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import LANGUAGE_CHOICES
+from .models import LANGUAGE_CHOICES, UserProfile
 from .serializers import (
     ChangePasswordSerializer,
     UserRegistrationSerializer,
@@ -340,6 +340,40 @@ class MeView(APIView):
                 "first_name": user.first_name,
                 "last_name": user.last_name,
                 "preferred_language": preferred_language,
+                "profile_complete": profile.profile_completed if profile else False,
+                "avatar_url": profile.avatar_url if profile else "",
+                "auth_providers": list(user.auth_providers.values_list("provider", flat=True)),
+                "has_password": user.has_usable_password(),
+            }
+        )
+
+    def patch(self, request):
+        user = request.user
+        first_name = str(request.data.get("first_name", user.first_name)).strip()
+        last_name = str(request.data.get("last_name", user.last_name)).strip()
+        if not first_name or not last_name:
+            return Response(
+                {"error": str(_("First name and last name are required."))},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user.first_name = first_name[:150]
+        user.last_name = last_name[:150]
+        user.save(update_fields=["first_name", "last_name"])
+        profile, _ = UserProfile.objects.get_or_create(user=user)
+        profile.profile_completed = bool(user.email and user.first_name and user.last_name)
+        profile.save(update_fields=["profile_completed"])
+        return Response(
+            {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "preferred_language": profile.preferred_language,
+                "profile_complete": profile.profile_completed,
+                "avatar_url": profile.avatar_url,
+                "auth_providers": list(user.auth_providers.values_list("provider", flat=True)),
+                "has_password": user.has_usable_password(),
             }
         )
 
