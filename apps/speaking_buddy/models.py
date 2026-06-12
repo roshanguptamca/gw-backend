@@ -76,6 +76,19 @@ AVATAR_TYPE_CHOICES = [
     ("uploaded", "Uploaded"),
 ]
 
+AVATAR_RENDER_MODE_CHOICES = [
+    ("2d", "2D"),
+    ("3d", "3D"),
+    ("generated_3d", "Generated 3D"),
+]
+
+GENERATED_AVATAR_STATUS_CHOICES = [
+    ("pending", "Pending"),
+    ("processing", "Processing"),
+    ("completed", "Completed"),
+    ("failed", "Failed"),
+]
+
 SESSION_STATUS_CHOICES = [
     ("active", "Active"),
     ("ended", "Ended"),
@@ -131,6 +144,15 @@ class BuddySettings(models.Model):
     difficulty_level = models.CharField(max_length=20, choices=DIFFICULTY_LEVEL_CHOICES, default="medium")
     theme_color = models.CharField(max_length=24, default="#7c3aed")
     default_topic = models.CharField(max_length=255, blank=True)
+    avatar_render_mode = models.CharField(max_length=20, choices=AVATAR_RENDER_MODE_CHOICES, default="2d")
+    selected_3d_avatar_slug = models.SlugField(max_length=120, blank=True)
+    selected_generated_avatar = models.ForeignKey(
+        "BuddyGeneratedAvatar",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -151,6 +173,48 @@ class BuddyAvatar(models.Model):
 
     def __str__(self):
         return self.name or f"{self.avatar_type} avatar"
+
+
+class Buddy3DAvatar(models.Model):
+    name = models.CharField(max_length=120)
+    slug = models.SlugField(max_length=120, unique=True)
+    gender_style = models.CharField(max_length=40, blank=True)
+    age_style = models.CharField(max_length=40, blank=True)
+    personality = models.CharField(max_length=40, blank=True)
+    default_voice = models.CharField(max_length=120, blank=True)
+    voice_style = models.CharField(max_length=40, blank=True)
+    mood = models.CharField(max_length=40, blank=True)
+    backstory = models.TextField(blank=True)
+    thumbnail = models.CharField(max_length=1000, blank=True)
+    glb_file = models.CharField(max_length=1000, blank=True)
+    idle_animation = models.CharField(max_length=120, blank=True)
+    talking_animation = models.CharField(max_length=120, blank=True)
+    emotion_set = models.JSONField(default=default_dict, blank=True)
+    is_premium = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.name
+
+
+class BuddyGeneratedAvatar(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="generated_buddy_avatars")
+    source_image = models.ImageField(upload_to="speaking_buddy/generated_sources/", blank=True, null=True)
+    generated_glb_url = models.CharField(max_length=1000, blank=True)
+    generated_thumbnail_url = models.CharField(max_length=1000, blank=True)
+    provider = models.CharField(max_length=80, blank=True)
+    provider_job_id = models.CharField(max_length=120, blank=True)
+    status = models.CharField(max_length=20, choices=GENERATED_AVATAR_STATUS_CHOICES, default="pending")
+    consent_confirmed = models.BooleanField(default=False)
+    user_generated = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Generated avatar({self.user_id}, {self.status})"
 
 
 class BuddySession(models.Model):

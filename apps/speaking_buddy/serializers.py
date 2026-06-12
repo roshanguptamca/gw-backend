@@ -2,7 +2,9 @@ from django.conf import settings
 from rest_framework import serializers
 
 from .models import (
+    Buddy3DAvatar,
     BuddyAvatar,
+    BuddyGeneratedAvatar,
     BuddyMemory,
     BuddyMessage,
     BuddyMistake,
@@ -49,6 +51,9 @@ class BuddySettingsSerializer(serializers.ModelSerializer):
             "difficulty_level",
             "theme_color",
             "default_topic",
+            "avatar_render_mode",
+            "selected_3d_avatar_slug",
+            "selected_generated_avatar",
             "created_at",
             "updated_at",
         )
@@ -118,6 +123,88 @@ class BuddyAvatarSerializer(serializers.ModelSerializer):
             if content_type and not content_type.startswith("image/"):
                 raise serializers.ValidationError({"image": "Avatar image must be an image file."})
         return attrs
+
+
+class Buddy3DAvatarSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Buddy3DAvatar
+        fields = (
+            "id",
+            "name",
+            "slug",
+            "gender_style",
+            "age_style",
+            "personality",
+            "default_voice",
+            "voice_style",
+            "mood",
+            "backstory",
+            "thumbnail",
+            "glb_file",
+            "idle_animation",
+            "talking_animation",
+            "emotion_set",
+            "is_premium",
+            "is_active",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = ("id", "created_at", "updated_at")
+
+
+class BuddyGeneratedAvatarSerializer(serializers.ModelSerializer):
+    source_image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BuddyGeneratedAvatar
+        fields = (
+            "id",
+            "source_image",
+            "source_image_url",
+            "generated_glb_url",
+            "generated_thumbnail_url",
+            "provider",
+            "provider_job_id",
+            "status",
+            "consent_confirmed",
+            "user_generated",
+            "is_active",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = ("id", "source_image_url", "created_at", "updated_at")
+
+    def get_source_image_url(self, obj):
+        request = self.context.get("request") if hasattr(self, "context") else None
+        if obj.source_image and getattr(obj.source_image, "name", ""):
+            try:
+                if obj.source_image.storage.exists(obj.source_image.name):
+                    url = obj.source_image.url
+                    if request and hasattr(request, "build_absolute_uri"):
+                        return request.build_absolute_uri(url)
+                    return url
+            except Exception:
+                return ""
+        return ""
+
+
+class BuddyGeneratedAvatarCreateSerializer(serializers.Serializer):
+    source_image = serializers.ImageField(required=True)
+    consent_confirmed = serializers.BooleanField(required=True)
+    provider = serializers.CharField(required=False, allow_blank=True)
+
+
+class Buddy3DAvatarSelectSerializer(serializers.Serializer):
+    avatar_3d_slug = serializers.SlugField(required=False, allow_blank=True)
+    generated_avatar_id = serializers.IntegerField(required=False)
+    avatar_render_mode = serializers.ChoiceField(
+        choices=(
+            ("2d", "2D"),
+            ("3d", "3D"),
+            ("generated_3d", "Generated 3D"),
+        ),
+        required=False,
+    )
 
 
 class BuddySessionSerializer(serializers.ModelSerializer):

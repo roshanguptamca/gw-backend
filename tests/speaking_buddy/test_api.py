@@ -8,7 +8,7 @@ from django.test import TestCase, override_settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.test import APIClient
 
-from apps.speaking_buddy.models import BuddyAvatar, BuddyMemory, BuddyProfile, BuddySession
+from apps.speaking_buddy.models import Buddy3DAvatar, BuddyAvatar, BuddyGeneratedAvatar, BuddyMemory, BuddyProfile, BuddySession
 
 User = get_user_model()
 
@@ -50,6 +50,52 @@ class SpeakingBuddyApiTests(TestCase):
         response = self.client.patch("/api/buddy/settings/", {"personality": "teacher", "default_topic": "Travel"}, format="json")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["personality"], "teacher")
+
+    def test_3d_avatar_catalog_is_available_and_selectable(self):
+        Buddy3DAvatar.objects.create(
+            name="Nova",
+            slug="nova-3d",
+            gender_style="neutral",
+            age_style="adult",
+            personality="friendly",
+            default_voice="Nova Warm",
+            voice_style="warm",
+            mood="encouraging",
+            thumbnail="data:image/svg+xml,%3Csvg/%3E",
+            glb_file="https://example.com/nova.glb",
+            idle_animation="Idle",
+            talking_animation="Talk",
+        )
+        self.auth(self.user1)
+        response = self.client.get("/api/buddy/avatar-3d/")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(len(response.data["catalog"]) >= 1)
+
+        response = self.client.post("/api/buddy/avatar-3d/", {"avatar_3d_slug": "nova-3d"}, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["settings"]["selected_3d_avatar_slug"], "nova-3d")
+
+    def test_generated_avatar_upload_requires_consent(self):
+        self.auth(self.user1)
+        upload = SimpleUploadedFile("avatar.png", make_png(), content_type="image/png")
+        response = self.client.post(
+            "/api/buddy/avatar-generated/",
+            {"source_image": upload, "consent_confirmed": False},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_generated_avatar_request_can_be_created(self):
+        self.auth(self.user1)
+        upload = SimpleUploadedFile("avatar.png", make_png(), content_type="image/png")
+        response = self.client.post(
+            "/api/buddy/avatar-generated/",
+            {"source_image": upload, "consent_confirmed": True, "provider": "stub"},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["status"], "completed")
+        self.assertTrue(BuddyGeneratedAvatar.objects.filter(user=self.user1).exists())
 
     def test_avatar_upload_requires_consent(self):
         self.auth(self.user1)

@@ -1,7 +1,10 @@
 from django.urls import path
 
 from .views import (
+    buddy_3d_avatar_view,
     buddy_avatar_view,
+    buddy_generated_avatar_detail_view,
+    buddy_generated_avatar_view,
     buddy_history_view,
     buddy_memory_detail_view,
     buddy_memory_view,
@@ -18,6 +21,9 @@ urlpatterns = [
     path("profile/", buddy_profile_view),
     path("settings/", buddy_settings_view),
     path("avatar/", buddy_avatar_view),
+    path("avatar-3d/", buddy_3d_avatar_view),
+    path("avatar-generated/", buddy_generated_avatar_view),
+    path("avatar-generated/<int:pk>/", buddy_generated_avatar_detail_view),
     path("memory/", buddy_memory_view),
     path("memory/<int:pk>/", buddy_memory_detail_view),
     path("history/", buddy_history_view),
@@ -27,4 +33,3 @@ urlpatterns = [
     path("session/message/", buddy_session_message_view),
     path("realtime-token/", buddy_realtime_token_view),
 ]
-

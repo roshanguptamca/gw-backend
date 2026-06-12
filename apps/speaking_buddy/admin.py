@@ -1,7 +1,9 @@
 from django.contrib import admin
 
 from .models import (
+    Buddy3DAvatar,
     BuddyAvatar,
+    BuddyGeneratedAvatar,
     BuddyMemory,
     BuddyMessage,
     BuddyMistake,
@@ -64,6 +66,22 @@ class BuddyAvatarAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at", "updated_at")
 
 
+@admin.register(Buddy3DAvatar)
+class Buddy3DAvatarAdmin(admin.ModelAdmin):
+    list_display = ("id", "name", "slug", "gender_style", "age_style", "personality", "voice_style", "mood", "is_premium", "is_active", "created_at", "updated_at")
+    search_fields = ("name", "slug", "personality", "voice_style", "mood", "backstory")
+    list_filter = ("gender_style", "age_style", "personality", "voice_style", "mood", "is_premium", "is_active")
+    readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(BuddyGeneratedAvatar)
+class BuddyGeneratedAvatarAdmin(admin.ModelAdmin):
+    list_display = ("id", "user", "provider", "provider_job_id", "status", "consent_confirmed", "user_generated", "is_active", "created_at", "updated_at")
+    search_fields = ("user__username", "user__email", "provider", "provider_job_id")
+    list_filter = ("provider", "status", "consent_confirmed", "user_generated", "is_active", "created_at")
+    readonly_fields = ("created_at", "updated_at")
+
+
 @admin.register(BuddySession)
 class BuddySessionAdmin(admin.ModelAdmin):
     list_display = ("id", "profile", "language", "topic", "status", "duration_seconds", "started_at", "ended_at")
@@ -109,4 +127,3 @@ class BuddyMessageAdmin(admin.ModelAdmin):
     search_fields = ("session__profile__user__username", "session__profile__user__email", "text")
     list_filter = ("role", "created_at")
     readonly_fields = ("created_at",)
-
