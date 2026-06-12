@@ -17,6 +17,7 @@ from apps.accounts.oauth import (
     connect_social_account,
     fetch_social_profile,
 )
+from apps.accounts.oauth_views import _frontend_redirect
 
 User = get_user_model()
 
@@ -69,6 +70,20 @@ class OAuthViewsTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertIn("error=invalid_or_expired", response["Location"])
+
+    @override_settings(
+        FRONTEND_AUTH_SUCCESS_URL="www.guidewisey.com/#auth-callback",
+        FRONTEND_AUTH_ERROR_URL="www.guidewisey.com/#auth-callback",
+        FRONTEND_BASE_URL="https://www.guidewisey.com",
+    )
+    def test_frontend_redirect_normalizes_scheme_less_callback_urls(self):
+        response = _frontend_redirect(True, status="success", new="0")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response["Location"],
+            "https://www.guidewisey.com/#auth-callback?status=success&new=0",
+        )
 
     def test_expired_transaction_is_rejected(self):
         oauth_transaction = self._transaction("state", expired=True)
