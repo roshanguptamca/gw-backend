@@ -2,7 +2,7 @@ import logging
 import secrets
 
 from django.conf import settings
-from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.http import JsonResponse
 from django.middleware.csrf import get_token
 from django.utils import timezone, translation
@@ -231,6 +231,10 @@ class LoginView(APIView):
         password = request.data.get("password")
 
         user = authenticate(request, username=username, password=password)
+        if not user and username:
+            matched_user = get_user_model().objects.filter(email__iexact=username).first()
+            if matched_user:
+                user = authenticate(request, username=matched_user.username, password=password)
 
         if not user:
             return Response({"error": str(_("Invalid credentials"))}, status=status.HTTP_401_UNAUTHORIZED)
@@ -342,7 +346,6 @@ class MeView(APIView):
                 "preferred_language": preferred_language,
                 "profile_complete": profile.profile_completed if profile else False,
                 "avatar_url": profile.avatar_url if profile else "",
-                "auth_providers": list(user.auth_providers.values_list("provider", flat=True)),
                 "has_password": user.has_usable_password(),
             }
         )
@@ -372,7 +375,6 @@ class MeView(APIView):
                 "preferred_language": profile.preferred_language,
                 "profile_complete": profile.profile_completed,
                 "avatar_url": profile.avatar_url,
-                "auth_providers": list(user.auth_providers.values_list("provider", flat=True)),
                 "has_password": user.has_usable_password(),
             }
         )
@@ -385,8 +387,8 @@ class MeView(APIView):
     tags=["Accounts"],
     summary="Change password",
     description=(
-        "Change the authenticated user's password. "
-        "Requires the current password for verification. "
+        "Change the authenticated user's password, or set the first password for a social-only account. "
+        "Requires the current password when the account already has one. "
         "The session remains valid after the change."
     ),
     request=ChangePasswordSerializer,
