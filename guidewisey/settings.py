@@ -11,6 +11,14 @@ try:
 except ImportError:
     pass
 
+
+def _env_list(name, default=""):
+    raw_value = os.getenv(name, default)
+    if not raw_value:
+        return []
+    return [item.strip() for item in raw_value.split(",") if item.strip()]
+
+
 # -------------------------------
 # Base Directory
 # -------------------------------
@@ -29,14 +37,14 @@ IS_DEVELOPMENT = ENV == "DEV"
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key-change-in-production")
 DEBUG = IS_DEVELOPMENT  # Only True in development
 
-ALLOWED_HOSTS = [
-    "gw-backend-eq2n.onrender.com",
-    "gw-frontend-nine.vercel.app",
-    "www.guidewisey.com",
-    "guidewisey.com",
-    "127.0.0.1",
-    "localhost",
-]
+ALLOWED_HOSTS = list(
+    dict.fromkeys(
+        _env_list(
+            "ALLOWED_HOSTS",
+            "gw-backend-eq2n.onrender.com,api.guidewisey.com,www.guidewisey.com,guidewisey.com,localhost,127.0.0.1",
+        )
+    )
+)
 
 # -------------------------------
 # Installed Apps
@@ -152,7 +160,6 @@ CORS_ALLOWED_ORIGINS = [
     "https://gw-frontend-7kjrbapg8-roshans-projects-8dfa7f93.vercel.app",
 ]
 
-# Add localhost origins only in development
 if IS_DEVELOPMENT:
     CORS_ALLOWED_ORIGINS += [
         "http://localhost:3000",
@@ -172,15 +179,15 @@ CORS_ALLOW_HEADERS = list(default_headers) + [
 # -------------------------------
 # CSRF Configuration
 # -------------------------------
-CSRF_TRUSTED_ORIGINS = [
-    "https://www.guidewisey.com",
-    "https://guidewisey.com",
-    "https://gw-frontend-nine.vercel.app",
-    "https://gw-frontend-git-main-roshans-projects-8dfa7f93.vercel.app",
-    "https://gw-frontend-7kjrbapg8-roshans-projects-8dfa7f93.vercel.app",
-]
+CSRF_TRUSTED_ORIGINS = list(
+    dict.fromkeys(
+        _env_list(
+            "CSRF_TRUSTED_ORIGINS",
+            "https://api.guidewisey.com,https://guidewisey.com,https://www.guidewisey.com",
+        )
+    )
+)
 
-# Add localhost only in development
 if IS_DEVELOPMENT:
     CSRF_TRUSTED_ORIGINS += [
         "http://localhost:3000",
@@ -221,6 +228,7 @@ SESSION_COOKIE_AGE = 1209600  # 2 weeks
 if IS_PRODUCTION:
     SECURE_SSL_REDIRECT = False  # Render handles SSL
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    USE_X_FORWARDED_HOST = True
     SECURE_HSTS_SECONDS = 31536000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True

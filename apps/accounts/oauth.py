@@ -370,10 +370,14 @@ def connect_social_account(provider, social_profile, link_user=None):
     if not social_profile.email or not social_profile.email_verified:
         raise OAuthError("provider_account_not_verified")
 
-    existing = UserAuthProvider.objects.select_related("user").filter(
-        provider=provider,
-        provider_user_id=social_profile.provider_user_id,
-    ).first()
+    existing = (
+        UserAuthProvider.objects.select_related("user")
+        .filter(
+            provider=provider,
+            provider_user_id=social_profile.provider_user_id,
+        )
+        .first()
+    )
     if existing:
         if link_user and existing.user_id != link_user.id:
             raise OAuthError("provider_already_linked")
