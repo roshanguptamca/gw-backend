@@ -67,7 +67,9 @@ def _start_response(provider, link_user=None, json_response=False):
         if json_response:
             return Response({"error": exc.code}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         return _frontend_redirect(False, error=exc.code)
-    response = Response({"authorization_url": authorization_url}) if json_response else HttpResponseRedirect(authorization_url)
+    response = (
+        Response({"authorization_url": authorization_url}) if json_response else HttpResponseRedirect(authorization_url)
+    )
     response.set_cookie(
         TRANSACTION_COOKIE,
         str(oauth_transaction.id),
@@ -157,9 +159,14 @@ def oauth_unlink(request, provider):
     social_account = UserAuthProvider.objects.filter(user=request.user, provider=provider).first()
     if not social_account:
         return Response({"error": "provider_not_linked"}, status=status.HTTP_404_NOT_FOUND)
-    has_other_method = request.user.has_usable_password() or UserAuthProvider.objects.filter(
-        user=request.user,
-    ).exclude(pk=social_account.pk).exists()
+    has_other_method = (
+        request.user.has_usable_password()
+        or UserAuthProvider.objects.filter(
+            user=request.user,
+        )
+        .exclude(pk=social_account.pk)
+        .exists()
+    )
     if not has_other_method:
         return Response({"error": "last_login_method"}, status=status.HTTP_400_BAD_REQUEST)
     social_account.delete()
