@@ -195,6 +195,13 @@ S3_BUCKET=
 CORS_ALLOWED_ORIGINS=http://localhost:3000
 ALLOWED_HOSTS=127.0.0.1,localhost
 
+# Social auth / OAuth
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+OAUTH_REDIRECT_BASE_URL=http://localhost:8000
+FRONTEND_AUTH_SUCCESS_URL=http://localhost:3000/#auth-callback
+FRONTEND_AUTH_ERROR_URL=http://localhost:3000/#auth-callback
+
 # Email — Brevo SMTP relay
 EMAIL_HOST=smtp-relay.brevo.com
 EMAIL_PORT=587

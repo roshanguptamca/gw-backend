@@ -13,6 +13,7 @@ from apps.accounts.oauth import (
     OAuthError,
     SocialProfile,
     _exchange_code,
+    _callback_url,
     _provider_settings,
     connect_social_account,
     fetch_social_profile,
@@ -58,6 +59,18 @@ class OAuthViewsTests(TestCase):
                 self.assertIn("state=", response["Location"])
                 self.assertIn("gw_oauth_transaction", response.cookies)
         self.assertEqual(OAuthTransaction.objects.count(), 4)
+
+    def test_google_provider_uses_basic_openid_scopes_only(self):
+        config = _provider_settings("google")
+
+        self.assertEqual(config["scopes"], "openid profile email")
+
+    @override_settings(OAUTH_REDIRECT_BASE_URL="https://api.guidewisey.com")
+    def test_google_callback_uri_is_derived_from_configured_backend_base_url(self):
+        self.assertEqual(
+            _callback_url("google"),
+            "https://api.guidewisey.com/api/auth/oauth/google/callback",
+        )
 
     def test_invalid_state_is_rejected(self):
         oauth_transaction = self._transaction("expected")
