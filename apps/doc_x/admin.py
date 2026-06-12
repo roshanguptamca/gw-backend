@@ -1,6 +1,16 @@
 # apps/doc_x/admin.py
 from django.contrib import admin
-from .models import Document, Conversation, DocumentInteraction, UserQuestionLimit
+from .models import (
+    ChatMessage,
+    ChatSession,
+    Conversation,
+    Document,
+    DocumentChunk,
+    DocumentFile,
+    DocumentInteraction,
+    ProcessingJob,
+    UserQuestionLimit,
+)
 
 
 @admin.register(Document)
@@ -138,3 +148,61 @@ class UserQuestionLimitAdmin(admin.ModelAdmin):
         return obj.document.id if obj.document else "-"
 
     document_id.short_description = "Document ID"
+
+
+@admin.register(DocumentFile)
+class DocumentFileAdmin(admin.ModelAdmin):
+    list_display = ("filename", "document", "file_type", "file_size", "storage_backend", "uploaded_by", "uploaded_at")
+    list_filter = ("storage_backend", "file_type", "uploaded_at")
+    search_fields = ("filename", "s3_key", "document__filename", "uploaded_by__username", "uploaded_by__email")
+    readonly_fields = ("id", "uploaded_at")
+    raw_id_fields = ("document", "uploaded_by")
+    ordering = ("-uploaded_at",)
+
+
+@admin.register(DocumentChunk)
+class DocumentChunkAdmin(admin.ModelAdmin):
+    list_display = ("id", "document", "chunk_index", "token_count", "start_page", "end_page", "created_at")
+    list_filter = ("created_at",)
+    search_fields = ("document__filename", "document__s3_key", "content")
+    readonly_fields = ("id", "created_at")
+    raw_id_fields = ("document",)
+    ordering = ("document", "chunk_index")
+
+
+@admin.register(ProcessingJob)
+class ProcessingJobAdmin(admin.ModelAdmin):
+    list_display = ("id", "document", "job_type", "status", "started_at", "completed_at", "created_at")
+    list_filter = ("job_type", "status", "created_at")
+    search_fields = ("document__filename", "document__s3_key", "celery_task_id", "error_message")
+    readonly_fields = ("id", "created_at")
+    raw_id_fields = ("document",)
+    ordering = ("-created_at",)
+
+
+class ChatMessageInline(admin.TabularInline):
+    model = ChatMessage
+    extra = 0
+    readonly_fields = ("id", "role", "content", "tokens_used", "model_used", "processing_time_ms", "created_at")
+    can_delete = False
+
+
+@admin.register(ChatSession)
+class ChatSessionAdmin(admin.ModelAdmin):
+    list_display = ("id", "document", "user", "session_key", "title", "is_active", "updated_at")
+    list_filter = ("is_active", "created_at", "updated_at")
+    search_fields = ("=id", "title", "session_key", "document__filename", "user__username", "user__email")
+    readonly_fields = ("id", "created_at", "updated_at")
+    raw_id_fields = ("document", "user")
+    inlines = (ChatMessageInline,)
+    ordering = ("-updated_at",)
+
+
+@admin.register(ChatMessage)
+class ChatMessageAdmin(admin.ModelAdmin):
+    list_display = ("id", "session", "role", "model_used", "tokens_used", "processing_time_ms", "created_at")
+    list_filter = ("role", "model_used", "created_at")
+    search_fields = ("content", "session__title", "=session__id")
+    readonly_fields = ("id", "created_at")
+    raw_id_fields = ("session",)
+    ordering = ("-created_at",)
