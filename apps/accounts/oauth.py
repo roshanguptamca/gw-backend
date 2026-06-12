@@ -159,8 +159,22 @@ def _exchange_code(oauth_transaction, code):
             },
             timeout=15,
         )
-        response.raise_for_status()
+        if not response.ok:
+            try:
+                provider_error = response.json()
+            except ValueError:
+                provider_error = {}
+            logger.warning(
+                "OAuth token exchange rejected for %s: status=%s error=%s description=%s",
+                oauth_transaction.provider,
+                response.status_code,
+                provider_error.get("error", "unknown"),
+                provider_error.get("error_description", "")[:300],
+            )
+            raise OAuthError("provider_unavailable")
         payload = response.json()
+    except OAuthError:
+        raise
     except (requests.RequestException, ValueError) as exc:
         logger.warning("OAuth token exchange failed for %s: %s", oauth_transaction.provider, exc)
         raise OAuthError("provider_unavailable") from exc
