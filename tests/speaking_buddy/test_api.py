@@ -9,6 +9,8 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.test import APIClient
 
 from apps.speaking_buddy.models import Buddy3DAvatar, BuddyAvatar, BuddyGeneratedAvatar, BuddyMemory, BuddyProfile, BuddySession
+from apps.speaking_buddy.services.context_builder import build_session_context
+from apps.speaking_buddy.services.openai_buddy import generate_buddy_reply
 
 User = get_user_model()
 
@@ -173,6 +175,15 @@ class SpeakingBuddyApiTests(TestCase):
         response = self.client.get("/api/buddy/history/")
         self.assertEqual(response.status_code, 200)
         self.assertTrue(len(response.data) >= 1)
+
+    def test_multilingual_fallback_reply_uses_target_language(self):
+        self.profile1.target_language = "hi"
+        self.profile1.save(update_fields=["target_language", "updated_at"])
+        context = build_session_context(self.profile1)
+        with patch("apps.speaking_buddy.services.openai_buddy._client", return_value=None):
+            reply = generate_buddy_reply(context, "hello", [])
+        self.assertIn("buddy", reply.lower())
+        self.assertIn("धीरे", reply)
 
     @patch("apps.speaking_buddy.services.openai_buddy.OpenAI")
     def test_realtime_token_endpoint_mocks_external_api(self, openai_client_cls):

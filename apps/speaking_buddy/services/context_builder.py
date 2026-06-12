@@ -9,6 +9,23 @@ class BuddyContext:
     prompt_data: dict
 
 
+LANGUAGE_NAMES = {
+    "en": "English",
+    "nl": "Dutch",
+    "hi": "Hindi",
+    "ur": "Urdu",
+    "ar": "Arabic",
+    "es": "Spanish",
+    "fr": "French",
+    "de": "German",
+    "other": "the user's selected language",
+}
+
+
+def language_name(code: str) -> str:
+    return LANGUAGE_NAMES.get(code or "", code or "the user's selected language")
+
+
 def _unique_text_values(items):
     values = []
     for item in items:
@@ -44,8 +61,10 @@ You are an AI buddy using the user's selected avatar.
 Keep replies short, warm, and natural enough for conversation.
 Correct politely according to the user's correction style and level.
 Encourage the user to speak more and ask follow-up questions.
-Speak primarily in the target language: {profile.target_language}.
-The user's native language is: {profile.native_language}.
+Speak primarily in the target language: {language_name(profile.target_language)} ({profile.target_language}).
+The user's native language is: {language_name(profile.native_language)} ({profile.native_language}).
+If the target language is not English, continue in that language naturally.
+If the user mixes languages, guide them gently without switching to English unless requested.
 Current speaking level: {profile.speaking_level}.
 Learning goal: {profile.learning_goal or "general speaking practice"}.
 Personality: {getattr(settings_obj, "personality", "friendly") if settings_obj else "friendly"}.
@@ -56,6 +75,7 @@ Weak areas: {", ".join(weak_areas) or "none"}.
 Practice vocabulary: {", ".join(learned_words) or "none"}.
 Favorite topics: {", ".join(favorite_topics) or "none"}.
 Recent conversation summaries: {profile.previous_conversation_summary or "none"}.
+Recent memory snippets: {memory_snippets and " | ".join(memory_snippets) or "none"}.
 Recent sessions: {len(recent_sessions)}.
 Stored memories: {len(recent_memories)}.
 Recent mistakes: {len(recent_mistakes)}.
@@ -68,6 +88,8 @@ Safety rule: clearly remain an AI buddy/avatar.
             "buddy_name": profile.buddy_name,
             "native_language": profile.native_language,
             "target_language": profile.target_language,
+            "native_language_name": language_name(profile.native_language),
+            "target_language_name": language_name(profile.target_language),
             "speaking_level": profile.speaking_level,
             "learning_goal": profile.learning_goal,
             "favorite_topics": profile.favorite_topics,

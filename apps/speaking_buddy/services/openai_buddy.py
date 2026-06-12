@@ -5,7 +5,7 @@ from dataclasses import asdict
 from django.conf import settings
 from openai import OpenAI
 
-from .context_builder import BuddyContext
+from .context_builder import BuddyContext, language_name
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +26,19 @@ def _client():
 
 def _fallback_reply(context: BuddyContext, user_message: str):
     language = context.prompt_data["profile"]["target_language"]
-    if language == "nl":
-        return "Ik ben je AI buddy. Probeer dezelfde zin nog eens, maar iets langzamer?"
-    return "I’m your AI buddy. Try saying that again a little slower so I can help."
+    replies = {
+        "en": "I’m your AI buddy. Try saying that again a little slower so I can help.",
+        "nl": "Ik ben je AI buddy. Probeer dezelfde zin nog eens, maar iets langzamer.",
+        "hi": "मैं आपका AI buddy हूँ। कृपया वही वाक्य थोड़ा धीरे दोहराएँ।",
+        "ur": "میں آپ کا AI buddy ہوں۔ براہِ کرم وہی جملہ ذرا آہستہ دہرائیں۔",
+        "ar": "أنا AI buddy الخاص بك. حاول أن تقول الجملة مرة أخرى ببطء قليلًا.",
+        "es": "Soy tu AI buddy. Intenta decirlo otra vez un poco más despacio.",
+        "fr": "Je suis votre AI buddy. Essayez de le redire un peu plus lentement.",
+        "de": "Ich bin dein AI Buddy. Versuch es bitte noch einmal etwas langsamer.",
+    }
+    if language in replies:
+        return replies[language]
+    return f"I’m your AI buddy in {language_name(language)}. Try saying that again a little slower so I can help."
 
 
 def _fallback_summary(context: BuddyContext, transcript: list):

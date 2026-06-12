@@ -26,7 +26,7 @@ from .serializers import (
     BuddySettingsSerializer,
 )
 from .services.avatar_generation import BuddyAvatarGenerationError, request_generated_avatar
-from .services.context_builder import build_session_context
+from .services.context_builder import build_session_context, language_name
 from .services.memory_service import update_session_insights
 from .services.openai_buddy import SpeakingBuddyError, create_realtime_client_secret, generate_buddy_reply, summarize_session
 
@@ -38,10 +38,9 @@ def _ensure_profile(user):
     if created:
         try:
             user_profile = user.profile
-            if user_profile.preferred_language in {"en", "nl"}:
-                profile.native_language = user_profile.preferred_language
-                profile.target_language = user_profile.preferred_language
-                profile.save(update_fields=["native_language", "target_language", "updated_at"])
+            profile.native_language = user_profile.preferred_language
+            profile.target_language = user_profile.preferred_language
+            profile.save(update_fields=["native_language", "target_language", "updated_at"])
         except Exception:
             pass
     BuddySettings.objects.get_or_create(profile=profile)
@@ -335,7 +334,7 @@ def buddy_session_start_view(request):
     topic = serializer.validated_data.get("topic") or settings_obj.default_topic or "General speaking practice"
     session = BuddySession.objects.create(profile=profile, language=language, topic=topic, status="active", transcript=[])
     context = build_session_context(profile, settings_obj)
-    welcome = generate_buddy_reply(context, f"Start a short {language} conversation about {topic}.", [])
+    welcome = generate_buddy_reply(context, f"Start a short {language_name(language)} conversation about {topic}.", [])
     BuddyMessage.objects.create(session=session, role="assistant", text=welcome, metadata={"kind": "welcome"})
     session.transcript = [{"role": "assistant", "text": welcome, "metadata": {"kind": "welcome"}}]
     session.save(update_fields=["transcript", "updated_at"])
