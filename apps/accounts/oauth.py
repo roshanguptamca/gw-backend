@@ -37,9 +37,21 @@ class SocialProfile:
     timezone: str = ""
 
 
-DISCOVERY_URLS = {
-    "google": "https://accounts.google.com/.well-known/openid-configuration",
-    "linkedin": "https://www.linkedin.com/oauth/.well-known/openid-configuration",
+OIDC_PROVIDER_METADATA = {
+    "google": {
+        "issuer": "https://accounts.google.com",
+        "authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+        "token_endpoint": "https://oauth2.googleapis.com/token",
+        "userinfo_endpoint": "https://openidconnect.googleapis.com/v1/userinfo",
+        "jwks_uri": "https://www.googleapis.com/oauth2/v3/certs",
+    },
+    "linkedin": {
+        "issuer": "https://www.linkedin.com/oauth",
+        "authorization_endpoint": "https://www.linkedin.com/oauth/v2/authorization",
+        "token_endpoint": "https://www.linkedin.com/oauth/v2/accessToken",
+        "userinfo_endpoint": "https://api.linkedin.com/v2/userinfo",
+        "jwks_uri": "https://www.linkedin.com/oauth/openid/jwks",
+    },
 }
 
 
@@ -66,7 +78,15 @@ def _provider_settings(provider):
             "jwks_uri": "",
         }
 
-    discovery_url = settings.OIDC_ISSUER_URL.rstrip("/") + "/.well-known/openid-configuration" if provider == "oidc" else DISCOVERY_URLS[provider]
+    if provider in OIDC_PROVIDER_METADATA:
+        return {
+            **OIDC_PROVIDER_METADATA[provider],
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "scopes": "openid profile email",
+        }
+
+    discovery_url = settings.OIDC_ISSUER_URL.rstrip("/") + "/.well-known/openid-configuration"
     try:
         response = requests.get(discovery_url, timeout=10)
         response.raise_for_status()
@@ -231,13 +251,18 @@ def fetch_social_profile(oauth_transaction, code):
             )
 
         claims = _validated_oidc_claims(config, token_payload, oauth_transaction)
-        response = requests.get(
-            config["userinfo_endpoint"],
-            headers={"Authorization": f"Bearer {access_token}"},
-            timeout=10,
-        )
-        response.raise_for_status()
-        claims.update(response.json())
+        try:
+            response = requests.get(
+                config["userinfo_endpoint"],
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=10,
+            )
+            response.raise_for_status()
+            claims.update(response.json())
+        except (requests.RequestException, ValueError) as exc:
+            if provider != "linkedin":
+                raise
+            logger.warning("LinkedIn userinfo unavailable; using validated ID token claims: %s", exc)
     except (requests.RequestException, ValueError) as exc:
         logger.warning("OAuth profile fetch failed for %s: %s", provider, exc)
         raise OAuthError("provider_unavailable") from exc

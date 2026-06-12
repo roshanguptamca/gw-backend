@@ -2,6 +2,7 @@ import hashlib
 import uuid
 from unittest.mock import Mock, patch
 
+import requests
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
@@ -9,7 +10,14 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.accounts.models import OAuthTransaction, UserAuthProvider, UserProfile
-from apps.accounts.oauth import OAuthError, SocialProfile, _exchange_code, connect_social_account
+from apps.accounts.oauth import (
+    OAuthError,
+    SocialProfile,
+    _exchange_code,
+    _provider_settings,
+    connect_social_account,
+    fetch_social_profile,
+)
 
 User = get_user_model()
 
@@ -229,3 +237,40 @@ class OAuthAccountTests(TestCase):
     def test_social_models_are_registered_in_admin(self):
         self.assertIn(UserAuthProvider, admin.site._registry)
         self.assertIn(OAuthTransaction, admin.site._registry)
+
+    @override_settings(LINKEDIN_CLIENT_ID="linkedin-client", LINKEDIN_CLIENT_SECRET="linkedin-secret")
+    @patch("apps.accounts.oauth.requests.get")
+    def test_linkedin_provider_config_does_not_require_discovery_request(self, get):
+        config = _provider_settings("linkedin")
+
+        self.assertEqual(config["token_endpoint"], "https://www.linkedin.com/oauth/v2/accessToken")
+        self.assertEqual(config["issuer"], "https://www.linkedin.com/oauth")
+        get.assert_not_called()
+
+    @patch("apps.accounts.oauth._exchange_code")
+    @patch("apps.accounts.oauth._validated_oidc_claims")
+    @patch("apps.accounts.oauth.requests.get")
+    def test_linkedin_uses_validated_id_token_when_userinfo_is_unavailable(
+        self,
+        get,
+        validated_claims,
+        exchange_code,
+    ):
+        get.side_effect = requests.ConnectionError("userinfo unavailable")
+        exchange_code.return_value = (
+            {"userinfo_endpoint": "https://api.linkedin.com/v2/userinfo"},
+            {"access_token": "access-token", "id_token": "id-token"},
+        )
+        validated_claims.return_value = {
+            "sub": "linkedin-123",
+            "email": "linkedin@example.com",
+            "email_verified": True,
+            "given_name": "Linked",
+            "family_name": "User",
+        }
+        oauth_transaction = OAuthTransaction(provider="linkedin")
+
+        profile = fetch_social_profile(oauth_transaction, "code")
+
+        self.assertEqual(profile.provider_user_id, "linkedin-123")
+        self.assertEqual(profile.email, "linkedin@example.com")
