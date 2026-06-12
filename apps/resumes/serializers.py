@@ -345,3 +345,34 @@ class ResumeUploadSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+
+class AutoFillResumeRequestSerializer(serializers.Serializer):
+    job_description_text = serializers.CharField(required=False, allow_blank=True, default="")
+    job_description_url = serializers.URLField(required=False, allow_blank=True, default="")
+    job_description_id = serializers.IntegerField(required=False, allow_null=True)
+    resume_id = serializers.IntegerField(required=False, allow_null=True)
+    uploaded_resume_id = serializers.UUIDField(required=False, allow_null=True)
+    target_language = serializers.ChoiceField(choices=["en", "nl"], default="en")
+    target_match_score = serializers.IntegerField(min_value=50, max_value=100, default=90)
+    owner_email = serializers.EmailField(required=False, allow_blank=True)
+    owner_phone = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        if (
+            not attrs["job_description_text"].strip()
+            and not attrs["job_description_url"].strip()
+            and not attrs.get("job_description_id")
+        ):
+            raise serializers.ValidationError(
+                {
+                    "job_description_text": (
+                        "Provide job description text, a job description URL, or a parsed job description ID."
+                    )
+                }
+            )
+        if attrs.get("resume_id") and attrs.get("uploaded_resume_id"):
+            raise serializers.ValidationError(
+                {"resume_id": "Choose either an existing resume or an uploaded resume, not both."}
+            )
+        return attrs
