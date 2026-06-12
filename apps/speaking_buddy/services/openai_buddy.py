@@ -118,13 +118,14 @@ def create_realtime_client_secret(context: BuddyContext):
     if client is None:
         return {
             "client_secret": "dev-realtime-secret",
+            "value": "dev-realtime-secret",
             "session_id": "dev-session",
             "expires_at": None,
         }
 
     try:
         response = client.realtime.client_secrets.create(
-            expires_after={"seconds": 600},
+            expires_after={"anchor": "created_at", "seconds": 600},
             session={
                 "type": "realtime",
                 "model": getattr(settings, "SPEAKING_BUDDY_MODEL", "gpt-4o-mini"),
@@ -133,11 +134,18 @@ def create_realtime_client_secret(context: BuddyContext):
             },
         )
         if hasattr(response, "model_dump"):
-            return response.model_dump()
+            payload = response.model_dump()
+            payload.setdefault("client_secret", payload.get("value"))
+            return payload
         if isinstance(response, dict):
+            response.setdefault("client_secret", response.get("value"))
             return response
-        return {"client_secret": getattr(response, "client_secret", ""), "session_id": getattr(response, "session_id", "")}
+        client_secret = getattr(response, "client_secret", getattr(response, "value", ""))
+        return {
+            "client_secret": client_secret,
+            "value": getattr(response, "value", client_secret),
+            "session_id": getattr(response, "session_id", ""),
+        }
     except Exception as exc:
         logger.warning("Speaking buddy realtime token creation failed: %s", exc)
         raise SpeakingBuddyError("realtime_token_failed") from exc
-

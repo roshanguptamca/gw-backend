@@ -269,5 +269,10 @@ def buddy_realtime_token_view(request):
     if serializer.validated_data.get("session_id"):
         session = get_object_or_404(BuddySession, id=serializer.validated_data["session_id"], profile=profile)
     context = build_session_context(profile, settings_obj)
-    token = create_realtime_client_secret(context)
+    try:
+        token = create_realtime_client_secret(context)
+    except SpeakingBuddyError as exc:
+        code = getattr(exc, "code", "realtime_token_failed")
+        status_code = status.HTTP_503_SERVICE_UNAVAILABLE if code in {"openai_not_configured", "realtime_token_failed"} else status.HTTP_400_BAD_REQUEST
+        return Response({"error": code}, status=status_code)
     return Response(token)

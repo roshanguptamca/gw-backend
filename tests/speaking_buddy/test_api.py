@@ -1,6 +1,6 @@
 import base64
 from io import BytesIO
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 
 from PIL import Image
 from django.contrib.auth import get_user_model
@@ -118,6 +118,7 @@ class SpeakingBuddyApiTests(TestCase):
         client = Mock()
         client.realtime.client_secrets.create.return_value = {
             "client_secret": "token-123",
+            "value": "token-123",
             "session_id": "session-123",
             "expires_at": "2030-01-01T00:00:00Z",
         }
@@ -126,6 +127,15 @@ class SpeakingBuddyApiTests(TestCase):
         response = self.client.post("/api/buddy/realtime-token/", {}, format="json")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["client_secret"], "token-123")
+        client.realtime.client_secrets.create.assert_called_once_with(
+            expires_after={"anchor": "created_at", "seconds": 600},
+            session={
+                "type": "realtime",
+                "model": "gpt-4o-mini",
+                "modalities": ["audio", "text"],
+                "instructions": ANY,
+            },
+        )
 
     def test_other_user_cannot_delete_foreign_memory(self):
         self.auth(self.user2)
