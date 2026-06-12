@@ -134,9 +134,7 @@ class AccountsAPITestCase(TestCase):
 
     def test_login_blocked_before_confirmation(self):
         """Login is blocked with EMAIL_CONFIRMATION_PENDING if email not confirmed"""
-        user = User.objects.create_user(
-            username="unconfirmed", email="unconfirmed@example.com", password="pass12345"
-        )
+        user = User.objects.create_user(username="unconfirmed", email="unconfirmed@example.com", password="pass12345")
         profile, _ = UserProfile.objects.get_or_create(user=user)
         profile.email_confirmed = False
         profile.save()
@@ -151,9 +149,7 @@ class AccountsAPITestCase(TestCase):
 
     def test_login_success_after_confirmation(self):
         """Login succeeds once email is confirmed"""
-        user = User.objects.create_user(
-            username="willconfirm", email="willconfirm@example.com", password="pass12345"
-        )
+        user = User.objects.create_user(username="willconfirm", email="willconfirm@example.com", password="pass12345")
         profile, _ = UserProfile.objects.get_or_create(user=user)
         profile.email_confirmed = False
         profile.save()
@@ -183,9 +179,7 @@ class AccountsAPITestCase(TestCase):
     # ---------------------------
     def test_confirm_email_valid_token(self):
         """Confirmation succeeds with a valid, non-expired token"""
-        user = User.objects.create_user(
-            username="confirmme", email="confirmme@example.com", password="pass12345"
-        )
+        user = User.objects.create_user(username="confirmme", email="confirmme@example.com", password="pass12345")
         profile, _ = UserProfile.objects.get_or_create(user=user)
         profile.email_confirmed = False
         profile.email_confirmation_token = "validtoken123"
@@ -208,9 +202,7 @@ class AccountsAPITestCase(TestCase):
 
     def test_confirm_email_expired_token(self):
         """Confirmation fails with an expired token"""
-        user = User.objects.create_user(
-            username="expireduser", email="expired@example.com", password="pass12345"
-        )
+        user = User.objects.create_user(username="expireduser", email="expired@example.com", password="pass12345")
         profile, _ = UserProfile.objects.get_or_create(user=user)
         profile.email_confirmed = False
         profile.email_confirmation_token = "expiredtoken123"
@@ -227,9 +219,7 @@ class AccountsAPITestCase(TestCase):
     @patch("apps.future_wise.email_service.BrevoEmailService.send_account_confirmation_email")
     def test_resend_confirmation_success(self, mock_send):
         """Resend confirmation sends a new token for unconfirmed user"""
-        user = User.objects.create_user(
-            username="resendme", email="resendme@example.com", password="pass12345"
-        )
+        user = User.objects.create_user(username="resendme", email="resendme@example.com", password="pass12345")
         profile, _ = UserProfile.objects.get_or_create(user=user)
         profile.email_confirmed = False
         profile.email_confirmation_token = "oldtoken"
@@ -324,7 +314,6 @@ class AccountsAPITestCase(TestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-
     # ---------------------------
     # Forgot password tests
     # ---------------------------
@@ -382,6 +371,7 @@ class AccountsAPITestCase(TestCase):
     # ---------------------------
     def _set_reset_token(self, token, hours_from_now=1):
         from django.utils import timezone
+
         profile = UserProfile.objects.get(user=self.user)
         profile.password_reset_token = token
         profile.password_reset_token_expires_at = timezone.now() + timezone.timedelta(hours=hours_from_now)

@@ -5,6 +5,7 @@ from django.db import models
 
 class AnonymousMockTestCompletion(models.Model):
     """Tracks completed mock tests for anonymous users identified by IP address."""
+
     ip_address = models.GenericIPAddressField(db_index=True)
     completed_at = models.DateTimeField(default=timezone.now)
     score = models.FloatField(null=True, blank=True)
@@ -16,7 +17,6 @@ class AnonymousMockTestCompletion(models.Model):
 
     def __str__(self):
         return f"Anon mock {self.ip_address} at {self.completed_at:%Y-%m-%d %H:%M}"
-
 
 
 class DrivingTopic(models.Model):

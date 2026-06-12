@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="{{ resume.locale }}">
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: sans-serif; color: #172033; margin: 32px; font-size: 11pt; }
+    h1 { margin-bottom: 4px; } h2 { border-bottom: 1px solid #ccd4df; padding-bottom: 4px; }
+    h3 { margin-bottom: 2px; } .contact { color: #4b5563; } .item { margin-bottom: 12px; }
+    .profile-photo { width: 96px; height: 96px; object-fit: cover; border-radius: 50%; float: right; margin-left: 20px; }
+  </style>
+</head>
+<body>
+  {% if photo_data_uri %}<img class="profile-photo" src="{{ photo_data_uri }}" alt="Profile photo">{% endif %}
+  <h1>{{ resume.personal.first_name }} {{ resume.personal.last_name }}</h1>
+  <strong>{{ resume.personal.professional_title }}</strong>
+  <p class="contact">{{ resume.personal.email }} | {{ resume.personal.phone }} | {{ resume.personal.city }}, {{ resume.personal.country }}</p>
+  <h2>{{ labels.summary }}</h2><p>{{ resume.summary }}</p>
+  {% if resume.experiences %}<h2>{{ labels.experience }}</h2>{% for item in resume.experiences %}
+    <div class="item"><h3>{{ item.job_title }} - {{ item.employer }}</h3><p>{{ item.description }}</p></div>
+  {% endfor %}{% endif %}
+  <h2>{{ labels.education }}</h2>{% for item in resume.education %}
+    <div class="item"><h3>{{ item.degree }} - {{ item.institution }}</h3><p>{{ item.description }}</p></div>
+  {% endfor %}
+  <h2>{{ labels.skills }}</h2><p>{% for item in resume.skills %}{{ item.name }}{% if not forloop.last %}, {% endif %}{% endfor %}</p>
+  <h2>{{ labels.languages }}</h2><p>{% for item in resume.languages %}{{ item.name }} ({{ item.proficiency }}){% if not forloop.last %}, {% endif %}{% endfor %}</p>
+</body>
+</html>

@@ -1,0 +1,7 @@
+{% extends "resumes/base.html" %}
+{% block template_style %}
+  header { text-align: center; border: 0; }
+  section { border-left: 2px solid var(--accent); padding-left: 15px; margin-left: 8px; }
+  h2 { position: relative; }
+  h2::before { content: ""; position: absolute; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); left: -21px; top: 5px; }
+{% endblock %}

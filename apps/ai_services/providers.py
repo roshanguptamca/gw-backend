@@ -1,0 +1,94 @@
+import json
+from abc import ABC, abstractmethod
+
+from django.conf import settings
+
+import requests
+
+
+class BaseAIProvider(ABC):
+    @abstractmethod
+    def generate(self, system_prompt: str, user_prompt: str) -> str:
+        raise NotImplementedError
+
+
+class OpenAIProvider(BaseAIProvider):
+    def __init__(self):
+        from openai import OpenAI
+
+        self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
+
+    def generate(self, system_prompt: str, user_prompt: str) -> str:
+        response = self.client.chat.completions.create(
+            model=settings.AI_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.2,
+        )
+        return response.choices[0].message.content or ""
+
+
+class AzureOpenAIProvider(BaseAIProvider):
+    def __init__(self):
+        from openai import AzureOpenAI
+
+        self.client = AzureOpenAI(
+            api_key=settings.AZURE_OPENAI_API_KEY,
+            azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
+            api_version=settings.AZURE_OPENAI_API_VERSION,
+        )
+
+    def generate(self, system_prompt: str, user_prompt: str) -> str:
+        response = self.client.chat.completions.create(
+            model=settings.AI_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.2,
+        )
+        return response.choices[0].message.content or ""
+
+
+class OllamaProvider(BaseAIProvider):
+    def generate(self, system_prompt: str, user_prompt: str) -> str:
+        response = requests.post(
+            f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/generate",
+            json={"model": settings.AI_MODEL, "system": system_prompt, "prompt": user_prompt, "stream": False},
+            timeout=120,
+        )
+        response.raise_for_status()
+        return response.json().get("response", "")
+
+
+class DummyProvider(BaseAIProvider):
+    def generate(self, system_prompt: str, user_prompt: str) -> str:
+        try:
+            payload = json.loads(user_prompt)
+        except (TypeError, json.JSONDecodeError):
+            payload = {"content": user_prompt}
+        return json.dumps(
+            {
+                "optimized_resume": payload.get("resume", payload),
+                "suggestions": [
+                    "Use concise action verbs and quantify existing achievements "
+                    "where the source already contains numbers."
+                ],
+                "confirmation_required_skills": payload.get("missing_skills", []),
+            }
+        )
+
+
+def get_ai_provider() -> BaseAIProvider:
+    providers = {
+        "openai": OpenAIProvider,
+        "azure_openai": AzureOpenAIProvider,
+        "ollama": OllamaProvider,
+        "dummy": DummyProvider,
+    }
+    provider_class = providers.get(settings.AI_PROVIDER.lower())
+    if not provider_class:
+        raise ValueError(f"Unsupported AI_PROVIDER: {settings.AI_PROVIDER}")
+    return provider_class()

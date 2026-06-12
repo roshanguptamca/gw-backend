@@ -308,8 +308,12 @@ class DrivingTheoryViewsTest(TestCase):
         """Submitting an already-completed attempt returns 400."""
         self.client.force_authenticate(user=self.user)
         attempt = MockTestAttempt.objects.create(
-            user=self.user, attempt_number=1, total_questions=25,
-            correct_answers=18, score=72.0, passed=True,
+            user=self.user,
+            attempt_number=1,
+            total_questions=25,
+            correct_answers=18,
+            score=72.0,
+            passed=True,
             completed_at=timezone.now(),
         )
         attempt.questions.set(self.questions[:25])
@@ -331,8 +335,12 @@ class DrivingTheoryViewsTest(TestCase):
 
         # Complete 1 attempt
         attempt = MockTestAttempt.objects.create(
-            user=self.user, attempt_number=1, total_questions=25,
-            correct_answers=20, score=80.0, passed=True,
+            user=self.user,
+            attempt_number=1,
+            total_questions=25,
+            correct_answers=20,
+            score=80.0,
+            passed=True,
             completed_at=timezone.now(),
         )
         attempt.questions.set(self.questions[:25])
@@ -346,8 +354,12 @@ class DrivingTheoryViewsTest(TestCase):
         self.client.force_authenticate(user=self.user)
         for i in range(1, 4):
             a = MockTestAttempt.objects.create(
-                user=self.user, attempt_number=i, total_questions=25,
-                correct_answers=18, score=72.0, passed=True,
+                user=self.user,
+                attempt_number=i,
+                total_questions=25,
+                correct_answers=18,
+                score=72.0,
+                passed=True,
                 completed_at=timezone.now(),
             )
             a.questions.set(self.questions[:25])
@@ -359,8 +371,12 @@ class DrivingTheoryViewsTest(TestCase):
     def test_result_endpoint_requires_authentication(self):
         """Result endpoint rejects unauthenticated requests."""
         attempt = MockTestAttempt.objects.create(
-            user=self.user, attempt_number=1, total_questions=25,
-            correct_answers=18, score=72.0, passed=True,
+            user=self.user,
+            attempt_number=1,
+            total_questions=25,
+            correct_answers=18,
+            score=72.0,
+            passed=True,
             completed_at=timezone.now(),
         )
         attempt.questions.set(self.questions[:25])

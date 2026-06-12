@@ -64,7 +64,9 @@ class TopicDetailView(APIView):
             DrivingTopic.objects.prefetch_related(
                 Prefetch(
                     "lessons",
-                    queryset=DrivingLesson.objects.filter(is_active=True).prefetch_related("sections").order_by("order"),
+                    queryset=DrivingLesson.objects.filter(is_active=True)
+                    .prefetch_related("sections")
+                    .order_by("order"),
                 )
             ),
             slug=slug,
@@ -77,7 +79,10 @@ class TopicDetailView(APIView):
 class LessonDetailView(APIView):
     permission_classes = [AllowAny]
 
-    @extend_schema(summary="Get lesson details with sections and practice questions", responses={200: DrivingLessonDetailSerializer})
+    @extend_schema(
+        summary="Get lesson details with sections and practice questions",
+        responses={200: DrivingLessonDetailSerializer},
+    )
     def get(self, request, pk):
         lesson = get_object_or_404(
             DrivingLesson.objects.select_related("topic").prefetch_related(
@@ -136,10 +141,18 @@ class ProgressView(APIView):
 
     @extend_schema(summary="List user driving progress", responses={200: UserDrivingProgressSerializer(many=True)})
     def get(self, request):
-        progress = UserDrivingProgress.objects.filter(user=request.user).select_related("topic", "lesson").order_by("topic__order")
+        progress = (
+            UserDrivingProgress.objects.filter(user=request.user)
+            .select_related("topic", "lesson")
+            .order_by("topic__order")
+        )
         return Response(UserDrivingProgressSerializer(progress, many=True, context={"request": request}).data)
 
-    @extend_schema(summary="Save or update user driving progress", request=ProgressUpdateSerializer, responses={200: UserDrivingProgressSerializer})
+    @extend_schema(
+        summary="Save or update user driving progress",
+        request=ProgressUpdateSerializer,
+        responses={200: UserDrivingProgressSerializer},
+    )
     def post(self, request):
         serializer = ProgressUpdateSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
@@ -183,9 +196,7 @@ class MockTestStartView(APIView):
     def _get_selected_questions(self, user=None):
         recent_q_ids = set()
         if user and user.is_authenticated:
-            recent_q_ids = set(
-                MockTestAnswer.objects.filter(attempt__user=user).values_list("question_id", flat=True)
-            )
+            recent_q_ids = set(MockTestAnswer.objects.filter(attempt__user=user).values_list("question_id", flat=True))
 
         active_topics = list(DrivingTopic.objects.filter(is_active=True).order_by("order"))
         questions_per_topic = max(1, 25 // max(len(active_topics), 1))
@@ -193,9 +204,7 @@ class MockTestStartView(APIView):
 
         for topic in active_topics:
             pool = list(
-                DrivingQuestion.objects.filter(
-                    topic=topic, is_active=True, topic__is_active=True
-                )
+                DrivingQuestion.objects.filter(topic=topic, is_active=True, topic__is_active=True)
                 .exclude(id__in=recent_q_ids)
                 .prefetch_related("options")
                 .order_by("?")[:questions_per_topic]
@@ -328,12 +337,13 @@ class MockTestSubmitView(APIView):
 
         serializer = MockTestSubmitSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
-        submitted_answers = {item["question_id"]: item.get("option_id") for item in serializer.validated_data["answers"]}
+        submitted_answers = {
+            item["question_id"]: item.get("option_id") for item in serializer.validated_data["answers"]
+        }
 
         question_ids = list(attempt.questions.values_list("id", flat=True))
         option_map = {
-            option.id: option
-            for option in DrivingQuestionOption.objects.filter(question_id__in=question_ids)
+            option.id: option for option in DrivingQuestionOption.objects.filter(question_id__in=question_ids)
         }
 
         correct_answers = 0
@@ -436,11 +446,13 @@ class AnonMockTestSubmitView(APIView):
 
         answers = request.data.get("answers", [])
         question_ids = [int(a["question_id"]) for a in answers if "question_id" in a]
-        answer_map = {int(a["question_id"]): int(a["selected_option_id"]) for a in answers if "question_id" in a and "selected_option_id" in a}
+        answer_map = {
+            int(a["question_id"]): int(a["selected_option_id"])
+            for a in answers
+            if "question_id" in a and "selected_option_id" in a
+        }
 
-        options = DrivingQuestionOption.objects.filter(
-            question_id__in=question_ids
-        ).select_related("question")
+        options = DrivingQuestionOption.objects.filter(question_id__in=question_ids).select_related("question")
         option_lookup = {o.id: o for o in options}
 
         correct = 0
@@ -498,18 +510,22 @@ class MockTestResultView(APIView):
                     "topic": question.topic.title,
                     "question_text": question.question_text,
                     "explanation": question.explanation,
-                    "selected_option": {
-                        "id": selected_answer.selected_option_id,
-                        "option_text": selected_answer.selected_option.option_text,
-                    }
-                    if selected_answer and selected_answer.selected_option
-                    else None,
-                    "correct_option": {
-                        "id": correct_option.id,
-                        "option_text": correct_option.option_text,
-                    }
-                    if correct_option
-                    else None,
+                    "selected_option": (
+                        {
+                            "id": selected_answer.selected_option_id,
+                            "option_text": selected_answer.selected_option.option_text,
+                        }
+                        if selected_answer and selected_answer.selected_option
+                        else None
+                    ),
+                    "correct_option": (
+                        {
+                            "id": correct_option.id,
+                            "option_text": correct_option.option_text,
+                        }
+                        if correct_option
+                        else None
+                    ),
                     "is_correct": bool(selected_answer and selected_answer.is_correct),
                 }
             )

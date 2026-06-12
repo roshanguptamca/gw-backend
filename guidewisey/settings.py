@@ -58,6 +58,13 @@ INSTALLED_APPS = [
     "apps.insurance_explainer",
     "apps.contact",
     "apps.driving_theory",
+    "apps.resumes",
+    "apps.jobs",
+    "apps.ai_services",
+    "apps.exports",
+    "apps.uploads",
+    "apps.files",
+    "apps.templates_app",
     "django_apscheduler",
 ]
 
@@ -410,6 +417,17 @@ FUTUREWAVE_VERIFY_RATE = os.getenv("FUTUREWAVE_VERIFY_RATE", "10/hour")
 APSCHEDULER_DATETIME_FORMAT = "N j, Y, f:s a"
 APSCHEDULER_RUN_NOW_TIMEOUT = 25  # seconds
 
+# ── Career Suite ────────────────────────────────────────────
+AI_PROVIDER = os.getenv("AI_PROVIDER", "dummy")
+AI_MODEL = os.getenv("AI_MODEL", "gpt-4o-mini")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY", "")
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "")
+AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-21")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+CAREER_SUITE_TEMP_TTL_HOURS = int(os.getenv("CAREER_SUITE_TEMP_TTL_HOURS", 24))
+CAREER_SUITE_RUN_JOBS_INLINE = os.getenv("CAREER_SUITE_RUN_JOBS_INLINE", "true").lower() == "true"
+
 # ── Multi-Channel Reminder Providers ────────────────────────
 # Twilio (SMS + Voice + WhatsApp Sandbox)
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
@@ -421,19 +439,11 @@ TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER", "")  # Sandbox: +14
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 
 # ── DRF Throttle Cache ───────────────────────────────────────
-if IS_PRODUCTION and os.getenv("REDIS_URL"):
-    CACHES = {
-        "default": {
-            "BACKEND": "django.core.cache.backends.redis.RedisCache",
-            "LOCATION": os.getenv("REDIS_URL"),
-        }
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
     }
-else:
-    CACHES = {
-        "default": {
-            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-        }
-    }
+}
 
 REST_FRAMEWORK["DEFAULT_THROTTLE_CLASSES"] = [
     "rest_framework.throttling.AnonRateThrottle",
@@ -454,13 +464,6 @@ if SENTRY_DSN:
     from sentry_sdk.integrations.django import DjangoIntegration
 
     _sentry_integrations = [DjangoIntegration()]
-
-    try:
-        from sentry_sdk.integrations.celery import CeleryIntegration
-
-        _sentry_integrations.append(CeleryIntegration())
-    except Exception:
-        pass
 
     sentry_sdk.init(
         dsn=SENTRY_DSN,

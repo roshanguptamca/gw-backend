@@ -1,8 +1,16 @@
 from django.urls import path
 from .views import (
-    LoginView, LogoutView, RegisterView, MeView,
-    csrf, session_view, confirm_email_view, ResendConfirmationView,
-    ChangePasswordView, ForgotPasswordView, ResetPasswordView,
+    LoginView,
+    LogoutView,
+    RegisterView,
+    MeView,
+    csrf,
+    session_view,
+    confirm_email_view,
+    ResendConfirmationView,
+    ChangePasswordView,
+    ForgotPasswordView,
+    ResetPasswordView,
     LanguagePreferenceView,
 )
 

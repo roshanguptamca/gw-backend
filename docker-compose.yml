@@ -15,19 +15,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── Redis (Celery broker + result backend + DRF throttle cache) ─────────────
-  redis:
-    image: redis:7-alpine
-    container_name: gw-redis
-    command: redis-server --save 60 1 --loglevel warning
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
   # ── Django API ───────────────────────────────────────────────────────────────
   web:
     build: .
@@ -44,24 +31,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      redis:
-        condition: service_healthy
-
-  # ── Celery Worker ────────────────────────────────────────────────────────────
-  celery_worker:
-    build: .
-    container_name: gw-celery-worker
-    command: celery -A guidewisey worker --loglevel=info --concurrency=4 -Q celery
-    volumes:
-      - .:/app
-    env_file:
-      - .env
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
 
   # ── FutureWise Scheduler (APScheduler — DB-backed, no Redis) ────────────────
   scheduler:
@@ -81,5 +50,3 @@ volumes:
   static_volume:
   media_volume:
   pg_data:
-  redis_data:
-

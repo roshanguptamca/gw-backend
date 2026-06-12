@@ -28,12 +28,16 @@ class DrivingLessonSectionSerializer(LangMixin, serializers.ModelSerializer):
     class Meta:
         model = DrivingLessonSection
         fields = [
-            "id", "title", "content", "examples", "dutch_keywords",
-            "callout_boxes", "illustration_hint", "order",
+            "id",
+            "title",
+            "content",
+            "examples",
+            "dutch_keywords",
+            "callout_boxes",
+            "illustration_hint",
+            "order",
         ]
-        read_only_fields = [
-            "id", "examples", "dutch_keywords", "callout_boxes", "illustration_hint", "order"
-        ]
+        read_only_fields = ["id", "examples", "dutch_keywords", "callout_boxes", "illustration_hint", "order"]
 
     def get_title(self, obj):
         return obj.title_nl if self.get_lang() == "nl" and obj.title_nl else obj.title
@@ -72,8 +76,18 @@ class DrivingQuestionSerializer(LangMixin, serializers.ModelSerializer):
 
     class Meta:
         model = DrivingQuestion
-        fields = ["id", "question_text", "explanation", "difficulty", "question_type",
-                  "sign_hint", "image_url", "tags", "points", "options"]
+        fields = [
+            "id",
+            "question_text",
+            "explanation",
+            "difficulty",
+            "question_type",
+            "sign_hint",
+            "image_url",
+            "tags",
+            "points",
+            "options",
+        ]
         read_only_fields = ["id", "difficulty", "question_type", "sign_hint", "image_url", "tags", "points", "options"]
 
     def get_question_text(self, obj):
@@ -101,13 +115,26 @@ class DrivingLessonSerializer(LangMixin, serializers.ModelSerializer):
     class Meta:
         model = DrivingLesson
         fields = [
-            "id", "title", "summary", "difficulty", "estimated_minutes",
-            "learning_objectives", "exam_tips", "common_mistakes", "key_takeaways",
+            "id",
+            "title",
+            "summary",
+            "difficulty",
+            "estimated_minutes",
+            "learning_objectives",
+            "exam_tips",
+            "common_mistakes",
+            "key_takeaways",
             "sections",
         ]
         read_only_fields = [
-            "id", "difficulty", "estimated_minutes", "learning_objectives",
-            "exam_tips", "common_mistakes", "key_takeaways", "sections",
+            "id",
+            "difficulty",
+            "estimated_minutes",
+            "learning_objectives",
+            "exam_tips",
+            "common_mistakes",
+            "key_takeaways",
+            "sections",
         ]
 
     def get_title(self, obj):
@@ -117,7 +144,11 @@ class DrivingLessonSerializer(LangMixin, serializers.ModelSerializer):
         return obj.summary_nl if self.get_lang() == "nl" and obj.summary_nl else obj.summary
 
     def get_learning_objectives(self, obj):
-        return obj.learning_objectives_nl if self.get_lang() == "nl" and obj.learning_objectives_nl else obj.learning_objectives
+        return (
+            obj.learning_objectives_nl
+            if self.get_lang() == "nl" and obj.learning_objectives_nl
+            else obj.learning_objectives
+        )
 
     def get_exam_tips(self, obj):
         return obj.exam_tips_nl if self.get_lang() == "nl" and obj.exam_tips_nl else obj.exam_tips
@@ -151,14 +182,30 @@ class DrivingTopicListSerializer(LangMixin, serializers.ModelSerializer):
     class Meta:
         model = DrivingTopic
         fields = [
-            "id", "slug", "title", "summary", "icon", "color_theme",
-            "difficulty_level", "learning_objectives", "exam_weight",
-            "recommended_next", "order", "question_count",
+            "id",
+            "slug",
+            "title",
+            "summary",
+            "icon",
+            "color_theme",
+            "difficulty_level",
+            "learning_objectives",
+            "exam_weight",
+            "recommended_next",
+            "order",
+            "question_count",
         ]
         read_only_fields = [
-            "id", "slug", "icon", "color_theme", "difficulty_level",
-            "learning_objectives", "exam_weight", "recommended_next",
-            "order", "question_count",
+            "id",
+            "slug",
+            "icon",
+            "color_theme",
+            "difficulty_level",
+            "learning_objectives",
+            "exam_weight",
+            "recommended_next",
+            "order",
+            "question_count",
         ]
 
     def get_title(self, obj):
@@ -176,14 +223,36 @@ class DrivingTopicDetailSerializer(LangMixin, serializers.ModelSerializer):
     class Meta:
         model = DrivingTopic
         fields = [
-            "id", "slug", "title", "summary", "dutch_terms", "icon",
-            "color_theme", "difficulty_level", "learning_objectives",
-            "exam_weight", "recommended_next", "order", "is_active", "created_at", "lessons",
+            "id",
+            "slug",
+            "title",
+            "summary",
+            "dutch_terms",
+            "icon",
+            "color_theme",
+            "difficulty_level",
+            "learning_objectives",
+            "exam_weight",
+            "recommended_next",
+            "order",
+            "is_active",
+            "created_at",
+            "lessons",
         ]
         read_only_fields = [
-            "id", "slug", "dutch_terms", "icon", "color_theme", "difficulty_level",
-            "learning_objectives", "exam_weight", "recommended_next", "order",
-            "is_active", "created_at", "lessons",
+            "id",
+            "slug",
+            "dutch_terms",
+            "icon",
+            "color_theme",
+            "difficulty_level",
+            "learning_objectives",
+            "exam_weight",
+            "recommended_next",
+            "order",
+            "is_active",
+            "created_at",
+            "lessons",
         ]
 
     def get_title(self, obj):
