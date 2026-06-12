@@ -60,6 +60,11 @@ SKILL_ALIASES = {
     "klantenservice": "customer service",
     "sales": "sales",
     "verkoop": "sales",
+    "salesforce": "Salesforce",
+    "crm": "CRM",
+    "excel": "Microsoft Excel",
+    "microsoft excel": "Microsoft Excel",
+    "microsoft office": "Microsoft Office",
     "accounting": "accounting",
     "boekhouding": "accounting",
     "data analysis": "data analysis",
@@ -136,15 +141,65 @@ def parse_job_text(text):
     required_skills = extract_known_skills(required_match.group(1)) if required_match else skills
     preferred_skills = _split_requirements(preferred_match.group(1)) if preferred_match else []
     responsibilities = _split_requirements(responsibilities_match.group(1)) if responsibilities_match else []
+    title = title_match.group(1).strip() if title_match else ""
+    seniority_match = re.search(
+        r"\b(intern|junior|medior|mid[- ]level|senior|lead|principal|manager|stagiair)\b",
+        clean,
+        re.I,
+    )
+    language_requirements = []
+    language_patterns = {
+        "English": r"\b(?:english|engels)\b",
+        "Dutch": r"\b(?:dutch|nederlands)\b",
+        "German": r"\b(?:german|duits)\b",
+        "French": r"\b(?:french|frans)\b",
+    }
+    for language, pattern in language_patterns.items():
+        if re.search(pattern, clean, re.I):
+            language_requirements.append(language)
+    technical_skills = {
+        "API Design",
+        "AWS",
+        "CI/CD",
+        "Cloud Architecture",
+        "DevOps",
+        "Docker",
+        "Kafka",
+        "Kubernetes",
+        "Microservices",
+        "NestJS",
+        "NoSQL",
+        "PostgreSQL",
+        "Salesforce",
+        "SAP",
+        "SAP S/4HANA",
+        "Snowflake",
+        "Spring Boot",
+        "Time-Series Databases",
+        "TypeScript",
+        "Microsoft Excel",
+        "Microsoft Office",
+        "CRM",
+    }
+    tools = [skill for skill in skills if skill in technical_skills]
+    technologies = [skill for skill in tools if skill not in {"Salesforce", "SAP", "SAP S/4HANA", "CRM"}]
     return {
-        "title": title_match.group(1).strip() if title_match else "",
+        "title": title,
+        "job_title": title,
+        "company": "",
+        "location": "",
+        "seniority": seniority_match.group(1).title() if seniority_match else "",
         "skills": skills,
         "required_skills": required_skills,
         "preferred_skills": preferred_skills,
         "responsibilities": responsibilities,
         "education": education,
+        "education_requirements": education,
         "certifications": certifications,
+        "tools": tools,
+        "technologies": technologies,
         "keywords": [word for word, _ in counts.most_common(50)],
+        "language_requirements": language_requirements,
         "raw_text": clean,
     }
 
@@ -200,6 +255,7 @@ def parse_job_url(url):
         soup = BeautifulSoup(response.text, "html.parser")
         metadata = _job_metadata(soup)
         parsed["title"] = metadata["title"] or parsed["title"]
+        parsed["job_title"] = parsed["title"]
         parsed["company"] = metadata["company"]
         parsed["location"] = metadata["location"]
     except ImportError:

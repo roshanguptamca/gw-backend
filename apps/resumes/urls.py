@@ -8,6 +8,8 @@ router = DefaultRouter()
 router.register("resumes", views.ResumeViewSet, basename="resume")
 
 urlpatterns = [
+    path("resume-builder/auto-fill-from-job/", views.auto_fill_from_job),
+    path("resume-builder/auto-fill-drafts/<int:draft_id>/", views.auto_fill_draft),
     path("resumes/my-anonymous/", views.my_anonymous_resume),
     path("resumes/claim-anonymous/", views.claim_anonymous_resume),
     path("resumes/upload/", views.upload_resume),

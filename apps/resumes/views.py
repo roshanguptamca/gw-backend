@@ -8,6 +8,7 @@ from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from PIL import Image, UnidentifiedImageError
+import requests
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view, parser_classes, permission_classes
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -16,6 +17,7 @@ from rest_framework.response import Response
 
 from apps.exports.services import get_template_settings, render_resume_html, save_export
 from apps.files.models import UserFile
+from apps.jobs.models import JobDescription
 from apps.templates_app.serializers import (
     PreviewTemplateSerializer,
     ResumeTemplateSerializer,
@@ -31,11 +33,13 @@ from .models import (
     Reference,
     Resume,
     ResumeLanguage,
+    TemporaryGeneratedResume,
     ResumeUpload,
     Skill,
     WorkExperience,
 )
 from .serializers import (
+    AutoFillResumeRequestSerializer,
     AwardSerializer,
     CertificationSerializer,
     EducationSerializer,
@@ -50,6 +54,7 @@ from .serializers import (
     WorkExperienceSerializer,
 )
 from .services import apply_parsed_resume, create_version, parse_upload
+from .auto_fill import AutoFillResumeService
 from .anonymous_identity import resolve_anonymous_identity
 from .limits import (
     active_resume_count,
@@ -98,6 +103,57 @@ class ResumeViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         can_edit_resume(instance, self.request)
         super().perform_destroy(instance)
+
+
+@extend_schema(request=AutoFillResumeRequestSerializer, responses={201: OpenApiTypes.OBJECT})
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def auto_fill_from_job(request):
+    serializer = AutoFillResumeRequestSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    try:
+        result = AutoFillResumeService(request).execute(serializer.validated_data)
+    except ResumeUpload.DoesNotExist:
+        return Response({"error": "Uploaded resume was not found."}, status=status.HTTP_404_NOT_FOUND)
+    except JobDescription.DoesNotExist:
+        return Response({"error": "Job description was not found."}, status=status.HTTP_404_NOT_FOUND)
+    except (ValueError, requests.RequestException) as exc:
+        return Response(
+            {
+                "success": False,
+                "error": (
+                    "We could not auto-fill your resume from this job description. "
+                    "Please try again or fill the resume manually."
+                ),
+                "detail": str(exc),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return Response(result, status=status.HTTP_201_CREATED)
+
+
+@extend_schema(responses={200: OpenApiTypes.OBJECT})
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def auto_fill_draft(request, draft_id):
+    if request.user.is_authenticated:
+        draft = get_object_or_404(TemporaryGeneratedResume, id=draft_id, user=request.user)
+    else:
+        identity = resolve_anonymous_identity(request, create=False)
+        draft = get_object_or_404(TemporaryGeneratedResume, id=draft_id, anonymous_identity=identity)
+    payload = draft.generated_json
+    return Response(
+        {
+            "success": True,
+            "resume_id": str(draft.match_results.get("resume_id") or draft.source_resume_id),
+            "draft_id": str(draft.id),
+            "auto_filled": True,
+            "confidence_score": payload.get("confidence_score", 0),
+            "requires_user_review": True,
+            "builder_payload": payload.get("builder_payload", {}),
+            "warnings": payload.get("warnings", []),
+        }
+    )
 
 
 @extend_schema(request=PersonalDetailSerializer, responses=PersonalDetailSerializer)

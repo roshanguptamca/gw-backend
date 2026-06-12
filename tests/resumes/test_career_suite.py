@@ -22,6 +22,8 @@ from apps.resumes.models import (
     PersonalDetail,
     Project,
     Resume,
+    ResumeSummary,
+    ResumeUpload,
     Skill,
     TemporaryGeneratedResume,
     WorkExperience,
@@ -1076,3 +1078,167 @@ def test_optimize_does_not_add_confirmed_skill_unrelated_to_job(client):
     assert optimized.status_code == 201
     optimized_resume = Resume.objects.get(id=optimized.data["optimized_resume_id"])
     assert not optimized_resume.skill_set.filter(name__iexact="AWS").exists()
+
+
+@pytest.mark.django_db
+def test_auto_fill_from_job_creates_reviewable_starter_without_fabricating_credentials(client):
+    response = client.post(
+        "/api/resume-builder/auto-fill-from-job/",
+        {
+            "job_description_text": (
+                "Job title: Customer Support Specialist\n"
+                "Required skills: Customer service, Salesforce, communication\n"
+                "Responsibilities: Help customers; resolve support requests\n"
+                "Education: Bachelor degree\n"
+                "Certification: Salesforce certification"
+            ),
+            "target_language": "en",
+        },
+        format="json",
+    )
+
+    assert response.status_code == 201
+    resume = Resume.objects.get(id=response.data["resume_id"])
+    payload = response.data["builder_payload"]
+    suggested = {item["name"]: item["status"] for item in payload["skills"]}
+
+    assert resume.personal.professional_title == "Customer Support Specialist"
+    assert not WorkExperience.objects.filter(resume=resume).exists()
+    assert not resume.education_set.exists()
+    assert not resume.certification_set.exists()
+    assert not resume.skill_set.filter(name__iexact="Salesforce").exists()
+    assert suggested["Salesforce"] == "needs_confirmation"
+    assert payload["experience"][0]["status"] == "needs_user_input"
+    assert payload["education"][0]["status"] == "needs_user_input"
+    assert payload["summary"]["status"] == "needs_user_input"
+    assert any(item["type"] == "skill_confirmation" for item in payload["review_questions"])
+    assert TemporaryGeneratedResume.objects.filter(id=response.data["draft_id"]).exists()
+    reloaded = client.get(f"/api/resume-builder/auto-fill-drafts/{response.data['draft_id']}/")
+    assert reloaded.status_code == 200
+    assert reloaded.data["builder_payload"] == payload
+
+
+@pytest.mark.django_db
+def test_auto_fill_from_existing_resume_preserves_facts_and_only_suggests_missing_skills(client, user):
+    source = Resume.objects.create(user=user, title="Source Resume", locale="en")
+    PersonalDetail.objects.create(
+        resume=source,
+        first_name="Ada",
+        last_name="Lovelace",
+        email="ada@example.com",
+        professional_title="Support Agent",
+    )
+    ResumeSummary.objects.create(resume=source, text="Supported enterprise customers.")
+    WorkExperience.objects.create(
+        resume=source,
+        employer="Real Company",
+        job_title="Support Agent",
+        start_date="2022-01-01",
+        description="Resolved customer requests. Documented recurring issues.",
+    )
+    Skill.objects.create(resume=source, name="Customer Service", category="Functional")
+
+    response = client.post(
+        "/api/resume-builder/auto-fill-from-job/",
+        {
+            "job_description_text": (
+                "Job title: Customer Support Specialist\n"
+                "Required skills: Customer service, Salesforce\n"
+                "Responsibilities: Resolve customer requests"
+            ),
+            "resume_id": source.id,
+            "target_language": "en",
+        },
+        format="json",
+    )
+
+    assert response.status_code == 201
+    generated = Resume.objects.get(id=response.data["resume_id"])
+    experience = WorkExperience.objects.get(resume=generated)
+    skills = {item["name"]: item["status"] for item in response.data["builder_payload"]["skills"]}
+
+    assert generated.id != source.id
+    assert generated.personal.first_name == "Ada"
+    assert experience.employer == "Real Company"
+    assert experience.job_title == "Support Agent"
+    assert str(experience.start_date) == "2022-01-01"
+    assert "Resolved customer requests." in experience.description
+    assert skills["Customer Service"] == "confirmed"
+    assert skills["Salesforce"] == "needs_confirmation"
+    assert not generated.skill_set.filter(name__iexact="Salesforce").exists()
+    assert generated.versions.filter(source="auto_fill_from_job").exists()
+
+
+@pytest.mark.django_db
+def test_auto_fill_from_parsed_upload_uses_only_uploaded_facts(client, user):
+    upload = ResumeUpload.objects.create(
+        user=user,
+        filename="resume.txt",
+        content_type="text/plain",
+        file_size=10,
+        file_data=b"resume",
+        status="completed",
+        parsed_json={
+            "personal": {"first_name": "Grace", "email": "grace@example.com"},
+            "summary": "Experienced in customer communication.",
+            "skills": [{"name": "Communication"}],
+        },
+    )
+
+    response = client.post(
+        "/api/resume-builder/auto-fill-from-job/",
+        {
+            "job_description_text": (
+                "Functie: Klantenservice Medewerker\n"
+                "Vereiste vaardigheden: Communicatie, Salesforce\n"
+                "Verantwoordelijkheden: Klanten helpen"
+            ),
+            "uploaded_resume_id": str(upload.id),
+            "target_language": "nl",
+        },
+        format="json",
+    )
+
+    assert response.status_code == 201
+    resume = Resume.objects.get(id=response.data["resume_id"])
+    statuses = {item["name"]: item["status"] for item in response.data["builder_payload"]["skills"]}
+
+    assert resume.locale == "nl"
+    assert resume.personal.first_name == "Grace"
+    assert resume.personal.email == "grace@example.com"
+    assert resume.skill_set.filter(name="Communication").exists()
+    assert not resume.skill_set.filter(name="Salesforce").exists()
+    assert statuses["Communication"] == "confirmed"
+    assert statuses["Salesforce"] == "needs_confirmation"
+    assert any("controleer" in warning.lower() for warning in response.data["warnings"])
+
+
+@pytest.mark.django_db
+def test_auto_fill_job_url_uses_secure_existing_parser(client):
+    parsed = {
+        "title": "Backend Engineer",
+        "job_title": "Backend Engineer",
+        "company": "GuideWisey",
+        "location": "Amsterdam",
+        "seniority": "Senior",
+        "required_skills": ["Docker"],
+        "preferred_skills": [],
+        "responsibilities": ["Build APIs"],
+        "tools": ["Docker"],
+        "technologies": ["Docker"],
+        "education_requirements": [],
+        "certifications": [],
+        "keywords": ["docker", "apis"],
+        "language_requirements": ["English"],
+        "raw_text": "Backend Engineer role",
+    }
+    with patch("apps.resumes.auto_fill.parse_job_url", return_value=parsed) as parser:
+        response = client.post(
+            "/api/resume-builder/auto-fill-from-job/",
+            {"job_description_url": "https://example.com/jobs/backend", "target_language": "en"},
+            format="json",
+        )
+
+    assert response.status_code == 201
+    parser.assert_called_once_with("https://example.com/jobs/backend")
+    assert response.data["builder_payload"]["job_description"]["company"] == "GuideWisey"

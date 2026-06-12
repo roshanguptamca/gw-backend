@@ -264,7 +264,13 @@ def _snapshot_item_key(section, item):
 
 
 @transaction.atomic
-def create_resume_from_snapshot(user, source_resume, snapshot, title_suffix="Optimized"):
+def create_resume_from_snapshot(
+    user,
+    source_resume,
+    snapshot,
+    title_suffix="Optimized",
+    version_source="ai_optimization",
+):
     resume = source_resume.__class__.objects.create(
         user=source_resume.user,
         anonymous_identity=source_resume.anonymous_identity,
@@ -310,5 +316,5 @@ def create_resume_from_snapshot(user, source_resume, snapshot, title_suffix="Opt
                 resume=resume,
                 **{key: value for key, value in item.items() if key in allowed_fields},
             )
-    version = create_version(resume, source="ai_optimization")
+    version = create_version(resume, source=version_source)
     return resume, version
