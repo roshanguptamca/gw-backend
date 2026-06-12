@@ -199,8 +199,8 @@ ALLOWED_HOSTS=127.0.0.1,localhost
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 OAUTH_REDIRECT_BASE_URL=http://localhost:8000
-FRONTEND_AUTH_SUCCESS_URL=http://localhost:3000/#auth-callback
-FRONTEND_AUTH_ERROR_URL=http://localhost:3000/#auth-callback
+FRONTEND_AUTH_SUCCESS_URL=https://www.guidewisey.com/auth-callback?status=success
+FRONTEND_AUTH_ERROR_URL=https://www.guidewisey.com/auth-callback?error=
 
 # Email — Brevo SMTP relay
 EMAIL_HOST=smtp-relay.brevo.com

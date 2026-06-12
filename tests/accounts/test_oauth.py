@@ -72,6 +72,13 @@ class OAuthViewsTests(TestCase):
             "https://api.guidewisey.com/api/auth/oauth/google/callback",
         )
 
+    @override_settings(OAUTH_REDIRECT_BASE_URL="https://api.guidewisey.com")
+    def test_linkedin_callback_uri_is_derived_from_configured_backend_base_url(self):
+        self.assertEqual(
+            _callback_url("linkedin"),
+            "https://api.guidewisey.com/api/auth/oauth/linkedin/callback",
+        )
+
     def test_invalid_state_is_rejected(self):
         oauth_transaction = self._transaction("expected")
         self.client.cookies["gw_oauth_transaction"] = str(oauth_transaction.id)
@@ -85,8 +92,8 @@ class OAuthViewsTests(TestCase):
         self.assertIn("error=invalid_or_expired", response["Location"])
 
     @override_settings(
-        FRONTEND_AUTH_SUCCESS_URL="www.guidewisey.com/#auth-callback",
-        FRONTEND_AUTH_ERROR_URL="www.guidewisey.com/#auth-callback",
+        FRONTEND_AUTH_SUCCESS_URL="www.guidewisey.com/auth-callback?status=success",
+        FRONTEND_AUTH_ERROR_URL="www.guidewisey.com/auth-callback?error=",
         FRONTEND_BASE_URL="https://www.guidewisey.com",
     )
     def test_frontend_redirect_normalizes_scheme_less_callback_urls(self):
@@ -95,7 +102,7 @@ class OAuthViewsTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(
             response["Location"],
-            "https://www.guidewisey.com/#auth-callback?status=success&new=0",
+            "https://www.guidewisey.com/auth-callback?status=success&new=0",
         )
 
     def test_expired_transaction_is_rejected(self):

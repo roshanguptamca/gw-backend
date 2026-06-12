@@ -1,6 +1,5 @@
 import logging
-from urllib.parse import urlencode
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from django.conf import settings
 from django.contrib.auth import login
@@ -42,8 +41,11 @@ class OAuthCallbackThrottle(SimpleRateThrottle):
 def _frontend_redirect(success, **params):
     base_url = settings.FRONTEND_AUTH_SUCCESS_URL if success else settings.FRONTEND_AUTH_ERROR_URL
     base_url = _normalize_frontend_callback_url(base_url)
-    separator = "&" if "?" in base_url else "?"
-    return HttpResponseRedirect(f"{base_url}{separator}{urlencode(params)}")
+    parsed = urlparse(base_url)
+    query_params = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query_params.update({key: value for key, value in params.items() if value is not None})
+    merged_url = urlunparse(parsed._replace(query=urlencode(query_params, doseq=True)))
+    return HttpResponseRedirect(merged_url)
 
 
 def _normalize_frontend_callback_url(url):

@@ -86,6 +86,10 @@ services:
         value: FutureWise by GuideWisey
       - key: FUTUREWAVE_FRONTEND_BASE_URL
         value: https://guidewisey.com
+      - key: FRONTEND_AUTH_SUCCESS_URL
+        value: https://www.guidewisey.com/auth-callback?status=success
+      - key: FRONTEND_AUTH_ERROR_URL
+        value: https://www.guidewisey.com/auth-callback?error=
 
   # ── Background Scheduler (FutureWise reminder dispatch) ──────────────────────
   # The APScheduler runs as a background thread inside the web service process
