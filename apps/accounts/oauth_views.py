@@ -1,5 +1,6 @@
 import logging
 from urllib.parse import urlencode
+from urllib.parse import urlparse
 
 from django.conf import settings
 from django.contrib.auth import login
@@ -40,8 +41,23 @@ class OAuthCallbackThrottle(SimpleRateThrottle):
 
 def _frontend_redirect(success, **params):
     base_url = settings.FRONTEND_AUTH_SUCCESS_URL if success else settings.FRONTEND_AUTH_ERROR_URL
+    base_url = _normalize_frontend_callback_url(base_url)
     separator = "&" if "?" in base_url else "?"
     return HttpResponseRedirect(f"{base_url}{separator}{urlencode(params)}")
+
+
+def _normalize_frontend_callback_url(url):
+    url = (url or "").strip()
+    if not url:
+        return f"{settings.FRONTEND_BASE_URL.rstrip('/')}/auth/callback"
+    parsed = urlparse(url)
+    if parsed.scheme:
+        return url
+    if url.startswith("//"):
+        return f"https:{url}"
+    if url.startswith("/"):
+        return f"{settings.FRONTEND_BASE_URL.rstrip('/')}{url}"
+    return f"https://{url}"
 
 
 def _start_response(provider, link_user=None, json_response=False):
