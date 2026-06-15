@@ -17,6 +17,7 @@ from .views import (
     buddy_session_start_view,
     buddy_session_view,
     buddy_settings_view,
+    buddy_usage_view,
     buddy_vocabulary_view,
 )
 
@@ -40,5 +41,6 @@ urlpatterns = [
     path("session/start/", buddy_session_start_view),
     path("session/end/", buddy_session_end_view),
     path("session/message/", buddy_session_message_view),
+    path("usage/", buddy_usage_view),
     path("realtime-token/", buddy_realtime_token_view),
 ]

@@ -293,11 +293,32 @@ class BuddySession(models.Model):
         related_name="sessions",
     )
     emotion_timeline = models.JSONField(default=default_list, blank=True)
+    usage_counted = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"BuddySession({self.profile_id}, {self.status})"
+
+
+class BuddyUsageQuota(models.Model):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="speaking_buddy_usage_quota",
+    )
+    free_conversation_limit = models.PositiveSmallIntegerField(default=100)
+    conversations_used = models.PositiveIntegerField(default=0)
+    last_reset_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"BuddyUsageQuota({self.user_id})"
+
+    @property
+    def conversations_remaining(self):
+        return max(self.free_conversation_limit - self.conversations_used, 0)
 
 
 class BuddyMessage(models.Model):

@@ -16,6 +16,7 @@ from apps.speaking_buddy.models import (
     BuddyProfile,
     BuddySession,
     BuddySettings,
+    BuddyUsageQuota,
     BuddyVocabulary,
 )
 from apps.speaking_buddy.services.context_builder import build_session_context
@@ -294,10 +295,65 @@ class SpeakingBuddyApiTests(TestCase):
         self.assertEqual(response.data["status"], "ended")
         self.assertTrue(response.data["ai_summary"])
         self.assertTrue(BuddyMemory.objects.filter(profile=self.profile1, memory_type="summary").exists())
+        self.assertEqual(response.data["usage"]["conversations_used"], 1)
+        self.assertEqual(response.data["usage"]["conversations_remaining"], 99)
+        self.assertTrue(BuddyUsageQuota.objects.filter(user=self.user1, conversations_used=1).exists())
 
         response = self.client.get("/api/buddy/history/")
         self.assertEqual(response.status_code, 200)
         self.assertTrue(len(response.data) >= 1)
+
+    def test_usage_defaults_and_usage_endpoint(self):
+        self.auth(self.user1)
+        response = self.client.get("/api/buddy/usage/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["free_conversation_limit"], 100)
+        self.assertEqual(response.data["conversations_used"], 0)
+        self.assertEqual(response.data["conversations_remaining"], 100)
+        self.assertFalse(response.data["is_limit_reached"])
+
+    def test_logged_out_user_cannot_start_session(self):
+        response = self.client.post("/api/buddy/session/start/", {"topic": "Travel"}, format="json")
+        self.assertEqual(response.status_code, 403)
+
+    @patch("apps.speaking_buddy.views.generate_buddy_reply", return_value="Welcome")
+    def test_logged_in_user_can_start_session_when_quota_remains(self, generate_buddy_reply):
+        self.auth(self.user1)
+        response = self.client.post("/api/buddy/session/start/", {"topic": "Travel"}, format="json")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["status"], "active")
+        self.assertEqual(response.data["selected_voice"], "marin")
+        self.assertEqual(generate_buddy_reply.call_count, 1)
+
+    @patch("apps.speaking_buddy.views.generate_buddy_reply", return_value="Welcome")
+    def test_session_usage_does_not_double_count_same_session(self, generate_buddy_reply):
+        self.auth(self.user1)
+        start = self.client.post("/api/buddy/session/start/", {"topic": "Travel"}, format="json")
+        self.assertEqual(start.status_code, 201)
+        session_id = start.data["id"]
+
+        message = self.client.post(
+            "/api/buddy/session/message/", {"session_id": session_id, "text": "Ik wil oefenen."}, format="json"
+        )
+        self.assertEqual(message.status_code, 200)
+
+        with patch("apps.speaking_buddy.views.summarize_session", return_value={"summary": "Done"}):
+            first_end = self.client.post("/api/buddy/session/end/", {"session_id": session_id}, format="json")
+            second_end = self.client.post("/api/buddy/session/end/", {"session_id": session_id}, format="json")
+
+        self.assertEqual(first_end.status_code, 200)
+        self.assertEqual(second_end.status_code, 200)
+        quota = BuddyUsageQuota.objects.get(user=self.user1)
+        self.assertEqual(quota.conversations_used, 1)
+        self.assertTrue(BuddySession.objects.get(id=session_id).usage_counted)
+
+    @patch("apps.speaking_buddy.views.generate_buddy_reply", return_value="Welcome")
+    def test_user_cannot_start_session_after_100_conversations(self, generate_buddy_reply):
+        BuddyUsageQuota.objects.create(user=self.user1, conversations_used=100, free_conversation_limit=100)
+        self.auth(self.user1)
+        response = self.client.post("/api/buddy/session/start/", {"topic": "Travel"}, format="json")
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("100 free AI Buddy conversations", response.data["error"])
 
     def test_multilingual_fallback_reply_uses_target_language(self):
         self.profile1.target_language = "hi"

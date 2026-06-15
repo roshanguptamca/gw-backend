@@ -51,6 +51,7 @@ AI-powered insurance policy analysis.
 
 ### `speaking_buddy`
 AI voice-practice sessions with OpenAI Realtime audio, selectable 3D avatars, consent-based photo-inspired avatars, transcripts, history, vocabulary, mistakes, and account-scoped learning memory.
+The app enforces a free quota of 100 completed conversations per authenticated user account through `BuddyUsageQuota` and `/api/buddy/usage/`. New sessions are blocked after the limit is reached, but the user can still review history and memory.
 
 ### Career Suite
 Self-hosted resume building, parsing, ATS analysis, job matching, AI optimization, and PDF/DOCX export.

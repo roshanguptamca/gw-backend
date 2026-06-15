@@ -47,6 +47,12 @@ from .services.openai_buddy import (
     generate_buddy_reply,
     summarize_session,
 )
+from .services.quota import (
+    can_start_conversation,
+    get_remaining_conversations,
+    get_usage_quota,
+    increment_conversation_usage,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -530,6 +536,14 @@ def buddy_session_start_view(request):
         payload["transcript"] = _session_transcript(active_session)
         payload["reused_session"] = True
         return Response(payload)
+    if not can_start_conversation(request.user):
+        return Response(
+            {
+                "error": "You've used your 100 free AI Buddy conversations.",
+                "detail": "You've used your 100 free AI Buddy conversations.",
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
     language = serializer.validated_data.get("language") or profile.target_language
     topic = serializer.validated_data.get("topic") or settings_obj.default_topic or "General speaking practice"
     session = BuddySession.objects.create(
@@ -602,9 +616,31 @@ def buddy_session_end_view(request):
     session.improvement_notes = "\n".join(summary.get("improvement_notes", []))
     session.save()
     update_session_insights(profile, session, summary)
+    quota, counted = increment_conversation_usage(request.user, session)
     payload = BuddySessionSerializer(session).data
     payload["summary_payload"] = summary
+    payload["usage_counted"] = counted
+    payload["usage"] = {
+        "conversations_used": quota.conversations_used,
+        "free_conversation_limit": quota.free_conversation_limit,
+        "conversations_remaining": quota.conversations_remaining,
+        "is_limit_reached": quota.conversations_remaining <= 0,
+    }
     return Response(payload)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def buddy_usage_view(request):
+    quota = get_usage_quota(request.user)
+    return Response(
+        {
+            "conversations_used": quota.conversations_used,
+            "free_conversation_limit": quota.free_conversation_limit,
+            "conversations_remaining": get_remaining_conversations(request.user),
+            "is_limit_reached": quota.conversations_remaining <= 0,
+        }
+    )
 
 
 @api_view(["POST"])

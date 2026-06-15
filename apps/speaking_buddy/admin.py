@@ -11,6 +11,7 @@ from .models import (
     BuddyProfile,
     BuddySession,
     BuddySettings,
+    BuddyUsageQuota,
     BuddyVocabulary,
 )
 
@@ -165,6 +166,25 @@ class BuddySessionAdmin(admin.ModelAdmin):
     search_fields = ("profile__user__username", "profile__user__email", "topic", "ai_summary", "user_summary")
     list_filter = ("language", "selected_voice", "status", "started_at", "ended_at")
     readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(BuddyUsageQuota)
+class BuddyUsageQuotaAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "user",
+        "conversations_used",
+        "free_conversation_limit",
+        "conversations_remaining",
+        "updated_at",
+    )
+    search_fields = ("user__username", "user__email")
+    readonly_fields = ("created_at", "updated_at")
+
+    def conversations_remaining(self, obj):
+        return obj.conversations_remaining
+
+    conversations_remaining.short_description = "Conversations remaining"
 
 
 @admin.register(BuddyMemory)

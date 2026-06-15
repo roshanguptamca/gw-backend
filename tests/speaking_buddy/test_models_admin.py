@@ -13,6 +13,7 @@ from apps.speaking_buddy.models import (
     BuddyProfile,
     BuddySession,
     BuddySettings,
+    BuddyUsageQuota,
     BuddyVocabulary,
 )
 
@@ -37,13 +38,20 @@ class SpeakingBuddyModelTests(TestCase):
             idle_animation="Idle",
             talking_animation="Talk",
         )
-        generated = BuddyGeneratedAvatar.objects.create(user=user, consent_confirmed=True, provider="stub", provider_job_id="job-1")
+        generated = BuddyGeneratedAvatar.objects.create(
+            user=user, consent_confirmed=True, provider="stub", provider_job_id="job-1"
+        )
         session = BuddySession.objects.create(profile=profile, language="nl", topic="Travel", status="active")
+        quota = BuddyUsageQuota.objects.create(user=user)
         message = BuddyMessage.objects.create(session=session, role="user", text="Hoi!")
-        memory = BuddyMemory.objects.create(profile=profile, memory_type="summary", key="session-1", value={"text": "Hi"})
+        memory = BuddyMemory.objects.create(
+            profile=profile, memory_type="summary", key="session-1", value={"text": "Hi"}
+        )
         topic = BuddyPracticeTopic.objects.create(title="Travel", language="nl", level="beginner")
         vocab = BuddyVocabulary.objects.create(profile=profile, word="trein", translation="train", language="nl")
-        mistake = BuddyMistake.objects.create(profile=profile, session=session, original_text="Ik zijn", corrected_text="Ik ben", mistake_type="grammar")
+        mistake = BuddyMistake.objects.create(
+            profile=profile, session=session, original_text="Ik zijn", corrected_text="Ik ben", mistake_type="grammar"
+        )
 
         self.assertEqual(profile.user, user)
         self.assertEqual(settings.profile, profile)
@@ -51,6 +59,7 @@ class SpeakingBuddyModelTests(TestCase):
         self.assertEqual(avatar_3d.slug, "nova-3d")
         self.assertEqual(generated.user, user)
         self.assertEqual(session.profile, profile)
+        self.assertEqual(quota.user, user)
         self.assertEqual(message.session, session)
         self.assertEqual(memory.profile, profile)
         self.assertEqual(topic.title, "Travel")
@@ -65,6 +74,7 @@ class SpeakingBuddyModelTests(TestCase):
             Buddy3DAvatar,
             BuddyGeneratedAvatar,
             BuddySession,
+            BuddyUsageQuota,
             BuddyMessage,
             BuddyMemory,
             BuddyPracticeTopic,
