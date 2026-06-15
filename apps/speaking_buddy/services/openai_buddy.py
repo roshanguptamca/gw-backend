@@ -1,8 +1,8 @@
 import json
 import logging
-from dataclasses import asdict
 
 from django.conf import settings
+
 from openai import OpenAI
 
 from .context_builder import BuddyContext, language_name
@@ -123,14 +123,35 @@ def summarize_session(context: BuddyContext, transcript: list):
         return _fallback_summary(context, transcript)
 
 
-def create_realtime_client_secret(context: BuddyContext):
+def create_realtime_client_secret(context: BuddyContext, *, selected_voice="marin", buddy_session_id=None):
     client = _client()
+    settings_data = context.prompt_data.get("settings", {}) if context and context.prompt_data else {}
+    turn_detection_mode = str(settings_data.get("turn_detection_mode") or "auto").lower()
+    silence_timeout_ms = int(settings_data.get("silence_timeout_ms") or 1600)
+    create_response = turn_detection_mode == "auto"
+    debug_metadata = {
+        "buddy_session_id": buddy_session_id,
+        "selected_voice": selected_voice,
+        "audio_source": "openai_realtime",
+        "turn_detection_mode": turn_detection_mode,
+        "silence_timeout_ms": silence_timeout_ms,
+    }
+    logger.info(
+        "Speaking buddy realtime token: session_id=%s selected_voice=%s "
+        "audio_source=%s turn_detection_mode=%s silence_timeout_ms=%s",
+        buddy_session_id,
+        selected_voice,
+        debug_metadata["audio_source"],
+        turn_detection_mode,
+        silence_timeout_ms,
+    )
     if client is None:
         return {
             "client_secret": "dev-realtime-secret",
             "value": "dev-realtime-secret",
             "session_id": "dev-session",
             "expires_at": None,
+            **debug_metadata,
         }
 
     try:
@@ -138,23 +159,33 @@ def create_realtime_client_secret(context: BuddyContext):
             expires_after={"anchor": "created_at", "seconds": 600},
             session={
                 "type": "realtime",
-                "model": getattr(settings, "SPEAKING_BUDDY_MODEL", "gpt-4o-mini"),
-                "modalities": ["audio", "text"],
+                "model": getattr(settings, "SPEAKING_BUDDY_REALTIME_MODEL", "gpt-realtime-2"),
+                "audio": {"output": {"voice": selected_voice}},
+                "turn_detection": {
+                    "type": "server_vad",
+                    "threshold": 0.5,
+                    "prefix_padding_ms": 500,
+                    "silence_duration_ms": silence_timeout_ms,
+                    "create_response": create_response,
+                },
                 "instructions": context.system_prompt,
             },
         )
         if hasattr(response, "model_dump"):
             payload = response.model_dump()
             payload.setdefault("client_secret", payload.get("value"))
+            payload.update(debug_metadata)
             return payload
         if isinstance(response, dict):
             response.setdefault("client_secret", response.get("value"))
+            response.update(debug_metadata)
             return response
         client_secret = getattr(response, "client_secret", getattr(response, "value", ""))
         return {
             "client_secret": client_secret,
             "value": getattr(response, "value", client_secret),
             "session_id": getattr(response, "session_id", ""),
+            **debug_metadata,
         }
     except Exception as exc:
         logger.warning("Speaking buddy realtime token creation failed: %s", exc)

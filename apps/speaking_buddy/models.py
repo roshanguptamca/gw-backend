@@ -58,6 +58,11 @@ VOICE_AGE_CHOICES = [
     ("senior", "Senior"),
 ]
 
+OPENAI_VOICE_CHOICES = [
+    ("marin", "Female Adult"),
+    ("cedar", "Male Adult"),
+]
+
 CORRECTION_LEVEL_CHOICES = [
     ("none", "None"),
     ("light", "Light"),
@@ -83,10 +88,19 @@ AVATAR_RENDER_MODE_CHOICES = [
 ]
 
 GENERATED_AVATAR_STATUS_CHOICES = [
-    ("pending", "Pending"),
+    ("uploaded", "Uploaded"),
     ("processing", "Processing"),
     ("completed", "Completed"),
     ("failed", "Failed"),
+]
+
+AVATAR_GENERATION_METHOD_CHOICES = [
+    ("template", "Template"),
+    ("triposr", "TripoSR"),
+    ("instantmesh", "InstantMesh"),
+    ("pifuhd", "PIFuHD"),
+    ("pshuman", "PSHuman"),
+    ("mock", "Mock"),
 ]
 
 SESSION_STATUS_CHOICES = [
@@ -139,7 +153,10 @@ class BuddySettings(models.Model):
     voice_style = models.CharField(max_length=40, choices=VOICE_STYLE_CHOICES, default="warm")
     voice_gender = models.CharField(max_length=20, choices=VOICE_GENDER_CHOICES, default="neutral")
     voice_age = models.CharField(max_length=20, choices=VOICE_AGE_CHOICES, default="adult")
-    speaking_speed = models.PositiveSmallIntegerField(default=50, validators=[MinValueValidator(20), MaxValueValidator(120)])
+    selected_voice = models.CharField(max_length=20, choices=OPENAI_VOICE_CHOICES, default="marin")
+    speaking_speed = models.PositiveSmallIntegerField(
+        default=50, validators=[MinValueValidator(20), MaxValueValidator(120)]
+    )
     correction_level = models.CharField(max_length=20, choices=CORRECTION_LEVEL_CHOICES, default="normal")
     difficulty_level = models.CharField(max_length=20, choices=DIFFICULTY_LEVEL_CHOICES, default="medium")
     theme_color = models.CharField(max_length=24, default="#7c3aed")
@@ -152,6 +169,13 @@ class BuddySettings(models.Model):
         blank=True,
         on_delete=models.SET_NULL,
         related_name="+",
+    )
+    selected_avatar = models.ForeignKey(
+        "Buddy3DAvatar",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="selected_by_settings",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -187,8 +211,20 @@ class Buddy3DAvatar(models.Model):
     backstory = models.TextField(blank=True)
     thumbnail = models.CharField(max_length=1000, blank=True)
     glb_file = models.CharField(max_length=1000, blank=True)
+    model_url = models.CharField(max_length=1000, blank=True)
+    thumbnail_url = models.CharField(max_length=1000, blank=True)
+    base_skin_material_key = models.CharField(max_length=120, blank=True)
+    base_hair_material_key = models.CharField(max_length=120, blank=True)
+    supported_customizations = models.JSONField(default=default_dict, blank=True)
+    supported_blendshapes = models.JSONField(default=default_dict, blank=True)
+    has_full_body = models.BooleanField(default=True)
+    has_hair = models.BooleanField(default=True)
+    has_hands = models.BooleanField(default=True)
+    has_feet = models.BooleanField(default=True)
     idle_animation = models.CharField(max_length=120, blank=True)
     talking_animation = models.CharField(max_length=120, blank=True)
+    listening_animation = models.CharField(max_length=120, blank=True)
+    thinking_animation = models.CharField(max_length=120, blank=True)
     emotion_set = models.JSONField(default=default_dict, blank=True)
     is_premium = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
@@ -204,9 +240,26 @@ class BuddyGeneratedAvatar(models.Model):
     source_image = models.ImageField(upload_to="speaking_buddy/generated_sources/", blank=True, null=True)
     generated_glb_url = models.CharField(max_length=1000, blank=True)
     generated_thumbnail_url = models.CharField(max_length=1000, blank=True)
+    generated_model_path = models.CharField(max_length=1000, blank=True)
+    generated_thumbnail = models.CharField(max_length=1000, blank=True)
+    appearance_config = models.JSONField(default=default_dict, blank=True)
+    detected_features = models.JSONField(default=default_dict, blank=True)
+    generation_logs = models.TextField(blank=True)
+    generation_method = models.CharField(
+        max_length=20,
+        choices=AVATAR_GENERATION_METHOD_CHOICES,
+        default="template",
+    )
     provider = models.CharField(max_length=80, blank=True)
     provider_job_id = models.CharField(max_length=120, blank=True)
-    status = models.CharField(max_length=20, choices=GENERATED_AVATAR_STATUS_CHOICES, default="pending")
+    status = models.CharField(max_length=20, choices=GENERATED_AVATAR_STATUS_CHOICES, default="uploaded")
+    selected_base_avatar = models.ForeignKey(
+        Buddy3DAvatar,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="generated_variants",
+    )
     consent_confirmed = models.BooleanField(default=False)
     user_generated = models.BooleanField(default=True)
     is_active = models.BooleanField(default=False)
@@ -224,6 +277,7 @@ class BuddySession(models.Model):
     language = models.CharField(max_length=20, choices=LANGUAGE_CHOICES, default="en")
     topic = models.CharField(max_length=255, blank=True)
     status = models.CharField(max_length=20, choices=SESSION_STATUS_CHOICES, default="active")
+    selected_voice = models.CharField(max_length=20, choices=OPENAI_VOICE_CHOICES, default="marin")
     duration_seconds = models.PositiveIntegerField(default=0)
     transcript = models.JSONField(default=default_list, blank=True)
     ai_summary = models.TextField(blank=True)
@@ -231,6 +285,14 @@ class BuddySession(models.Model):
     mistakes_detected = models.JSONField(default=default_list, blank=True)
     vocabulary_practiced = models.JSONField(default=default_list, blank=True)
     improvement_notes = models.TextField(blank=True)
+    selected_avatar = models.ForeignKey(
+        Buddy3DAvatar,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="sessions",
+    )
+    emotion_timeline = models.JSONField(default=default_list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -245,6 +307,7 @@ class BuddyMessage(models.Model):
     audio_url = models.URLField(max_length=500, blank=True)
     metadata = models.JSONField(default=default_dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"{self.role}:{self.session_id}"
@@ -295,7 +358,9 @@ class BuddyVocabulary(models.Model):
     translation = models.CharField(max_length=255, blank=True)
     example_sentence = models.TextField(blank=True)
     language = models.CharField(max_length=20, choices=LANGUAGE_CHOICES, default="en")
-    confidence_score = models.PositiveSmallIntegerField(default=0, validators=[MinValueValidator(0), MaxValueValidator(100)])
+    confidence_score = models.PositiveSmallIntegerField(
+        default=0, validators=[MinValueValidator(0), MaxValueValidator(100)]
+    )
     last_practiced_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -316,6 +381,7 @@ class BuddyMistake(models.Model):
     mistake_type = models.CharField(max_length=120, blank=True)
     language = models.CharField(max_length=20, choices=LANGUAGE_CHOICES, default="en")
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return self.mistake_type or f"Mistake({self.profile_id})"

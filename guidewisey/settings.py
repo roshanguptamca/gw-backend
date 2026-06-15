@@ -436,6 +436,7 @@ OAUTH_TRANSACTION_TTL_MINUTES = int(os.getenv("OAUTH_TRANSACTION_TTL_MINUTES", 1
 
 # ── Speaking Buddy ──────────────────────────────────────────
 SPEAKING_BUDDY_MODEL = os.getenv("SPEAKING_BUDDY_MODEL", "gpt-4o-mini")
+SPEAKING_BUDDY_REALTIME_MODEL = os.getenv("SPEAKING_BUDDY_REALTIME_MODEL", "gpt-realtime-2")
 SPEAKING_BUDDY_MAX_AVATAR_BYTES = int(os.getenv("SPEAKING_BUDDY_MAX_AVATAR_BYTES", 5 * 1024 * 1024))
 
 # ── Business rules ───────────────────────────────────────────
@@ -612,3 +613,11 @@ logger = logging.getLogger(__name__)
 logger.info("ALLOWED_HOSTS=%s", ALLOWED_HOSTS)
 logger.info("CSRF_TRUSTED_ORIGINS=%s", CSRF_TRUSTED_ORIGINS)
 logger.info("SPEAKING_BUDDY_MODEL=%s", SPEAKING_BUDDY_MODEL)
+
+IMAGE_TO_3D_PROVIDER = os.getenv("IMAGE_TO_3D_PROVIDER", "template")
+AVATAR_GENERATION_PROVIDER = os.getenv("AVATAR_GENERATION_PROVIDER", "template")
+ENABLE_EXPERIMENTAL_IMAGE_TO_3D = os.getenv("ENABLE_EXPERIMENTAL_IMAGE_TO_3D", "false").lower() == "true"
+TRIPOSR_MODEL_PATH = os.getenv("TRIPOSR_MODEL_PATH", "")
+INSTANTMESH_MODEL_PATH = os.getenv("INSTANTMESH_MODEL_PATH", "")
+PIFUHD_MODEL_PATH = os.getenv("PIFUHD_MODEL_PATH", "")
+PSHUMAN_MODEL_PATH = os.getenv("PSHUMAN_MODEL_PATH", "")

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from ..models import BuddyMemory, BuddyProfile, BuddySession, BuddySettings, BuddyVocabulary, BuddyMistake
+from ..models import BuddyProfile, BuddySettings
 
 
 @dataclass
@@ -40,8 +40,11 @@ def _unique_text_values(items):
     return values
 
 
-def build_session_context(profile: BuddyProfile, settings_obj: BuddySettings | None = None, limit: int = 5) -> BuddyContext:
+def build_session_context(
+    profile: BuddyProfile, settings_obj: BuddySettings | None = None, limit: int = 5
+) -> BuddyContext:
     settings_obj = settings_obj or getattr(profile, "buddy_settings", None)
+    selected_avatar = getattr(settings_obj, "selected_avatar", None) if settings_obj else None
     recent_sessions = list(profile.sessions.order_by("-started_at")[:limit])
     recent_memories = list(profile.memories.filter(is_active=True).order_by("-updated_at")[:limit])
     recent_vocab = list(profile.vocabulary.order_by("-last_practiced_at", "-updated_at")[:limit])
@@ -53,12 +56,21 @@ def build_session_context(profile: BuddyProfile, settings_obj: BuddySettings | N
     for memory in recent_memories:
         payload = memory.value if isinstance(memory.value, dict) else {"value": memory.value}
         memory_snippets.append(f"{memory.memory_type}:{memory.key}={payload}")
+    selected_avatar_name = (
+        getattr(selected_avatar, "name", "")
+        or getattr(settings_obj, "selected_3d_avatar_slug", "")
+        or "default AI avatar"
+    )
 
     system_prompt = f"""
 You are {profile.buddy_name}, an AI speaking buddy avatar for language practice.
 You must never claim to be human or claim to be the uploaded person.
 You are an AI buddy using the user's selected avatar.
 Keep replies short, warm, and natural enough for conversation.
+Do not interrupt the learner while they are still speaking.
+Wait for a full thought and a clear pause before replying.
+Brief pauses, filler words, and sentence restarts do not mean the turn is over.
+If the learner is likely continuing, stay silent and keep listening.
 Correct politely according to the user's correction style and level.
 Encourage the user to speak more and ask follow-up questions.
 Speak primarily in the target language: {language_name(profile.target_language)} ({profile.target_language}).
@@ -68,6 +80,7 @@ If the user mixes languages, guide them gently without switching to English unle
 Current speaking level: {profile.speaking_level}.
 Learning goal: {profile.learning_goal or "general speaking practice"}.
 Personality: {getattr(settings_obj, "personality", "friendly") if settings_obj else "friendly"}.
+Selected avatar: {selected_avatar_name}.
 Voice style: {getattr(settings_obj, "voice_style", "warm") if settings_obj else "warm"}.
 Correction level: {getattr(settings_obj, "correction_level", profile.preferred_correction_style)}.
 Topic: {getattr(settings_obj, "default_topic", "") if settings_obj else ""}.
@@ -107,6 +120,13 @@ Safety rule: clearly remain an AI buddy/avatar.
             "difficulty_level": getattr(settings_obj, "difficulty_level", "medium") if settings_obj else "medium",
             "theme_color": getattr(settings_obj, "theme_color", "#7c3aed") if settings_obj else "#7c3aed",
             "default_topic": getattr(settings_obj, "default_topic", "") if settings_obj else "",
+            "selected_avatar": getattr(selected_avatar, "name", "")
+            or getattr(settings_obj, "selected_3d_avatar_slug", ""),
+            "turn_detection_mode": getattr(settings_obj, "turn_detection_mode", "auto") if settings_obj else "auto",
+            "silence_timeout_ms": getattr(settings_obj, "silence_timeout_ms", 1600) if settings_obj else 1600,
+            "min_speech_duration_ms": getattr(settings_obj, "min_speech_duration_ms", 1200) if settings_obj else 1200,
+            "max_user_turn_seconds": getattr(settings_obj, "max_user_turn_seconds", 60) if settings_obj else 60,
+            "enable_push_to_finish": getattr(settings_obj, "enable_push_to_finish", False) if settings_obj else False,
         },
         "recent_sessions": [
             {

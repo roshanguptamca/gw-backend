@@ -1,4 +1,5 @@
 from django.conf import settings
+
 from rest_framework import serializers
 
 from .models import (
@@ -46,6 +47,7 @@ class BuddySettingsSerializer(serializers.ModelSerializer):
             "voice_style",
             "voice_gender",
             "voice_age",
+            "selected_voice",
             "speaking_speed",
             "correction_level",
             "difficulty_level",
@@ -54,6 +56,7 @@ class BuddySettingsSerializer(serializers.ModelSerializer):
             "avatar_render_mode",
             "selected_3d_avatar_slug",
             "selected_generated_avatar",
+            "selected_avatar",
             "created_at",
             "updated_at",
         )
@@ -81,6 +84,7 @@ class BuddyAvatarSerializer(serializers.ModelSerializer):
 
     def get_resolved_image_url(self, obj):
         request = self.context.get("request") if hasattr(self, "context") else None
+
         def absolute(url):
             if not url:
                 return url
@@ -141,8 +145,20 @@ class Buddy3DAvatarSerializer(serializers.ModelSerializer):
             "backstory",
             "thumbnail",
             "glb_file",
+            "model_url",
+            "thumbnail_url",
+            "base_skin_material_key",
+            "base_hair_material_key",
+            "supported_customizations",
+            "supported_blendshapes",
+            "has_full_body",
+            "has_hair",
+            "has_hands",
+            "has_feet",
             "idle_animation",
             "talking_animation",
+            "listening_animation",
+            "thinking_animation",
             "emotion_set",
             "is_premium",
             "is_active",
@@ -163,6 +179,13 @@ class BuddyGeneratedAvatarSerializer(serializers.ModelSerializer):
             "source_image_url",
             "generated_glb_url",
             "generated_thumbnail_url",
+            "generated_model_path",
+            "generated_thumbnail",
+            "appearance_config",
+            "detected_features",
+            "generation_logs",
+            "generation_method",
+            "selected_base_avatar",
             "provider",
             "provider_job_id",
             "status",
@@ -172,7 +195,18 @@ class BuddyGeneratedAvatarSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "source_image_url", "created_at", "updated_at")
+        read_only_fields = (
+            "id",
+            "source_image_url",
+            "detected_features",
+            "appearance_config",
+            "generation_logs",
+            "generation_method",
+            "selected_base_avatar",
+            "status",
+            "created_at",
+            "updated_at",
+        )
 
     def get_source_image_url(self, obj):
         request = self.context.get("request") if hasattr(self, "context") else None
@@ -192,6 +226,39 @@ class BuddyGeneratedAvatarCreateSerializer(serializers.Serializer):
     source_image = serializers.ImageField(required=True)
     consent_confirmed = serializers.BooleanField(required=True)
     provider = serializers.CharField(required=False, allow_blank=True)
+    preferred_gender_style = serializers.CharField(required=False, allow_blank=True)
+    preferred_age_style = serializers.CharField(required=False, allow_blank=True)
+    preferred_hair_style = serializers.CharField(required=False, allow_blank=True)
+    preferred_outfit_style = serializers.CharField(required=False, allow_blank=True)
+    realism_level = serializers.ChoiceField(
+        choices=("stylized", "balanced", "realistic"),
+        required=False,
+        default="balanced",
+    )
+
+    def validate(self, attrs):
+        if not attrs.get("consent_confirmed"):
+            raise serializers.ValidationError({"consent_confirmed": "Consent is required."})
+        image = attrs["source_image"]
+        max_bytes = getattr(settings, "SPEAKING_BUDDY_MAX_AVATAR_BYTES", 5 * 1024 * 1024)
+        if getattr(image, "size", 0) > max_bytes:
+            raise serializers.ValidationError({"source_image": "Avatar image is too large."})
+        content_type = getattr(image, "content_type", "")
+        if content_type and content_type not in {"image/jpeg", "image/png", "image/webp"}:
+            raise serializers.ValidationError({"source_image": "Use a PNG, JPG, or WebP image."})
+        return attrs
+
+
+class BuddyGeneratedAvatarRegenerateSerializer(serializers.Serializer):
+    preferred_gender_style = serializers.CharField(required=False, allow_blank=True)
+    preferred_age_style = serializers.CharField(required=False, allow_blank=True)
+    preferred_hair_style = serializers.CharField(required=False, allow_blank=True)
+    preferred_outfit_style = serializers.CharField(required=False, allow_blank=True)
+    realism_level = serializers.ChoiceField(
+        choices=("stylized", "balanced", "realistic"),
+        required=False,
+        default="balanced",
+    )
 
 
 class Buddy3DAvatarSelectSerializer(serializers.Serializer):
@@ -215,6 +282,7 @@ class BuddySessionSerializer(serializers.ModelSerializer):
             "language",
             "topic",
             "status",
+            "selected_voice",
             "duration_seconds",
             "transcript",
             "ai_summary",
@@ -222,6 +290,8 @@ class BuddySessionSerializer(serializers.ModelSerializer):
             "mistakes_detected",
             "vocabulary_practiced",
             "improvement_notes",
+            "selected_avatar",
+            "emotion_timeline",
             "started_at",
             "ended_at",
             "created_at",
@@ -230,6 +300,7 @@ class BuddySessionSerializer(serializers.ModelSerializer):
         read_only_fields = (
             "id",
             "status",
+            "selected_voice",
             "duration_seconds",
             "transcript",
             "ai_summary",
@@ -237,6 +308,8 @@ class BuddySessionSerializer(serializers.ModelSerializer):
             "mistakes_detected",
             "vocabulary_practiced",
             "improvement_notes",
+            "selected_avatar",
+            "emotion_timeline",
             "started_at",
             "ended_at",
             "created_at",
@@ -279,14 +352,14 @@ class BuddyVocabularySerializer(serializers.ModelSerializer):
     class Meta:
         model = BuddyVocabulary
         fields = "__all__"
-        read_only_fields = ("id", "created_at", "updated_at")
+        read_only_fields = ("id", "profile", "created_at", "updated_at")
 
 
 class BuddyMistakeSerializer(serializers.ModelSerializer):
     class Meta:
         model = BuddyMistake
         fields = "__all__"
-        read_only_fields = ("id", "created_at")
+        read_only_fields = ("id", "profile", "created_at", "updated_at")
 
 
 class BuddySessionStartSerializer(serializers.Serializer):
