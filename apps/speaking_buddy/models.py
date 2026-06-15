@@ -294,6 +294,8 @@ class BuddySession(models.Model):
     )
     emotion_timeline = models.JSONField(default=default_list, blank=True)
     usage_counted = models.BooleanField(default=False)
+    end_reason = models.CharField(max_length=40, blank=True)
+    client_closed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

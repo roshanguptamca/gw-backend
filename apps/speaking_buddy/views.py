@@ -2,6 +2,7 @@ import logging
 
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.views.decorators.csrf import csrf_exempt
 
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -49,6 +50,7 @@ from .services.openai_buddy import (
 )
 from .services.quota import (
     can_start_conversation,
+    end_session_reason,
     get_remaining_conversations,
     get_usage_quota,
     increment_conversation_usage,
@@ -595,13 +597,26 @@ def buddy_session_message_view(request):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+@csrf_exempt
 def buddy_session_end_view(request):
     profile = _ensure_profile(request.user)
     serializer = BuddySessionEndSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     session = get_object_or_404(BuddySession, id=serializer.validated_data["session_id"], profile=profile)
+    end_reason = serializer.validated_data.get("reason") or ""
+    client_closed_at = serializer.validated_data.get("client_closed_at")
+    end_session_reason(session, end_reason, client_closed_at)
     if session.status == "ended":
-        return Response(BuddySessionSerializer(session).data)
+        quota = get_usage_quota(request.user)
+        payload = BuddySessionSerializer(session).data
+        payload["usage_counted"] = session.usage_counted
+        payload["usage"] = {
+            "conversations_used": quota.conversations_used,
+            "free_conversation_limit": quota.free_conversation_limit,
+            "conversations_remaining": quota.conversations_remaining,
+            "is_limit_reached": quota.conversations_remaining <= 0,
+        }
+        return Response(payload)
 
     transcript = _session_transcript(session)
     context = build_session_context(profile, BuddySettings.objects.get(profile=profile))
@@ -614,6 +629,10 @@ def buddy_session_end_view(request):
     session.mistakes_detected = summary.get("mistakes", [])
     session.vocabulary_practiced = summary.get("vocabulary", [])
     session.improvement_notes = "\n".join(summary.get("improvement_notes", []))
+    if end_reason:
+        session.end_reason = end_reason
+    if client_closed_at:
+        session.client_closed_at = client_closed_at
     session.save()
     update_session_insights(profile, session, summary)
     quota, counted = increment_conversation_usage(request.user, session)

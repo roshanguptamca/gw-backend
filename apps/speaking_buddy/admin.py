@@ -146,7 +146,7 @@ class BuddyGeneratedAvatarAdmin(admin.ModelAdmin):
         "updated_at",
     )
     search_fields = ("user__username", "user__email", "provider", "provider_job_id")
-    list_filter = ("generation_method", "status", "consent_confirmed", "created_at")
+    list_filter = ("generation_method", "status", "consent_confirmed", "selected_base_avatar", "created_at")
     readonly_fields = ("created_at", "updated_at")
 
 
@@ -154,18 +154,28 @@ class BuddyGeneratedAvatarAdmin(admin.ModelAdmin):
 class BuddySessionAdmin(admin.ModelAdmin):
     list_display = (
         "id",
+        "user",
         "profile",
         "language",
         "topic",
         "selected_voice",
         "status",
         "duration_seconds",
+        "end_reason",
+        "usage_counted",
         "started_at",
         "ended_at",
     )
     search_fields = ("profile__user__username", "profile__user__email", "topic", "ai_summary", "user_summary")
-    list_filter = ("language", "selected_voice", "status", "started_at", "ended_at")
+    list_filter = ("language", "selected_voice", "status", "end_reason", "usage_counted", "started_at", "ended_at")
+    date_hierarchy = "started_at"
     readonly_fields = ("created_at", "updated_at")
+
+    def user(self, obj):
+        return obj.profile.user
+
+    user.admin_order_field = "profile__user"
+    user.short_description = "User"
 
 
 @admin.register(BuddyUsageQuota)
@@ -179,6 +189,7 @@ class BuddyUsageQuotaAdmin(admin.ModelAdmin):
         "updated_at",
     )
     search_fields = ("user__username", "user__email")
+    list_filter = ("free_conversation_limit", "updated_at")
     readonly_fields = ("created_at", "updated_at")
 
     def conversations_remaining(self, obj):
@@ -192,6 +203,7 @@ class BuddyMemoryAdmin(admin.ModelAdmin):
     list_display = ("id", "profile", "memory_type", "key", "importance", "is_active", "created_at", "updated_at")
     search_fields = ("profile__user__username", "profile__user__email", "key")
     list_filter = ("memory_type", "importance", "is_active", "created_at")
+    date_hierarchy = "created_at"
     readonly_fields = ("created_at", "updated_at")
 
 
@@ -239,4 +251,5 @@ class BuddyMessageAdmin(admin.ModelAdmin):
     list_display = ("id", "session", "role", "created_at", "updated_at")
     search_fields = ("session__profile__user__username", "session__profile__user__email", "text")
     list_filter = ("role", "created_at")
+    date_hierarchy = "created_at"
     readonly_fields = ("created_at", "updated_at")

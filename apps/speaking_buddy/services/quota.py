@@ -33,3 +33,19 @@ def increment_conversation_usage(user, session):
         BuddyUsageQuota.objects.filter(id=quota.id).update(conversations_used=F("conversations_used") + 1)
         quota.refresh_from_db()
         return quota, True
+
+
+def end_session_reason(session, reason=None, client_closed_at=None):
+    if not session:
+        return False
+    update_fields = []
+    if reason and session.end_reason != reason:
+        session.end_reason = reason
+        update_fields.append("end_reason")
+    if client_closed_at and session.client_closed_at != client_closed_at:
+        session.client_closed_at = client_closed_at
+        update_fields.append("client_closed_at")
+    if update_fields:
+        update_fields.append("updated_at")
+        session.save(update_fields=update_fields)
+    return True

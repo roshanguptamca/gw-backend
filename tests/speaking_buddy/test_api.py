@@ -293,6 +293,7 @@ class SpeakingBuddyApiTests(TestCase):
         response = self.client.post("/api/buddy/session/end/", {"session_id": session_id}, format="json")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["status"], "ended")
+        self.assertEqual(response.data["end_reason"], "")
         self.assertTrue(response.data["ai_summary"])
         self.assertTrue(BuddyMemory.objects.filter(profile=self.profile1, memory_type="summary").exists())
         self.assertEqual(response.data["usage"]["conversations_used"], 1)
@@ -346,6 +347,30 @@ class SpeakingBuddyApiTests(TestCase):
         quota = BuddyUsageQuota.objects.get(user=self.user1)
         self.assertEqual(quota.conversations_used, 1)
         self.assertTrue(BuddySession.objects.get(id=session_id).usage_counted)
+
+    @patch("apps.speaking_buddy.views.generate_buddy_reply", return_value="Welcome")
+    def test_session_end_persists_reason_and_timestamp(self, generate_buddy_reply):
+        self.auth(self.user1)
+        start = self.client.post("/api/buddy/session/start/", {"topic": "Travel"}, format="json")
+        session_id = start.data["id"]
+        response = self.client.post(
+            "/api/buddy/session/end/",
+            {"session_id": session_id, "reason": "route_change"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        session = BuddySession.objects.get(id=session_id)
+        self.assertEqual(session.end_reason, "route_change")
+        self.assertEqual(response.data["end_reason"], "route_change")
+
+    @patch("apps.speaking_buddy.views.generate_buddy_reply", return_value="Welcome")
+    def test_session_end_rejects_foreign_session(self, generate_buddy_reply):
+        self.auth(self.user1)
+        start = self.client.post("/api/buddy/session/start/", {"topic": "Travel"}, format="json")
+        session_id = start.data["id"]
+        self.auth(self.user2)
+        response = self.client.post("/api/buddy/session/end/", {"session_id": session_id}, format="json")
+        self.assertEqual(response.status_code, 404)
 
     @patch("apps.speaking_buddy.views.generate_buddy_reply", return_value="Welcome")
     def test_user_cannot_start_session_after_100_conversations(self, generate_buddy_reply):

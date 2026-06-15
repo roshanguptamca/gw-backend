@@ -292,6 +292,9 @@ class BuddySessionSerializer(serializers.ModelSerializer):
             "improvement_notes",
             "selected_avatar",
             "emotion_timeline",
+            "usage_counted",
+            "end_reason",
+            "client_closed_at",
             "started_at",
             "ended_at",
             "created_at",
@@ -310,6 +313,9 @@ class BuddySessionSerializer(serializers.ModelSerializer):
             "improvement_notes",
             "selected_avatar",
             "emotion_timeline",
+            "usage_counted",
+            "end_reason",
+            "client_closed_at",
             "started_at",
             "ended_at",
             "created_at",
@@ -374,6 +380,8 @@ class BuddySessionMessageSerializer(serializers.Serializer):
 
 class BuddySessionEndSerializer(serializers.Serializer):
     session_id = serializers.IntegerField()
+    reason = serializers.CharField(required=False, allow_blank=True)
+    client_closed_at = serializers.DateTimeField(required=False)
 
 
 class BuddyRealtimeTokenSerializer(serializers.Serializer):
