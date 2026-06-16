@@ -1,4 +1,5 @@
 import os
+import logging
 from pathlib import Path
 
 from corsheaders.defaults import default_headers, default_methods
@@ -73,6 +74,7 @@ INSTALLED_APPS = [
     "apps.uploads",
     "apps.files",
     "apps.templates_app",
+    "apps.speaking_buddy.apps.SpeakingBuddyConfig",
     "django_apscheduler",
 ]
 
@@ -432,6 +434,11 @@ FRONTEND_AUTH_ERROR_URL = os.getenv(
 )
 OAUTH_TRANSACTION_TTL_MINUTES = int(os.getenv("OAUTH_TRANSACTION_TTL_MINUTES", 10))
 
+# ── Speaking Buddy ──────────────────────────────────────────
+SPEAKING_BUDDY_MODEL = os.getenv("SPEAKING_BUDDY_MODEL", "gpt-4o-mini")
+SPEAKING_BUDDY_REALTIME_MODEL = os.getenv("SPEAKING_BUDDY_REALTIME_MODEL", "gpt-realtime-2")
+SPEAKING_BUDDY_MAX_AVATAR_BYTES = int(os.getenv("SPEAKING_BUDDY_MAX_AVATAR_BYTES", 5 * 1024 * 1024))
+
 # ── Business rules ───────────────────────────────────────────
 # Max email reminders per day for free (non-superuser) users, counted per email address
 EMAIL_REMINDER_FREE_DAILY_LIMIT = int(os.getenv("EMAIL_REMINDER_FREE_DAILY_LIMIT", 3))
@@ -601,3 +608,16 @@ SPECTACULAR_SETTINGS = {
         },
     ],
 }
+
+logger = logging.getLogger(__name__)
+logger.info("ALLOWED_HOSTS=%s", ALLOWED_HOSTS)
+logger.info("CSRF_TRUSTED_ORIGINS=%s", CSRF_TRUSTED_ORIGINS)
+logger.info("SPEAKING_BUDDY_MODEL=%s", SPEAKING_BUDDY_MODEL)
+
+IMAGE_TO_3D_PROVIDER = os.getenv("IMAGE_TO_3D_PROVIDER", "template")
+AVATAR_GENERATION_PROVIDER = os.getenv("AVATAR_GENERATION_PROVIDER", "template")
+ENABLE_EXPERIMENTAL_IMAGE_TO_3D = os.getenv("ENABLE_EXPERIMENTAL_IMAGE_TO_3D", "false").lower() == "true"
+TRIPOSR_MODEL_PATH = os.getenv("TRIPOSR_MODEL_PATH", "")
+INSTANTMESH_MODEL_PATH = os.getenv("INSTANTMESH_MODEL_PATH", "")
+PIFUHD_MODEL_PATH = os.getenv("PIFUHD_MODEL_PATH", "")
+PSHUMAN_MODEL_PATH = os.getenv("PSHUMAN_MODEL_PATH", "")

@@ -90,6 +90,10 @@ services:
         value: https://www.guidewisey.com/auth-callback?status=success
       - key: FRONTEND_AUTH_ERROR_URL
         value: https://www.guidewisey.com/auth-callback?error=
+      - key: SPEAKING_BUDDY_MODEL
+        value: gpt-4o-mini
+      - key: SPEAKING_BUDDY_MAX_AVATAR_BYTES
+        value: "5242880"
 
   # ── Background Scheduler (FutureWise reminder dispatch) ──────────────────────
   # The APScheduler runs as a background thread inside the web service process

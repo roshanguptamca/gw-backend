@@ -49,6 +49,10 @@ AI-powered insurance policy analysis.
 - Structured output: coverage highlights, important clauses, missing coverage, risks, action items, overall score
 - Follow-up chat with full context
 
+### `speaking_buddy`
+AI voice-practice sessions with OpenAI Realtime audio, selectable 3D avatars, consent-based photo-inspired avatars, transcripts, history, vocabulary, mistakes, and account-scoped learning memory.
+The app enforces a free quota of 100 completed conversations per authenticated user account through `BuddyUsageQuota` and `/api/buddy/usage/`. New sessions are blocked after the limit is reached, but the user can still review history and memory.
+
 ### Career Suite
 Self-hosted resume building, parsing, ATS analysis, job matching, AI optimization, and PDF/DOCX export.
 
@@ -60,6 +64,7 @@ Resume Builder is also available as a live beta for anonymous users. Anonymous v
 - Storage: PostgreSQL/SQLite binary fields only; no cloud storage
 - Jobs: existing DB-backed APScheduler process; no Redis or Celery
 - AI providers: OpenAI, Azure OpenAI, Ollama, or deterministic dummy provider
+- Speaking Buddy: OpenAI-backed realtime/text practice with isolated buddy memory and avatar support
 - Export: WeasyPrint PDF and `python-docx` DOCX
 - Optional protected profile photos (JPG/PNG/WebP, maximum 5 MB)
 - Stable-ID CRUD for skills, education, experience, projects, certifications, languages, awards, and references
@@ -202,6 +207,15 @@ OAUTH_REDIRECT_BASE_URL=http://localhost:8000
 FRONTEND_AUTH_SUCCESS_URL=https://www.guidewisey.com/auth-callback?status=success
 FRONTEND_AUTH_ERROR_URL=https://www.guidewisey.com/auth-callback?error=
 
+# Speaking Buddy
+OPENAI_API_KEY=
+SPEAKING_BUDDY_MODEL=gpt-4o-mini
+SPEAKING_BUDDY_REALTIME_MODEL=gpt-realtime-2
+SPEAKING_BUDDY_MAX_AVATAR_BYTES=5242880
+AVATAR_GENERATION_PROVIDER=template
+ENABLE_EXPERIMENTAL_IMAGE_TO_3D=false
+IMAGE_TO_3D_PROVIDER=template
+
 # Email — Brevo SMTP relay
 EMAIL_HOST=smtp-relay.brevo.com
 EMAIL_PORT=587
@@ -226,6 +240,8 @@ python manage.py runserver 8000
 python manage.py runapscheduler
 ```
 
+The default avatar provider uses local templates and does not require experimental image-to-3D models. Keep `OPENAI_API_KEY` in `.env`; never commit a real key.
+
 | URL | Description |
 |---|---|
 | http://localhost:8000/api | REST API |
@@ -245,6 +261,15 @@ python manage.py spectacular --validate --fail-on-warn
 make test          # all tests, verbose
 make test-cov      # with HTML coverage report
 make test-fast     # quiet
+
+# Speaking Buddy validation
+python manage.py makemigrations --check
+python manage.py migrate --check
+python manage.py showmigrations speaking_buddy
+python manage.py test tests.speaking_buddy
+black --check .
+isort --check-only .
+flake8
 ```
 
 ---
