@@ -209,7 +209,7 @@ class Buddy3DAvatar(models.Model):
     voice_style = models.CharField(max_length=40, blank=True)
     mood = models.CharField(max_length=40, blank=True)
     backstory = models.TextField(blank=True)
-    thumbnail = models.CharField(max_length=1000, blank=True)
+    thumbnail = models.TextField(blank=True)
     glb_file = models.CharField(max_length=1000, blank=True)
     model_url = models.CharField(max_length=1000, blank=True)
     thumbnail_url = models.CharField(max_length=1000, blank=True)
