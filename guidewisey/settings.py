@@ -75,6 +75,7 @@ INSTALLED_APPS = [
     "apps.files",
     "apps.templates_app",
     "apps.speaking_buddy.apps.SpeakingBuddyConfig",
+    "apps.marketplace.apps.MarketplaceConfig",
     "django_apscheduler",
 ]
 
@@ -496,6 +497,7 @@ REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {
     "futurewave_verify": FUTUREWAVE_VERIFY_RATE,
     "oauth_start": os.getenv("OAUTH_START_RATE", "20/hour"),
     "oauth_callback": os.getenv("OAUTH_CALLBACK_RATE", "30/hour"),
+    "marketplace_order": os.getenv("MARKETPLACE_ORDER_RATE", "30/hour"),
 }
 
 # ── Sentry Observability ─────────────────────────────────────

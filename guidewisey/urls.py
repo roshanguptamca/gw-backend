@@ -18,6 +18,7 @@ urlpatterns = [
     path("api/", include("apps.autocomplete.urls")),
     path("api/", include("apps.jobs.urls")),
     path("api/", include("apps.files.urls")),
+    path("api/", include("apps.marketplace.urls")),
     path("api/buddy/", include("apps.speaking_buddy.urls")),
     # OpenAPI schema + UI
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
