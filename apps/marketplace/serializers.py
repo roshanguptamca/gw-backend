@@ -88,10 +88,6 @@ class PublicProductImageSerializer(serializers.ModelSerializer):
 class ProductSerializer(serializers.ModelSerializer):
     category_detail = CategorySerializer(source="category", read_only=True)
     images = PublicProductImageSerializer(many=True, read_only=True)
-    # image_url returns the uploaded image URL if present, otherwise falls back
-    # to external_image_url (e.g. Unsplash CDN for seed products).
-    # Frontend should always use image_url — never reference 'image' directly.
-    image_url = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Product
@@ -110,8 +106,6 @@ class ProductSerializer(serializers.ModelSerializer):
             "stock_quantity",
             "sku",
             "image",
-            "image_url",
-            "external_image_url",
             "images",
             "is_active",
             "is_approved",
@@ -122,13 +116,6 @@ class ProductSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "shop", "slug", "is_approved", "created_at", "updated_at"]
-
-    def get_image_url(self, obj):
-        """Return the best available image URL for this product."""
-        request = self.context.get("request")
-        if obj.image:
-            return request.build_absolute_uri(obj.image.url) if request else obj.image.url
-        return obj.external_image_url or None
 
     def validate_image(self, value):
         return validate_image_upload(value, max_bytes=PRODUCT_IMAGE_MAX_BYTES)

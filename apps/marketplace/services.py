@@ -117,10 +117,7 @@ def next_order_number():
 
 
 @transaction.atomic
-def _create_order_atomic(payload, user=None):
-    """Create the order and all related records inside a single DB transaction.
-    Email sending deliberately lives OUTSIDE this function so that a slow or
-    failing SMTP connection never holds the transaction open."""
+def create_order_from_payload(payload, user=None):
     shop = Shop.objects.select_for_update().get(id=payload["shop_id"], is_active=True, is_approved=True)
     items = payload.get("items") or []
     if not items:
@@ -210,23 +207,13 @@ def _create_order_atomic(payload, user=None):
         coupon.used_count += 1
         coupon.save(update_fields=["used_count"])
 
-    return order
-
-
-def create_order_from_payload(payload, user=None):
-    """Public entry point. Commits the DB transaction first, then sends emails.
-    Emails are fire-and-forget: failures are logged but never surface to the buyer."""
-    order = _create_order_atomic(payload, user=user)
-
-    # Send emails AFTER the transaction commits so SMTP latency/errors never
-    # block the response or hold a DB lock.
     try:
         send_buyer_confirmation_email(order)
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     try:
         send_seller_notification_email(order)
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
 
     return order
