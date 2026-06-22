@@ -379,14 +379,14 @@ class Command(BaseCommand):
             self._log(f"  {status}: {cat_def['name']}", self.style.SUCCESS if created else None)
 
         # ── 6. Products + images ─────────────────────────────────────────
-        self._log(f"\n[6/6] Creating {len(PRODUCTS)} products + downloading images...")
+        self._log(f"\n[6/6] Creating {len(PRODUCTS)} products + setting image URLs...")
         created_count = 0
         img_ok = 0
-        img_skip = 0
 
         for prod_def in PRODUCTS:
             slug = prod_def["slug"]
             category = category_map.get(prod_def["category"])
+            ext_url = PRODUCT_IMAGES.get(slug, "")
 
             product_fields = {
                 "name": prod_def["name"],
@@ -400,6 +400,7 @@ class Command(BaseCommand):
                 "is_approved": True,
                 "is_featured": prod_def.get("is_featured", False),
                 "weight_grams": prod_def.get("weight_grams"),
+                "external_image_url": ext_url,
             }
 
             product, created = Product.objects.get_or_create(
@@ -413,34 +414,15 @@ class Command(BaseCommand):
                 self._log(f"  + {product.name} (EUR {product.price})", self.style.SUCCESS)
             else:
                 self._log(f"  -> Exists: {product.name}")
+                # Update external_image_url on existing products so re-runs fix missing images
+                if ext_url and not product.external_image_url:
+                    product.external_image_url = ext_url
+                    product.save(update_fields=["external_image_url"])
+                    self._log(f"     + Image URL set", self.style.SUCCESS)
 
-            # Download + attach image if product has none yet
-            image_url = PRODUCT_IMAGES.get(slug)
-            if image_url and not product.image:
-                filename = f"rk-{slug}.jpg"
-                self._log(f"     Downloading image for {product.name}...")
-                img_file = _download_image(image_url, filename)
-                if img_file:
-                    product.image.save(filename, img_file, save=True)
-                    img_ok += 1
-                    self._log(f"     + Image saved: {filename}", self.style.SUCCESS)
-                    # Create ProductImage gallery entry
-                    ProductImage.objects.get_or_create(
-                        product=product,
-                        alt_text=product.name,
-                        defaults={"image": product.image.name, "sort_order": 0},
-                    )
-                else:
-                    img_skip += 1
-                    self._log(
-                        f"     WARNING: Image download failed for {product.name} — skipped.",
-                        self.style.WARNING,
-                    )
-            elif product.image:
+            if product.external_image_url:
                 img_ok += 1
-                self._log(f"     -> Image already set: {product.image.name}")
-            else:
-                img_skip += 1
+                self._log(f"     -> Image URL: {product.external_image_url[:60]}...")
 
         # ── Summary ──────────────────────────────────────────────────────
         self._log("\n" + "=" * 60)
@@ -452,10 +434,9 @@ class Command(BaseCommand):
             f"  Seller   : {SELLER_EMAIL}\n"
             f"  Products : {Product.objects.filter(shop=shop).count()} total "
             f"({created_count} newly created)\n"
-            f"  Images   : {img_ok} attached, {img_skip} skipped\n"
+            f"  Images   : {img_ok} with Unsplash URL\n"
             f"  Pickup   : Free\n"
             f"  Delivery : EUR 5 Netherlands / EUR 10 International\n"
-            f"\n  INFO: Delivery fees are configurable in Seller Settings.\n"
-            f"  INFO: Images sourced from Unsplash (royalty-free, no watermark).\n"
-            f"  INFO: Replace with seller-owned photos before going live.\n"
+            f"\n  INFO: Images served via Unsplash CDN — no local files needed.\n"
+            f"  INFO: Replace external_image_url with seller-owned photos before going live.\n"
         )

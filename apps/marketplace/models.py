@@ -112,6 +112,11 @@ class Product(models.Model):
     stock_quantity = models.PositiveIntegerField(default=0)
     sku = models.CharField(max_length=80, blank=True)
     image = models.ImageField(upload_to="products/main/", blank=True, null=True)
+    external_image_url = models.URLField(
+        max_length=500,
+        blank=True,
+        help_text="Fallback image URL (e.g. Unsplash CDN) used when no uploaded image is present.",
+    )
     is_active = models.BooleanField(default=True)
     is_approved = models.BooleanField(default=False)
     is_featured = models.BooleanField(default=False)

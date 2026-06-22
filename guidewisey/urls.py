@@ -28,3 +28,14 @@ urlpatterns = [
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+else:
+    # Serve uploaded media files in production.
+    # For high-traffic deployments replace this with S3 + django-storages.
+    from django.views.static import serve as _media_serve
+    urlpatterns += [
+        path(
+            settings.MEDIA_URL.lstrip("/") + "<path:path>",
+            _media_serve,
+            {"document_root": settings.MEDIA_ROOT, "show_indexes": False},
+        )
+    ]
