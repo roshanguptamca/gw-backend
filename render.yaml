@@ -81,6 +81,8 @@ services:
         sync: false
       - key: EMAIL_HOST_PASSWORD
         sync: false
+      - key: BREVO_API_KEY
+        sync: false   # Set in Render dashboard → Environment → BREVO_API_KEY
       - key: EMAIL_SENDER_EMAIL
         value: noreply@guidewisey.com
       - key: EMAIL_SENDER_NAME
