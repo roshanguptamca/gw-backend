@@ -1,3 +1,5 @@
+import logging
+import threading
 from decimal import Decimal
 from uuid import uuid4
 
@@ -8,6 +10,8 @@ from django.db.models import Q
 from django.utils import timezone
 from django.utils.text import slugify
 from rest_framework import serializers
+
+logger = logging.getLogger(__name__)
 
 from .models import Category, Coupon, Order, OrderItem, Product, SellerProfile, Shop, ShopSettings, OrderCancellationRequest
 
@@ -213,21 +217,34 @@ def _create_order_atomic(payload, user=None):
     return order
 
 
-def create_order_from_payload(payload, user=None):
-    """Public entry point. Commits the DB transaction first, then sends emails.
-    Emails are fire-and-forget: failures are logged but never surface to the buyer."""
-    order = _create_order_atomic(payload, user=user)
+def _send_emails_background(order_id: int) -> None:
+    """Fire-and-forget helper: fetch the order and send both emails in a daemon thread.
+    Using order_id (int) instead of the ORM object avoids passing a Django model
+    instance across thread boundaries (closed DB connections, stale state, etc.)."""
+    from .models import Order  # local import to avoid circular refs at module load
 
-    # Send emails AFTER the transaction commits so SMTP latency/errors never
-    # block the response or hold a DB lock.
     try:
+        order = Order.objects.select_related("shop__owner", "shop__settings").prefetch_related("items").get(pk=order_id)
         send_buyer_confirmation_email(order)
     except Exception:  # noqa: BLE001
-        pass
+        logger.exception("Background email: buyer confirmation failed for order %s", order_id)
+
     try:
+        order = Order.objects.select_related("shop__owner", "shop__settings").prefetch_related("items").get(pk=order_id)
         send_seller_notification_email(order)
     except Exception:  # noqa: BLE001
-        pass
+        logger.exception("Background email: seller notification failed for order %s", order_id)
+
+
+def create_order_from_payload(payload, user=None):
+    """Public entry point. Commits the DB transaction first, then sends emails
+    in a background daemon thread so the HTTP response is immediate."""
+    order = _create_order_atomic(payload, user=user)
+
+    # Dispatch emails to a background daemon thread — caller gets instant response.
+    t = threading.Thread(target=_send_emails_background, args=(order.pk,), daemon=True)
+    t.start()
+    logger.info("Order %s created; email thread %s dispatched.", order.order_number, t.name)
 
     return order
 
