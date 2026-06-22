@@ -155,7 +155,12 @@ class RegisterView(APIView):
         serializer = UserRegistrationSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
-            return Response({"message": str(_("User created")), "id": user.id}, status=status.HTTP_201_CREATED)
+            account_type = request.data.get("account_type", "buyer")
+            is_seller = hasattr(user, "seller_profile")
+            return Response(
+                {"message": str(_("User created")), "id": user.id, "is_seller": is_seller, "account_type": account_type},
+                status=status.HTTP_201_CREATED,
+            )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -257,8 +262,9 @@ class LoginView(APIView):
         login(request, user)
 
         preferred_language = profile.preferred_language if profile else "en"
+        is_seller = hasattr(user, "seller_profile")
         return Response(
-            {"message": str(_("Logged in")), "preferred_language": preferred_language},
+            {"message": str(_("Logged in")), "preferred_language": preferred_language, "is_seller": is_seller},
             status=status.HTTP_200_OK,
         )
 
@@ -336,6 +342,7 @@ class MeView(APIView):
         user = request.user
         profile = getattr(user, "profile", None)
         preferred_language = profile.preferred_language if profile else "en"
+        is_seller = hasattr(user, "seller_profile")
         return Response(
             {
                 "id": user.id,
@@ -347,6 +354,7 @@ class MeView(APIView):
                 "profile_complete": profile.profile_completed if profile else False,
                 "avatar_url": profile.avatar_url if profile else "",
                 "has_password": user.has_usable_password(),
+                "is_seller": is_seller,
             }
         )
 
@@ -495,6 +503,7 @@ def session_view(request):
     if request.user.is_authenticated:
         profile = getattr(request.user, "profile", None)
         preferred_language = profile.preferred_language if profile else "en"
+        is_seller = hasattr(request.user, "seller_profile")
         return Response(
             {
                 "authenticated": True,
@@ -503,6 +512,7 @@ def session_view(request):
                     "username": request.user.username,
                     "email": request.user.email,
                     "preferred_language": preferred_language,
+                    "is_seller": is_seller,
                 },
             }
         )
