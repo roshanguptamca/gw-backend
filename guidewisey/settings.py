@@ -372,28 +372,34 @@ FILE_STORAGE_BACKEND = os.getenv("FILE_STORAGE_BACKEND", "db")
 # FutureWise / DearTomorrow — Email Reminder Feature
 # ============================================================
 
-# ── Django SMTP Email Backend ────────────────────────────────
-EMAIL_BACKEND = "guidewisey.email_backend.CertifiSMTPEmailBackend"
+# ── Email Backend ────────────────────────────────────────────
+# Production (Render): Brevo HTTP API — port 443, never firewalled.
+# Local DEV: fall back to console if no credentials, or SMTP with certifi.
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
+
+if ENV == "DEV" and not os.getenv("EMAIL_HOST_PASSWORD") and not BREVO_API_KEY:
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+elif BREVO_API_KEY:
+    # Preferred on Render — uses HTTPS, no SMTP port blocking
+    EMAIL_BACKEND = "guidewisey.email_backend.BrevoAPIEmailBackend"
+else:
+    # Fallback to SMTP (works locally where port 587 is open)
+    EMAIL_BACKEND = "guidewisey.email_backend.CertifiSMTPEmailBackend"
+
 EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp-relay.brevo.com")
 EMAIL_PORT = int(os.getenv("EMAIL_PORT", 587))
 EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "true").lower() == "true"
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "ac98f2001@smtp-brevo.com")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
-EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", 30))  # seconds; prevents SMTP hangs
+EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", 10))  # reduced: fail fast on blocked ports
 _default_sender = (
-    f'{os.getenv("EMAIL_SENDER_NAME", "FutureWise by GuideWisey")}'
+    f'{os.getenv("EMAIL_SENDER_NAME", "GuideWisey Marketplace")}'
     f' <{os.getenv("EMAIL_SENDER_EMAIL", "noreply@guidewisey.com")}>'
 )
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", _default_sender)
-EMAIL_SENDER_NAME = os.getenv("EMAIL_SENDER_NAME", "FutureWise by GuideWisey")
+EMAIL_SENDER_NAME = os.getenv("EMAIL_SENDER_NAME", "GuideWisey Marketplace")
 EMAIL_SENDER_EMAIL = os.getenv("EMAIL_SENDER_EMAIL", "noreply@guidewisey.com")
 CONTACT_ADMIN_EMAIL = os.getenv("CONTACT_ADMIN_EMAIL", "info@guidewisey.com")
-
-# Fall back to console backend in DEV if no SMTP password is set
-if ENV == "DEV" and not EMAIL_HOST_PASSWORD:
-    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
-# Legacy Brevo REST API key (kept for reference; no longer used for delivery)
-BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
 
 # ── Encryption at rest ───────────────────────────────────────
 # AES-256-GCM key for encrypting reminder subject/message in the database.
