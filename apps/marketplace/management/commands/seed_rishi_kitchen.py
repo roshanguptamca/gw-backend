@@ -414,11 +414,19 @@ class Command(BaseCommand):
                 self._log(f"  + {product.name} (EUR {product.price})", self.style.SUCCESS)
             else:
                 self._log(f"  -> Exists: {product.name}")
-                # Update external_image_url on existing products so re-runs fix missing images
-                if ext_url and not product.external_image_url:
+                # Always update external_image_url AND clear stale local image path.
+                # Render uses an ephemeral filesystem — any previously downloaded file
+                # is gone after redeploy, leaving a dead DB path that causes 404s.
+                update_fields = []
+                if ext_url and product.external_image_url != ext_url:
                     product.external_image_url = ext_url
-                    product.save(update_fields=["external_image_url"])
-                    self._log(f"     + Image URL set", self.style.SUCCESS)
+                    update_fields.append("external_image_url")
+                if product.image:
+                    product.image = None
+                    update_fields.append("image")
+                if update_fields:
+                    product.save(update_fields=update_fields)
+                    self._log(f"     + Updated fields: {update_fields}", self.style.SUCCESS)
 
             if product.external_image_url:
                 img_ok += 1
