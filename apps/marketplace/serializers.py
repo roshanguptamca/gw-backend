@@ -1,3 +1,5 @@
+import os
+
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
@@ -124,10 +126,22 @@ class ProductSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "shop", "slug", "is_approved", "created_at", "updated_at"]
 
     def get_image_url(self, obj):
-        """Return the best available image URL for this product."""
-        request = self.context.get("request")
+        """Return the best available image URL for this product.
+
+        Priority:
+          1. Uploaded image file — only if the file actually exists on disk
+             (guards against stale DB paths on ephemeral filesystems like Render).
+          2. external_image_url — CDN / Unsplash URL stored in DB.
+        """
         if obj.image:
-            return request.build_absolute_uri(obj.image.url) if request else obj.image.url
+            try:
+                if os.path.exists(obj.image.path):
+                    request = self.context.get("request")
+                    return request.build_absolute_uri(obj.image.url) if request else obj.image.url
+            except (ValueError, NotImplementedError):
+                # path not available for remote storages (S3 etc.) — use URL directly
+                request = self.context.get("request")
+                return request.build_absolute_uri(obj.image.url) if request else obj.image.url
         return obj.external_image_url or None
 
     def validate_image(self, value):
