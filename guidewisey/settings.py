@@ -525,9 +525,21 @@ if not DEBUG:
         "sw_repo_validate": os.getenv("SW_REPO_VALIDATE_RATE", "20/hour"),
     }
 else:
-    # Disable throttling in local development to prevent E2E test interference
+    # In DEBUG/local: disable default anon+user throttles to prevent E2E/test interference.
+    # Named scopes (oauth, marketplace, sw_repo_validate) must still be present with high
+    # limits so ScopedRateThrottle on individual views doesn't raise ImproperlyConfigured.
     REST_FRAMEWORK["DEFAULT_THROTTLE_CLASSES"] = []
-    REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {}
+    REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {
+        "anon": "100000/day",
+        "user": "100000/day",
+        "futurewave_anon_create": "10000/hour",
+        "futurewave_user_create": "10000/hour",
+        "futurewave_verify": "10000/hour",
+        "oauth_start": "10000/hour",
+        "oauth_callback": "10000/hour",
+        "marketplace_order": "10000/hour",
+        "sw_repo_validate": "10000/hour",
+    }
 
 # ── Sentry Observability ─────────────────────────────────────
 SENTRY_DSN = os.getenv("SENTRY_DSN", "")
