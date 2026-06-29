@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.utils.text import slugify
 
 from rest_framework import serializers
 
@@ -51,10 +52,24 @@ class SecureWiseOrganizationSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "owner", "owner_detail", "member_count", "created_at", "updated_at")
+        read_only_fields = ("id", "slug", "owner", "owner_detail", "member_count", "created_at", "updated_at")
 
     def get_member_count(self, obj):
         return obj.memberships.count()
+
+    def validate(self, attrs):
+        # Auto-generate slug from name if not provided
+        if not attrs.get("slug") and attrs.get("name"):
+            base = slugify(attrs["name"])
+            slug = base
+            n = 1
+            while SecureWiseOrganization.objects.filter(slug=slug).exclude(
+                pk=self.instance.pk if self.instance else None
+            ).exists():
+                slug = f"{base}-{n}"
+                n += 1
+            attrs["slug"] = slug
+        return attrs
 
 
 # ---------------------------------------------------------------------------
@@ -162,6 +177,7 @@ class SecureWiseProjectSerializer(serializers.ModelSerializer):
         )
         read_only_fields = (
             "id",
+            "slug",
             "created_by",
             "created_by_detail",
             "scan_count",
@@ -172,6 +188,21 @@ class SecureWiseProjectSerializer(serializers.ModelSerializer):
 
     def get_scan_count(self, obj):
         return obj.scans.count()
+
+    def validate(self, attrs):
+        # Auto-generate slug from name if not provided
+        if not attrs.get("slug") and attrs.get("name"):
+            base = slugify(attrs["name"])
+            slug = base
+            n = 1
+            org = attrs.get("organization", getattr(self.instance, "organization", None))
+            while SecureWiseProject.objects.filter(slug=slug, organization=org).exclude(
+                pk=self.instance.pk if self.instance else None
+            ).exists():
+                slug = f"{base}-{n}"
+                n += 1
+            attrs["slug"] = slug
+        return attrs
 
     def get_open_findings_count(self, obj):
         return obj.findings.filter(status="open").count()
@@ -284,6 +315,7 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
         )
         read_only_fields = (
             "id",
+            "organization",
             "triggered_by",
             "triggered_by_detail",
             "started_at",
@@ -304,6 +336,13 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
             counts[row["severity"]] = counts.get(row["severity"], 0) + 1
         counts["total"] = sum(counts.values())
         return counts
+
+    def validate(self, attrs):
+        # Auto-derive organization from project
+        project = attrs.get("project", getattr(self.instance, "project", None))
+        if project and not attrs.get("organization"):
+            attrs["organization"] = project.organization
+        return attrs
 
 
 # ---------------------------------------------------------------------------
