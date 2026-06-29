@@ -3,23 +3,19 @@
 New API endpoints for Doc_X v2 with backward compatibility.
 These are the enhanced REST APIs that use the service layer.
 """
-from rest_framework.decorators import api_view, permission_classes, parser_classes
-from rest_framework.parsers import MultiPartParser, FormParser
+import logging
+
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema, inline_serializer
+from rest_framework import serializers as drf_serializers
+from rest_framework import status
+from rest_framework.decorators import api_view, parser_classes, permission_classes
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework import status
-from drf_spectacular.utils import (
-    extend_schema,
-    OpenApiParameter,
-    OpenApiExample,
-    inline_serializer,
-)
-from rest_framework import serializers as drf_serializers
 
 from apps.doc_x.models import ChatSession
-from apps.doc_x.services import DocumentService, ProcessingService, ChatService
 from apps.doc_x.serializers import DocumentSerializer
-import logging
+from apps.doc_x.services import ChatService, DocumentService, ProcessingService
 
 logger = logging.getLogger(__name__)
 

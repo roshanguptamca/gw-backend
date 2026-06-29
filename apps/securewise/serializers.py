@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+
 from rest_framework import serializers
 
 from .models import (
@@ -37,9 +38,18 @@ class SecureWiseOrganizationSerializer(serializers.ModelSerializer):
     class Meta:
         model = SecureWiseOrganization
         fields = (
-            "id", "name", "slug", "description", "website", "logo_url",
-            "is_active", "owner", "owner_detail", "member_count",
-            "created_at", "updated_at",
+            "id",
+            "name",
+            "slug",
+            "description",
+            "website",
+            "logo_url",
+            "is_active",
+            "owner",
+            "owner_detail",
+            "member_count",
+            "created_at",
+            "updated_at",
         )
         read_only_fields = ("id", "owner", "owner_detail", "member_count", "created_at", "updated_at")
 
@@ -68,6 +78,7 @@ class SecureWiseMembershipSerializer(serializers.ModelSerializer):
 
 class SecureWiseGitIntegrationSerializer(serializers.ModelSerializer):
     """Read serializer — token fields are excluded."""
+
     connected_by_detail = MinimalUserSerializer(source="connected_by", read_only=True)
     # Accept raw token on write only
     access_token = serializers.CharField(write_only=True, required=False, allow_blank=True)
@@ -75,16 +86,33 @@ class SecureWiseGitIntegrationSerializer(serializers.ModelSerializer):
     class Meta:
         model = SecureWiseGitIntegration
         fields = (
-            "id", "organization", "provider", "auth_type", "name", "base_url",
+            "id",
+            "organization",
+            "provider",
+            "auth_type",
+            "name",
+            "base_url",
             "token_last_four",  # last 4 only, read-only
-            "scopes", "connected_by", "connected_by_detail",
-            "connected_at", "last_used_at", "status", "metadata",
-            "created_at", "updated_at",
+            "scopes",
+            "connected_by",
+            "connected_by_detail",
+            "connected_at",
+            "last_used_at",
+            "status",
+            "metadata",
+            "created_at",
+            "updated_at",
             "access_token",  # write-only
         )
         read_only_fields = (
-            "id", "token_last_four", "connected_by", "connected_by_detail",
-            "connected_at", "last_used_at", "created_at", "updated_at",
+            "id",
+            "token_last_four",
+            "connected_by",
+            "connected_by_detail",
+            "connected_at",
+            "last_used_at",
+            "created_at",
+            "updated_at",
         )
 
     def create(self, validated_data):
@@ -117,11 +145,30 @@ class SecureWiseProjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = SecureWiseProject
         fields = (
-            "id", "organization", "name", "slug", "description", "tags",
-            "risk_level", "is_active", "created_by", "created_by_detail",
-            "scan_count", "open_findings_count", "created_at", "updated_at",
+            "id",
+            "organization",
+            "name",
+            "slug",
+            "description",
+            "tags",
+            "risk_level",
+            "is_active",
+            "created_by",
+            "created_by_detail",
+            "scan_count",
+            "open_findings_count",
+            "created_at",
+            "updated_at",
         )
-        read_only_fields = ("id", "created_by", "created_by_detail", "scan_count", "open_findings_count", "created_at", "updated_at")
+        read_only_fields = (
+            "id",
+            "created_by",
+            "created_by_detail",
+            "scan_count",
+            "open_findings_count",
+            "created_at",
+            "updated_at",
+        )
 
     def get_scan_count(self, obj):
         return obj.scans.count()
@@ -141,15 +188,34 @@ class SecureWiseRepositorySerializer(serializers.ModelSerializer):
     class Meta:
         model = SecureWiseRepository
         fields = (
-            "id", "organization", "project", "integration", "name", "provider",
-            "repository_url", "clone_url", "default_branch", "visibility",
-            "access_mode", "last_access_check_at", "last_access_status",
-            "created_by", "created_by_detail", "created_at", "updated_at",
+            "id",
+            "organization",
+            "project",
+            "integration",
+            "name",
+            "provider",
+            "repository_url",
+            "clone_url",
+            "default_branch",
+            "visibility",
+            "access_mode",
+            "last_access_check_at",
+            "last_access_status",
+            "created_by",
+            "created_by_detail",
+            "created_at",
+            "updated_at",
         )
         read_only_fields = (
-            "id", "provider", "clone_url", "last_access_check_at",
-            "last_access_status", "created_by", "created_by_detail",
-            "created_at", "updated_at",
+            "id",
+            "provider",
+            "clone_url",
+            "last_access_check_at",
+            "last_access_status",
+            "created_by",
+            "created_by_detail",
+            "created_at",
+            "updated_at",
         )
 
 
@@ -164,9 +230,21 @@ class SecureWiseScanPolicySerializer(serializers.ModelSerializer):
     class Meta:
         model = SecureWiseScanPolicy
         fields = (
-            "id", "organization", "project", "name", "description", "scan_types",
-            "fail_on_severity", "max_critical", "max_high", "schedule_cron",
-            "is_active", "created_by", "created_by_detail", "created_at", "updated_at",
+            "id",
+            "organization",
+            "project",
+            "name",
+            "description",
+            "scan_types",
+            "fail_on_severity",
+            "max_critical",
+            "max_high",
+            "schedule_cron",
+            "is_active",
+            "created_by",
+            "created_by_detail",
+            "created_at",
+            "updated_at",
         )
         read_only_fields = ("id", "created_by", "created_by_detail", "created_at", "updated_at")
 
@@ -183,18 +261,40 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
     class Meta:
         model = SecureWiseScan
         fields = (
-            "id", "organization", "project", "repository", "policy",
-            "scan_type", "branch", "commit_sha", "status",
-            "triggered_by", "triggered_by_detail",
-            "started_at", "completed_at", "duration_seconds",
-            "error_message", "scanner_metadata", "quality_gate_passed",
-            "finding_counts", "created_at", "updated_at",
+            "id",
+            "organization",
+            "project",
+            "repository",
+            "policy",
+            "scan_type",
+            "branch",
+            "commit_sha",
+            "status",
+            "triggered_by",
+            "triggered_by_detail",
+            "started_at",
+            "completed_at",
+            "duration_seconds",
+            "error_message",
+            "scanner_metadata",
+            "quality_gate_passed",
+            "finding_counts",
+            "created_at",
+            "updated_at",
         )
         read_only_fields = (
-            "id", "triggered_by", "triggered_by_detail", "started_at",
-            "completed_at", "duration_seconds", "error_message",
-            "scanner_metadata", "quality_gate_passed",
-            "finding_counts", "created_at", "updated_at",
+            "id",
+            "triggered_by",
+            "triggered_by_detail",
+            "started_at",
+            "completed_at",
+            "duration_seconds",
+            "error_message",
+            "scanner_metadata",
+            "quality_gate_passed",
+            "finding_counts",
+            "created_at",
+            "updated_at",
         )
 
     def get_finding_counts(self, obj):
@@ -217,20 +317,46 @@ class SecureWiseFindingSerializer(serializers.ModelSerializer):
     class Meta:
         model = SecureWiseFinding
         fields = (
-            "id", "scan", "project", "organization",
-            "title", "description", "file_path", "line_number",
-            "endpoint", "cwe_id", "owasp_category",
-            "scanner_type", "severity", "confidence", "status",
-            "risk", "impact", "recommendation",
-            "bad_code_example", "fixed_code_example",
-            "evidence", "fingerprint", "ai_fix_suggestion",
-            "reviewed_by", "reviewed_by_detail", "reviewed_at", "review_note",
-            "created_at", "updated_at",
+            "id",
+            "scan",
+            "project",
+            "organization",
+            "title",
+            "description",
+            "file_path",
+            "line_number",
+            "endpoint",
+            "cwe_id",
+            "owasp_category",
+            "scanner_type",
+            "severity",
+            "confidence",
+            "status",
+            "risk",
+            "impact",
+            "recommendation",
+            "bad_code_example",
+            "fixed_code_example",
+            "evidence",
+            "fingerprint",
+            "ai_fix_suggestion",
+            "reviewed_by",
+            "reviewed_by_detail",
+            "reviewed_at",
+            "review_note",
+            "created_at",
+            "updated_at",
         )
         read_only_fields = (
-            "id", "scan", "project", "organization",
-            "reviewed_by", "reviewed_by_detail", "reviewed_at",
-            "created_at", "updated_at",
+            "id",
+            "scan",
+            "project",
+            "organization",
+            "reviewed_by",
+            "reviewed_by_detail",
+            "reviewed_at",
+            "created_at",
+            "updated_at",
         )
 
 
@@ -245,16 +371,29 @@ class SecureWiseReportSerializer(serializers.ModelSerializer):
     class Meta:
         model = SecureWiseReport
         fields = (
-            "id", "organization", "project", "scan",
-            "title", "format", "status",
-            "report_data", "quality_gate_passed",
-            "generated_by", "generated_by_detail",
-            "created_at", "updated_at",
+            "id",
+            "organization",
+            "project",
+            "scan",
+            "title",
+            "format",
+            "status",
+            "report_data",
+            "quality_gate_passed",
+            "generated_by",
+            "generated_by_detail",
+            "created_at",
+            "updated_at",
         )
         read_only_fields = (
-            "id", "status", "report_data", "quality_gate_passed",
-            "generated_by", "generated_by_detail",
-            "created_at", "updated_at",
+            "id",
+            "status",
+            "report_data",
+            "quality_gate_passed",
+            "generated_by",
+            "generated_by_detail",
+            "created_at",
+            "updated_at",
         )
 
 
@@ -267,8 +406,15 @@ class SecureWiseIntegrationSerializer(serializers.ModelSerializer):
     class Meta:
         model = SecureWiseIntegration
         fields = (
-            "id", "organization", "integration_type", "name",
-            "config", "is_active", "created_by", "created_at", "updated_at",
+            "id",
+            "organization",
+            "integration_type",
+            "name",
+            "config",
+            "is_active",
+            "created_by",
+            "created_at",
+            "updated_at",
         )
         read_only_fields = ("id", "created_by", "created_at", "updated_at")
 
@@ -284,8 +430,15 @@ class SecureWiseAuditLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = SecureWiseAuditLog
         fields = (
-            "id", "organization", "user", "user_detail",
-            "event", "target_type", "target_id",
-            "detail", "ip_address", "created_at",
+            "id",
+            "organization",
+            "user",
+            "user_detail",
+            "event",
+            "target_type",
+            "target_id",
+            "detail",
+            "ip_address",
+            "created_at",
         )
         read_only_fields = fields

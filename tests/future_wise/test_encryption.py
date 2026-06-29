@@ -21,11 +21,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from apps.future_wise.models import EmailReminder
-from services.encryption import (
-    MessageEncryptionError,
-    decrypt_message,
-    encrypt_message,
-)
+from services.encryption import MessageEncryptionError, decrypt_message, encrypt_message
 
 User = get_user_model()
 

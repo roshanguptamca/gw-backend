@@ -15,7 +15,6 @@ from apps.jobs.models import ATSReport, JobMatch, TemporaryJobDescription
 from apps.resumes.models import OptimizedResume, TemporaryGeneratedResume
 from apps.resumes.services import create_resume_from_snapshot, keyword_counts, resume_snapshot
 
-
 SKILL_ALIASES = {
     "agile": "Agile",
     "angular": "Angular",

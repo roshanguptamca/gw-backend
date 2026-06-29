@@ -4,6 +4,7 @@ from rest_framework import serializers
 from apps.templates_app.models import ResumeTemplate
 from apps.templates_app.serializers import ResumeTemplateSerializer
 
+from .limits import usage_for_request
 from .models import (
     Award,
     Certification,
@@ -19,7 +20,6 @@ from .models import (
     WorkExperience,
     normalize_resume_value,
 )
-from .limits import usage_for_request
 
 
 class PersonalDetailSerializer(serializers.ModelSerializer):

@@ -5,6 +5,7 @@ from django.conf import settings
 from django.contrib.auth import login
 from django.http import HttpResponseRedirect
 from django.views.decorators.csrf import csrf_exempt
+
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated

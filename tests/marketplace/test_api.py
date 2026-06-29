@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -176,6 +177,7 @@ class BuyerOrderAPITests(TestCase):
         self.shop.is_approved = True
         self.shop.save()
         from apps.marketplace.models import ShopSettings
+
         ShopSettings.objects.get_or_create(shop=self.shop)
 
         self.buyer = User.objects.create_user(
@@ -252,6 +254,7 @@ class BuyerOrderAPITests(TestCase):
 
     def test_buyer_cannot_submit_duplicate_cancellation_request(self):
         from apps.marketplace.models import OrderCancellationRequest
+
         OrderCancellationRequest.objects.create(
             order=self.order,
             buyer=self.buyer,
@@ -302,6 +305,7 @@ class SellerCancellationAPITests(TestCase):
             status=Order.STATUS_PENDING,
         )
         from apps.marketplace.models import OrderCancellationRequest
+
         self.cancel_request = OrderCancellationRequest.objects.create(
             order=self.order,
             buyer=self.buyer,
@@ -330,6 +334,7 @@ class SellerCancellationAPITests(TestCase):
 
     def test_seller_cannot_process_already_processed_request(self):
         from apps.marketplace.models import OrderCancellationRequest
+
         self.cancel_request.status = OrderCancellationRequest.STATUS_APPROVED
         self.cancel_request.save()
         self.client.force_authenticate(self.seller_user)
@@ -360,9 +365,8 @@ class MarketplaceSearchAPITests(TestCase):
         self.shop.is_approved = True
         self.shop.save()
         from apps.marketplace.models import Category
-        self.cat = Category.objects.create(
-            shop=self.shop, name="Books", slug="books", is_active=True
-        )
+
+        self.cat = Category.objects.create(shop=self.shop, name="Books", slug="books", is_active=True)
         self.product = Product.objects.create(
             shop=self.shop,
             name="Python Book",

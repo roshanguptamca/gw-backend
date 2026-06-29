@@ -3,7 +3,8 @@
 Unit tests for document text extractors.
 """
 import pytest
-from apps.doc_x.extract import extract_text, extract_csv, extract_txt
+
+from apps.doc_x.extract import extract_csv, extract_text, extract_txt
 
 
 def test_extract_txt(temp_txt_file):
@@ -58,8 +59,8 @@ def test_extract_unsupported_file_type(temp_txt_file):
 
 def test_extract_empty_csv():
     """Test extraction of empty CSV."""
-    import tempfile
     import os
+    import tempfile
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
         f.write("Header1,Header2\n")  # Only headers
@@ -74,8 +75,8 @@ def test_extract_empty_csv():
 
 def test_extract_txt_encoding_fallback():
     """Test that TXT extractor handles encoding issues."""
-    import tempfile
     import os
+    import tempfile
 
     # Create file with latin-1 encoding
     with tempfile.NamedTemporaryFile(mode="wb", suffix=".txt", delete=False) as f:

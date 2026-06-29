@@ -1,6 +1,7 @@
 """
 SecureWise — report generation service.
 """
+
 from __future__ import annotations
 
 import logging
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 def generate_json_report(scan) -> dict:
     """Build a JSON report dict from a completed scan."""
     from apps.securewise.models import SecureWiseFinding  # noqa: F401 — unused but kept for future use
+
     # findings already loaded via the scan relation
 
     findings = list(scan.findings.all())
@@ -29,24 +31,26 @@ def generate_json_report(scan) -> dict:
             cwe_map[f.cwe_id].append(f.title)
         if f.owasp_category:
             owasp_map[f.owasp_category].append(f.title)
-        findings_data.append({
-            "id": str(f.id),
-            "title": f.title,
-            "severity": f.severity,
-            "confidence": f.confidence,
-            "status": f.status,
-            "cwe_id": f.cwe_id,
-            "owasp_category": f.owasp_category,
-            "file_path": f.file_path,
-            "line_number": f.line_number,
-            "endpoint": f.endpoint,
-            "scanner_type": f.scanner_type,
-            "description": f.description,
-            "recommendation": f.recommendation,
-            "bad_code_example": f.bad_code_example,
-            "fixed_code_example": f.fixed_code_example,
-            "ai_fix_suggestion": f.ai_fix_suggestion,
-        })
+        findings_data.append(
+            {
+                "id": str(f.id),
+                "title": f.title,
+                "severity": f.severity,
+                "confidence": f.confidence,
+                "status": f.status,
+                "cwe_id": f.cwe_id,
+                "owasp_category": f.owasp_category,
+                "file_path": f.file_path,
+                "line_number": f.line_number,
+                "endpoint": f.endpoint,
+                "scanner_type": f.scanner_type,
+                "description": f.description,
+                "recommendation": f.recommendation,
+                "bad_code_example": f.bad_code_example,
+                "fixed_code_example": f.fixed_code_example,
+                "ai_fix_suggestion": f.ai_fix_suggestion,
+            }
+        )
 
     total = len(findings)
     return {

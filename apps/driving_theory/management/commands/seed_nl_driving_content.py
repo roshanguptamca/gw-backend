@@ -3,7 +3,6 @@ from django.db import transaction
 
 from apps.driving_theory.models import DrivingLesson
 
-
 LESSON_TRANSLATIONS = {
     "1": {
         "title_nl": "Aan de slag met Nederlandse wegen",

@@ -6,17 +6,8 @@ import re
 
 from rest_framework import serializers
 
-from .models import (
-    EmailReminder,
-    ReminderAttachment,
-    ReminderDeliveryLog,
-    UserNotificationPreference,
-)
-from .validators import (
-    validate_attachment_count,
-    validate_attachment_file,
-    validate_scheduled_at,
-)
+from .models import EmailReminder, ReminderAttachment, ReminderDeliveryLog, UserNotificationPreference
+from .validators import validate_attachment_count, validate_attachment_file, validate_scheduled_at
 
 _E164_RE = re.compile(r"^\+[1-9]\d{7,14}$")
 

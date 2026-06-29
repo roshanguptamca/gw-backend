@@ -6,15 +6,15 @@ All file I/O goes through services.file_storage.get_file_storage()
 so storage is switchable between S3 and DB via FILE_STORAGE_BACKEND setting.
 """
 
-import os
 import logging
-from typing import Optional, List
+import os
+from typing import List, Optional
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import UploadedFile
 
 from apps.doc_x.models import Document, DocumentFile
-from services.file_storage import get_file_storage, build_storage_key
+from services.file_storage import build_storage_key, get_file_storage
 
 logger = logging.getLogger(__name__)
 User = get_user_model()

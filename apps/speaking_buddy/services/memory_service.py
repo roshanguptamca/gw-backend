@@ -38,7 +38,14 @@ def update_session_insights(profile: BuddyProfile, session: BuddySession, insigh
     profile.favorite_topics = _merge_unique(profile.favorite_topics, insights.get("practice_topics", []))
     profile.save(update_fields=["previous_conversation_summary", "weak_areas", "favorite_topics", "updated_at"])
 
-    _ensure_memory(profile, "summary", f"session-{session.id}-summary", {"text": insights.get("summary", "")}, importance=5, session=session)
+    _ensure_memory(
+        profile,
+        "summary",
+        f"session-{session.id}-summary",
+        {"text": insights.get("summary", "")},
+        importance=5,
+        session=session,
+    )
     for area in insights.get("weak_areas", []):
         _ensure_memory(profile, "weak_area", str(area).lower(), {"text": area}, importance=4, session=session)
     for topic in insights.get("practice_topics", []):
@@ -73,4 +80,3 @@ def update_session_insights(profile: BuddyProfile, session: BuddySession, insigh
             mistake_type=item.get("mistake_type", ""),
             language=item.get("language", profile.target_language),
         )
-

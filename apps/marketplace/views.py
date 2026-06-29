@@ -1,5 +1,6 @@
 from django.db.models import Count, Q, Sum
 from django.utils import timezone
+
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -8,7 +9,17 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
-from .models import Campaign, Category, Coupon, Order, OrderCancellationRequest, Product, ProductImage, SellerProfile, Shop
+from .models import (
+    Campaign,
+    Category,
+    Coupon,
+    Order,
+    OrderCancellationRequest,
+    Product,
+    ProductImage,
+    SellerProfile,
+    Shop,
+)
 from .permissions import IsSeller, IsShopOwner, IsSuperAdmin
 from .serializers import (
     AdminProductApprovalSerializer,
@@ -113,6 +124,7 @@ class CustomerOrderViewSet(viewsets.ReadOnlyModelViewSet):
 
 class BuyerOrderViewSet(viewsets.ReadOnlyModelViewSet):
     """Buyer sees only their own orders. Sellers and guests cannot access this."""
+
     serializer_class = BuyerOrderSerializer
     permission_classes = [IsAuthenticated]
 
@@ -161,6 +173,7 @@ class BuyerOrderViewSet(viewsets.ReadOnlyModelViewSet):
 
 class SellerCancellationRequestViewSet(viewsets.GenericViewSet):
     """Seller views and responds to cancellation requests for their shop."""
+
     serializer_class = OrderCancellationRequestSerializer
     permission_classes = [IsSeller]
 
@@ -205,6 +218,7 @@ class SellerCancellationRequestViewSet(viewsets.GenericViewSet):
 
 class MarketplaceSearchView(APIView):
     """Search marketplace products and shops with filters. Public endpoint."""
+
     permission_classes = [AllowAny]
 
     def get(self, request):
@@ -234,12 +248,8 @@ class MarketplaceSearchView(APIView):
         )
 
         if q:
-            products_qs = products_qs.filter(
-                Q(name__icontains=q) | Q(description__icontains=q)
-            )
-            shops_qs = shops_qs.filter(
-                Q(name__icontains=q) | Q(description__icontains=q)
-            )
+            products_qs = products_qs.filter(Q(name__icontains=q) | Q(description__icontains=q))
+            shops_qs = shops_qs.filter(Q(name__icontains=q) | Q(description__icontains=q))
         if category_slug:
             products_qs = products_qs.filter(category__slug=category_slug)
         if shop_slug:
@@ -261,25 +271,30 @@ class MarketplaceSearchView(APIView):
         products_list = list(products_qs.order_by("-is_featured", "name")[:50])
         shops_list = list(shops_qs.order_by("name")[:20])
 
-        return Response({
-            "shops": PublicShopSerializer(shops_list, many=True, context={"request": request}).data,
-            "products": PublicProductSerializer(products_list, many=True, context={"request": request}).data,
-            "total_shops": len(shops_list),
-            "total_products": len(products_list),
-        })
+        return Response(
+            {
+                "shops": PublicShopSerializer(shops_list, many=True, context={"request": request}).data,
+                "products": PublicProductSerializer(products_list, many=True, context={"request": request}).data,
+                "total_shops": len(shops_list),
+                "total_products": len(products_list),
+            }
+        )
 
 
 class PublicCategoryListView(APIView):
     """List all active categories visible in the marketplace."""
+
     permission_classes = [AllowAny]
 
     def get(self, request):
         categories = (
             Category.objects.filter(is_active=True)
-            .annotate(product_count=Count(
-                "products",
-                filter=Q(products__is_active=True, products__is_approved=True),
-            ))
+            .annotate(
+                product_count=Count(
+                    "products",
+                    filter=Q(products__is_active=True, products__is_approved=True),
+                )
+            )
             .order_by("name")
         )
         return Response(PublicCategorySerializer(categories, many=True).data)
@@ -418,7 +433,11 @@ class SellerOrderViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsSeller, IsShopOwner]
 
     def get_queryset(self):
-        return Order.objects.filter(shop=self.request.user.seller_profile.shop).select_related("shop").prefetch_related("items")
+        return (
+            Order.objects.filter(shop=self.request.user.seller_profile.shop)
+            .select_related("shop")
+            .prefetch_related("items")
+        )
 
     @action(detail=True, methods=["patch"])
     def status(self, request, pk=None):

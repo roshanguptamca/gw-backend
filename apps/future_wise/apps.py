@@ -77,9 +77,10 @@ class FutureWiseConfig(AppConfig):
 def _start_background_scheduler():
     """Start APScheduler as a background thread."""
     try:
+        from django.conf import settings
+
         from apscheduler.schedulers.background import BackgroundScheduler
         from apscheduler.triggers.interval import IntervalTrigger
-        from django.conf import settings
 
         from apps.future_wise.tasks import dispatch_due_reminders, expire_unverified_reminders
 

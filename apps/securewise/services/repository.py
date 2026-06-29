@@ -6,9 +6,9 @@ Checks public/private reachability before saving a SecureWiseRepository.
 
 from __future__ import annotations
 
+import logging
 import re
 import subprocess
-import logging
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
@@ -20,9 +20,7 @@ PROVIDER_URL_MAP = {
     "dev.azure.com": "azure_devops",
 }
 
-_URL_RE = re.compile(
-    r"^https?://[^\s/$.?#].[^\s]*$", re.IGNORECASE
-)
+_URL_RE = re.compile(r"^https?://[^\s/$.?#].[^\s]*$", re.IGNORECASE)
 
 
 def detect_provider(url: str) -> str:
@@ -86,6 +84,7 @@ def check_private_access(url: str, token: str) -> tuple[bool, str]:
     Token is NEVER logged.
     """
     from urllib.parse import urlparse, urlunparse
+
     clone_url = url if url.endswith(".git") else url + ".git"
     parsed = urlparse(clone_url)
     authed = parsed._replace(netloc=f"oauth2:{token}@{parsed.netloc}")

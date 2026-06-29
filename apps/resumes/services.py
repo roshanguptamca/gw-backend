@@ -3,9 +3,8 @@ import json
 import logging
 import re
 from calendar import monthrange
-from datetime import date
 from collections import Counter
-from datetime import timedelta
+from datetime import date, timedelta
 
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
@@ -13,8 +12,8 @@ from django.db import transaction
 from django.forms.models import model_to_dict
 from django.utils import timezone
 
-from docx import Document as DocxDocument
 import pdfplumber
+from docx import Document as DocxDocument
 from pypdf import PdfReader
 
 from apps.resumes.models import (

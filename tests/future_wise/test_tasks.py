@@ -270,6 +270,7 @@ class CleanupUnverifiedRemindersTest(TestCase):
     def test_management_command_output(self):
         """Management command should report the number of deleted reminders."""
         from io import StringIO
+
         from django.core.management import call_command
 
         self._make_old_pending()
@@ -282,6 +283,7 @@ class CleanupUnverifiedRemindersTest(TestCase):
     def test_management_command_no_reminders(self):
         """Management command should report nothing to delete when clean."""
         from io import StringIO
+
         from django.core.management import call_command
 
         out = StringIO()

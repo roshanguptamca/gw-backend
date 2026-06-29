@@ -1,5 +1,6 @@
 from django.contrib import admin
-from .models import InsuranceSession, InsuranceMessage
+
+from .models import InsuranceMessage, InsuranceSession
 
 
 class InsuranceMessageInline(admin.TabularInline):

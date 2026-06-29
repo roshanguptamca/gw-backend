@@ -20,8 +20,9 @@ Bot setup:
 
 import logging
 
-import requests
 from django.conf import settings
+
+import requests
 
 from .base import DeliveryResult, IReminderProvider
 

@@ -29,4 +29,3 @@ class IsShopOwner(BasePermission):
             return product.shop.owner_id == request.user.id
         owner = getattr(obj, "owner", None)
         return bool(owner and owner.id == request.user.id)
-

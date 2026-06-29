@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from .models import InsuranceSession, InsuranceMessage
+
+from .models import InsuranceMessage, InsuranceSession
 
 
 class InsuranceMessageSerializer(serializers.ModelSerializer):

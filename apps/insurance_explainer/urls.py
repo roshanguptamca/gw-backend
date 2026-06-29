@@ -1,10 +1,6 @@
 from django.urls import path
-from .views import (
-    InsuranceExplainView,
-    InsuranceSessionDetailView,
-    InsuranceChatView,
-    InsuranceMessagesView,
-)
+
+from .views import InsuranceChatView, InsuranceExplainView, InsuranceMessagesView, InsuranceSessionDetailView
 
 urlpatterns = [
     path("sessions/", InsuranceExplainView.as_view(), name="insurance-sessions"),

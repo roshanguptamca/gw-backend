@@ -1,8 +1,9 @@
-from django.contrib import admin
 from django.conf import settings
-from django.urls import path, include
 from django.conf.urls.static import static
-from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
+from django.contrib import admin
+from django.urls import include, path
+
+from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -33,6 +34,7 @@ else:
     # Serve uploaded media files in production.
     # For high-traffic deployments replace this with S3 + django-storages.
     from django.views.static import serve as _media_serve
+
     urlpatterns += [
         path(
             settings.MEDIA_URL.lstrip("/") + "<path:path>",

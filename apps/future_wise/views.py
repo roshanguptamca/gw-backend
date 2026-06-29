@@ -18,18 +18,14 @@ import logging
 
 from django.conf import settings
 from django.shortcuts import get_object_or_404
+
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema, inline_serializer
+from rest_framework import serializers as drf_serializers
 from rest_framework import status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from drf_spectacular.utils import (
-    extend_schema,
-    OpenApiExample,
-    OpenApiParameter,
-    inline_serializer,
-)
-from rest_framework import serializers as drf_serializers
 
 from .email_service import BrevoEmailService
 from .models import EmailReminder, ReminderAttachment, ReminderChannel, UserNotificationPreference
@@ -652,8 +648,8 @@ class ReminderTestSendView(APIView):
 
         channel_code = ser.validated_data["channel"]
 
-        from .providers import PROVIDER_REGISTRY
         from .dispatcher import ReminderDispatcher
+        from .providers import PROVIDER_REGISTRY
 
         provider_cls = PROVIDER_REGISTRY.get(channel_code)
         if provider_cls is None:

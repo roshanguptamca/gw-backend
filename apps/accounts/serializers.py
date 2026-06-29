@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+
 from rest_framework import serializers
 
 logger = logging.getLogger(__name__)
@@ -22,9 +23,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         default="buyer",
         write_only=True,
     )
-    business_name = serializers.CharField(
-        required=False, allow_blank=True, max_length=150, write_only=True
-    )
+    business_name = serializers.CharField(required=False, allow_blank=True, max_length=150, write_only=True)
 
     class Meta:
         model = User
@@ -47,8 +46,9 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
+        from apps.future_wise.email_service import BrevoDeliveryError, BrevoEmailService
+
         from .models import UserProfile
-        from apps.future_wise.email_service import BrevoEmailService, BrevoDeliveryError
 
         account_type = validated_data.pop("account_type", "buyer")
         business_name = validated_data.pop("business_name", "").strip()
@@ -75,8 +75,10 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         # Create SellerProfile + draft Shop for seller registrations
         if account_type == "seller":
             try:
-                from apps.marketplace.models import SellerProfile, Shop
                 import re
+
+                from apps.marketplace.models import SellerProfile, Shop
+
                 seller_profile = SellerProfile.objects.create(
                     user=user,
                     business_name=business_name or user.username,
@@ -94,7 +96,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
                     seller_profile=seller_profile,
                     name=business_name or user.username,
                     slug=slug,
-                    is_active=False,    # inactive until approved
+                    is_active=False,  # inactive until approved
                     is_approved=False,  # requires admin approval
                 )
             except Exception as exc:
@@ -103,6 +105,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         # Link any guest orders placed with this email to the new account
         try:
             from apps.marketplace.services import link_guest_orders_to_user
+
             link_guest_orders_to_user(user)
         except Exception as exc:
             logger.warning("Failed to link guest orders for %s: %s", user.email, exc)

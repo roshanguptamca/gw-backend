@@ -23,10 +23,10 @@ Usage
     storage.delete(doc_file)                     # remove
 """
 
+import logging
 import os
 import tempfile
 import uuid
-import logging
 
 from django.conf import settings
 

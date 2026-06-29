@@ -18,11 +18,12 @@ Two backends are provided:
 
 import logging
 
-import certifi
-import requests
 from django.conf import settings
 from django.core.mail.backends.base import BaseEmailBackend
 from django.core.mail.backends.smtp import EmailBackend
+
+import certifi
+import requests
 
 logger = logging.getLogger(__name__)
 

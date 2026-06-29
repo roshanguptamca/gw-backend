@@ -2,12 +2,15 @@
 """
 Pytest fixtures for Doc_X tests.
 """
-import pytest
-from django.contrib.auth import get_user_model
-from apps.doc_x.models import Document, ChatSession
-from rest_framework.test import APIClient
-import tempfile
 import os
+import tempfile
+
+from django.contrib.auth import get_user_model
+
+import pytest
+from rest_framework.test import APIClient
+
+from apps.doc_x.models import ChatSession, Document
 
 User = get_user_model()
 

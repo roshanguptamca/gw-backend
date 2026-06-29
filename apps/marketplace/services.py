@@ -9,11 +9,22 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.text import slugify
+
 from rest_framework import serializers
 
 logger = logging.getLogger(__name__)
 
-from .models import Category, Coupon, Order, OrderItem, Product, SellerProfile, Shop, ShopSettings, OrderCancellationRequest
+from .models import (
+    Category,
+    Coupon,
+    Order,
+    OrderCancellationRequest,
+    OrderItem,
+    Product,
+    SellerProfile,
+    Shop,
+    ShopSettings,
+)
 
 User = get_user_model()
 
@@ -197,7 +208,11 @@ def _create_order_atomic(payload, user=None):
         total=total,
         customer_note=payload.get("customer_note", ""),
         terms_accepted=bool(payload.get("terms_accepted", False)),
-        status=Order.STATUS_ACCEPTED if settings and settings.order_acceptance_mode == ShopSettings.ORDER_ACCEPTANCE_AUTO else Order.STATUS_PENDING,
+        status=(
+            Order.STATUS_ACCEPTED
+            if settings and settings.order_acceptance_mode == ShopSettings.ORDER_ACCEPTANCE_AUTO
+            else Order.STATUS_PENDING
+        ),
     )
     for product, quantity, line_total in order_lines:
         OrderItem.objects.create(
@@ -308,7 +323,6 @@ def send_seller_notification_email(order):
     )
 
 
-
 def link_guest_orders_to_user(user):
     """After registration, link any guest orders with matching email to the new user account."""
     if not user.email:
@@ -364,9 +378,7 @@ def send_cancellation_result_email_to_buyer(cancel_request):
     order = cancel_request.order
     currency = getattr(getattr(order.shop, "settings", None), "currency", "EUR")
     approved = cancel_request.status == OrderCancellationRequest.STATUS_APPROVED
-    subject = (
-        f"Your cancellation request for {order.order_number} was {'approved' if approved else 'rejected'}"
-    )
+    subject = f"Your cancellation request for {order.order_number} was {'approved' if approved else 'rejected'}"
     decision_text = "approved" if approved else "rejected"
     color = "#28a745" if approved else "#dc3545"
     html_message = f"""

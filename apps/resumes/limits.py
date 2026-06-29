@@ -1,10 +1,10 @@
 from django.db import transaction
 from django.db.models import F
+
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from .anonymous_identity import resolve_anonymous_identity
 from .models import Resume
-
 
 ANONYMOUS_MAX_RESUMES = 1
 ANONYMOUS_MAX_EDITS = 10

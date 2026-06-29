@@ -1,4 +1,5 @@
 from django.urls import path
+
 from . import views, views_v2
 
 # New V2 API endpoints (recommended)

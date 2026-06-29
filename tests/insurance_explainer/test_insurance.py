@@ -2,10 +2,10 @@ from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.test import TestCase
+
 from rest_framework.test import APIClient
 
 from apps.insurance_explainer.models import InsuranceSession
-
 
 MOCK_ANALYSIS = {
     "insurance_type": "Health Insurance",

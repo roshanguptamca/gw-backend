@@ -4,6 +4,7 @@ Regression tests to ensure all existing endpoints still work.
 CRITICAL: These tests must pass 100% to maintain backward compatibility.
 """
 import pytest
+
 from apps.doc_x.models import Document, UserQuestionLimit
 
 

@@ -13,12 +13,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from apps.future_wise.dispatcher import ReminderDispatcher
-from apps.future_wise.models import (
-    EmailReminder,
-    ReminderChannel,
-    ReminderDeliveryLog,
-    UserNotificationPreference,
-)
+from apps.future_wise.models import EmailReminder, ReminderChannel, ReminderDeliveryLog, UserNotificationPreference
 from apps.future_wise.providers.base import DeliveryResult
 
 User = get_user_model()

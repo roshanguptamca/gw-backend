@@ -3,8 +3,10 @@ SecureWise SASP — backend unit tests.
 Covers: models, permissions, org isolation, project CRUD,
         scan creation, mock scan execution, findings, report generation.
 """
-import pytest
+
 from django.contrib.auth import get_user_model
+
+import pytest
 
 from apps.securewise.models import (
     SecureWiseAuditLog,
@@ -18,8 +20,8 @@ from apps.securewise.models import (
     SecureWiseScan,
     SecureWiseScanPolicy,
 )
-from apps.securewise.services.scanner import ScannerRunner, MockSastScanner
 from apps.securewise.services.report import generate_json_report
+from apps.securewise.services.scanner import MockSastScanner, ScannerRunner
 
 User = get_user_model()
 
@@ -55,9 +57,7 @@ def org(owner):
 
 @pytest.fixture
 def project(org, owner):
-    return SecureWiseProject.objects.create(
-        organization=org, name="TestProject", slug="testproject", created_by=owner
-    )
+    return SecureWiseProject.objects.create(organization=org, name="TestProject", slug="testproject", created_by=owner)
 
 
 @pytest.fixture
@@ -162,6 +162,7 @@ class TestOrgIsolation:
 
     def test_outsider_cannot_see_org(self, org, outsider):
         from apps.securewise.views import _get_user_org_ids
+
         ids = list(_get_user_org_ids(outsider))
         assert str(org.id) not in [str(i) for i in ids]
 
@@ -173,6 +174,7 @@ class TestOrgIsolation:
         org2 = SecureWiseOrganization.objects.create(name="Org2", slug="org2", owner=outsider)
         SecureWiseMembership.objects.create(organization=org2, user=outsider, role="owner")
         from apps.securewise.views import _get_user_org_ids
+
         owner_orgs = list(_get_user_org_ids(owner))
         outsider_orgs = list(_get_user_org_ids(outsider))
         assert not set(owner_orgs) & set(outsider_orgs)
@@ -217,9 +219,7 @@ class TestMockScanner:
     def test_audit_log_created_for_scan(self, scan):
         runner = ScannerRunner()
         runner.run_scan(str(scan.id))
-        logs = SecureWiseAuditLog.objects.filter(
-            target_type="SecureWiseScan", target_id=str(scan.id)
-        )
+        logs = SecureWiseAuditLog.objects.filter(target_type="SecureWiseScan", target_id=str(scan.id))
         assert logs.filter(event="scan_started").exists()
         # Completed or failed — either is logged
         assert logs.filter(event__in=["scan_completed", "scan_failed"]).exists()
@@ -250,9 +250,14 @@ class TestFindingCreation:
 
     def test_finding_status_changes(self, scan, project, org):
         f = SecureWiseFinding.objects.create(
-            scan=scan, project=project, organization=org,
-            title="Test", severity="medium", confidence="medium",
-            status="open", scanner_type="sast",
+            scan=scan,
+            project=project,
+            organization=org,
+            title="Test",
+            severity="medium",
+            confidence="medium",
+            status="open",
+            scanner_type="sast",
         )
         f.status = "accepted_risk"
         f.save()
