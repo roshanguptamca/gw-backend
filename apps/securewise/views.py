@@ -4,13 +4,15 @@ SecureWise SASP — API views.
 All endpoints require authentication.
 Users can only access organizations where they are members.
 """
+
 from __future__ import annotations
 
 import logging
 import threading
 
-from django.db.models import Count, Q
+from django.db.models import Q
 from django.utils import timezone
+
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -44,6 +46,7 @@ from .serializers import (
     SecureWiseScanPolicySerializer,
     SecureWiseScanSerializer,
 )
+from .services.report import generate_json_report
 from .services.repository import (
     check_private_access,
     check_public_access,
@@ -51,7 +54,6 @@ from .services.repository import (
     normalize_url,
     validate_url_format,
 )
-from .services.report import generate_json_report
 from .services.scanner import ScannerRunner
 
 logger = logging.getLogger(__name__)
@@ -88,25 +90,30 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return SecureWiseOrganization.objects.filter(
-            id__in=_get_user_org_ids(self.request.user)
-        ).prefetch_related("memberships")
+        return SecureWiseOrganization.objects.filter(id__in=_get_user_org_ids(self.request.user)).prefetch_related(
+            "memberships"
+        )
 
     def perform_create(self, serializer):
         org = serializer.save(owner=self.request.user)
         # Auto-create owner membership
-        SecureWiseMembership.objects.create(
-            organization=org, user=self.request.user, role="owner"
+        SecureWiseMembership.objects.create(organization=org, user=self.request.user, role="owner")
+        _audit(
+            self.request.user,
+            "organization_created",
+            org=org,
+            target_type="SecureWiseOrganization",
+            target_id=org.id,
+            detail={"name": org.name},
+            request=self.request,
         )
-        _audit(self.request.user, "organization_created", org=org,
-               target_type="SecureWiseOrganization", target_id=org.id,
-               detail={"name": org.name}, request=self.request)
 
     def perform_update(self, serializer):
         instance = serializer.instance
         m = _membership(self.request.user, instance)
         if m is None or m.role not in ADMIN_ROLES:
             from rest_framework.exceptions import PermissionDenied
+
             raise PermissionDenied("Only org owners/admins can update this organization.")
         serializer.save()
 
@@ -114,6 +121,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         m = _membership(self.request.user, instance)
         if m is None or m.role != "owner":
             from rest_framework.exceptions import PermissionDenied
+
             raise PermissionDenied("Only the owner can delete this organization.")
         instance.delete()
 
@@ -137,6 +145,7 @@ class MembershipViewSet(viewsets.ModelViewSet):
         m = _membership(self.request.user, org)
         if m is None or m.role not in ADMIN_ROLES:
             from rest_framework.exceptions import PermissionDenied
+
             raise PermissionDenied("Only org admins can add members.")
         serializer.save(invited_by=self.request.user)
 
@@ -160,33 +169,50 @@ class GitIntegrationViewSet(viewsets.ModelViewSet):
         m = _membership(self.request.user, org)
         if m is None or m.role not in ADMIN_ROLES:
             from rest_framework.exceptions import PermissionDenied
+
             raise PermissionDenied("Only org owners/admins can create Git integrations.")
         instance = serializer.save(connected_by=self.request.user)
-        _audit(self.request.user, "git_integration_created", org=org,
-               target_type="SecureWiseGitIntegration", target_id=instance.id,
-               detail={"provider": instance.provider, "name": instance.name},
-               request=self.request)
+        _audit(
+            self.request.user,
+            "git_integration_created",
+            org=org,
+            target_type="SecureWiseGitIntegration",
+            target_id=instance.id,
+            detail={"provider": instance.provider, "name": instance.name},
+            request=self.request,
+        )
 
     def perform_update(self, serializer):
         org = serializer.instance.organization
         m = _membership(self.request.user, org)
         if m is None or m.role not in ADMIN_ROLES:
             from rest_framework.exceptions import PermissionDenied
+
             raise PermissionDenied("Only org owners/admins can update Git integrations.")
         instance = serializer.save()
-        _audit(self.request.user, "git_integration_updated", org=org,
-               target_type="SecureWiseGitIntegration", target_id=instance.id,
-               request=self.request)
+        _audit(
+            self.request.user,
+            "git_integration_updated",
+            org=org,
+            target_type="SecureWiseGitIntegration",
+            target_id=instance.id,
+            request=self.request,
+        )
 
     def perform_destroy(self, instance):
         m = _membership(self.request.user, instance.organization)
         if m is None or m.role not in ADMIN_ROLES:
             from rest_framework.exceptions import PermissionDenied
+
             raise PermissionDenied("Only org owners/admins can delete Git integrations.")
-        _audit(self.request.user, "git_integration_deleted",
-               org=instance.organization,
-               target_type="SecureWiseGitIntegration", target_id=instance.id,
-               request=self.request)
+        _audit(
+            self.request.user,
+            "git_integration_deleted",
+            org=instance.organization,
+            target_type="SecureWiseGitIntegration",
+            target_id=instance.id,
+            request=self.request,
+        )
         instance.delete()
 
     @action(detail=True, methods=["post"])
@@ -197,30 +223,41 @@ class GitIntegrationViewSet(viewsets.ModelViewSet):
         if not token:
             return Response({"detail": "No token stored for this integration."}, status=400)
         # Use a well-known public API endpoint to verify token validity
-        import urllib.request, urllib.error
+        import urllib.error
+        import urllib.request
+
         headers = {"Authorization": f"token {token}", "User-Agent": "SecureWise-SASP/1.0"}
-        url = f"{integration.base_url.rstrip('/')}/api/v3/user" if "github" in integration.provider else integration.base_url
+        url = (
+            f"{integration.base_url.rstrip('/')}/api/v3/user"
+            if "github" in integration.provider
+            else integration.base_url
+        )
+        success = False
         try:
             req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, timeout=10) as resp:
-                del token
-                if resp.status == 200:
-                    integration.last_used_at = timezone.now()
-                    integration.status = "active"
-                    integration.save(update_fields=["last_used_at", "status"])
-                    return Response({"detail": "Connection successful.", "status": "active"})
+                success = resp.status == 200
         except Exception:
-            del token
+            pass
+        finally:
+            del token  # always remove token from memory
+        if success:
+            integration.last_used_at = timezone.now()
+            integration.status = "active"
+            integration.save(update_fields=["last_used_at", "status"])
+            return Response({"detail": "Connection successful.", "status": "active"})
         return Response({"detail": "Connection test failed. Verify token and permissions."}, status=400)
 
     @action(detail=True, methods=["post"], url_path="list-repositories")
     def list_repositories(self, request, pk=None):
         """List repositories accessible via this integration (MVP: returns placeholder)."""
         # TODO: Use provider API to list repos (GitHub API /user/repos, GitLab /projects, etc.)
-        return Response({
-            "detail": "Repository listing via provider API coming soon.",
-            "repositories": [],
-        })
+        return Response(
+            {
+                "detail": "Repository listing via provider API coming soon.",
+                "repositories": [],
+            }
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -233,9 +270,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        qs = SecureWiseProject.objects.filter(
-            organization_id__in=_get_user_org_ids(self.request.user)
-        ).select_related("created_by")
+        qs = SecureWiseProject.objects.filter(organization_id__in=_get_user_org_ids(self.request.user)).select_related(
+            "created_by"
+        )
         org_id = self.request.query_params.get("organization")
         if org_id:
             qs = qs.filter(organization_id=org_id)
@@ -246,17 +283,25 @@ class ProjectViewSet(viewsets.ModelViewSet):
         m = _membership(self.request.user, org)
         if m is None or m.role not in WRITE_ROLES:
             from rest_framework.exceptions import PermissionDenied
+
             raise PermissionDenied("You do not have permission to create projects in this organization.")
         project = serializer.save(created_by=self.request.user)
-        _audit(self.request.user, "project_created", org=org,
-               target_type="SecureWiseProject", target_id=project.id,
-               detail={"name": project.name}, request=self.request)
+        _audit(
+            self.request.user,
+            "project_created",
+            org=org,
+            target_type="SecureWiseProject",
+            target_id=project.id,
+            detail={"name": project.name},
+            request=self.request,
+        )
 
     def perform_update(self, serializer):
         org = serializer.instance.organization
         m = _membership(self.request.user, org)
         if m is None or m.role not in WRITE_ROLES:
             from rest_framework.exceptions import PermissionDenied
+
             raise PermissionDenied("You do not have permission to update this project.")
         serializer.save()
 
@@ -264,6 +309,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         m = _membership(self.request.user, instance.organization)
         if m is None or m.role not in ADMIN_ROLES:
             from rest_framework.exceptions import PermissionDenied
+
             raise PermissionDenied("Only org admins can delete projects.")
         instance.delete()
 
@@ -295,6 +341,7 @@ class RepositoryViewSet(viewsets.ModelViewSet):
         m = _membership(self.request.user, org)
         if m is None or m.role not in WRITE_ROLES:
             from rest_framework.exceptions import PermissionDenied
+
             raise PermissionDenied("You do not have permission to add repositories.")
         raw_url = serializer.validated_data.get("repository_url", "")
         url = normalize_url(raw_url)
@@ -306,9 +353,15 @@ class RepositoryViewSet(viewsets.ModelViewSet):
             clone_url=clone_url,
             provider=provider,
         )
-        _audit(self.request.user, "repository_added", org=org,
-               target_type="SecureWiseRepository", target_id=instance.id,
-               detail={"url": url}, request=self.request)
+        _audit(
+            self.request.user,
+            "repository_added",
+            org=org,
+            target_type="SecureWiseRepository",
+            target_id=instance.id,
+            detail={"url": url},
+            request=self.request,
+        )
 
     @action(detail=False, methods=["post"], throttle_classes=[RepositoryValidateThrottle])
     def validate(self, request):
@@ -342,11 +395,13 @@ class RepositoryViewSet(viewsets.ModelViewSet):
             else:
                 accessible, msg = False, "No integration provided for private repository."
 
-        return Response({
-            "accessible": accessible,
-            "message": msg,
-            "provider": detect_provider(url),
-        })
+        return Response(
+            {
+                "accessible": accessible,
+                "message": msg,
+                "provider": detect_provider(url),
+            }
+        )
 
     @action(detail=True, methods=["post"], url_path="test-access")
     def test_access(self, request, pk=None):
@@ -389,6 +444,7 @@ class ScanPolicyViewSet(viewsets.ModelViewSet):
         m = _membership(self.request.user, org)
         if m is None or m.role not in WRITE_ROLES:
             from rest_framework.exceptions import PermissionDenied
+
             raise PermissionDenied("You do not have permission to create scan policies.")
         serializer.save(created_by=self.request.user)
 
@@ -404,9 +460,9 @@ class ScanViewSet(viewsets.ModelViewSet):
     http_method_names = ["get", "post", "head", "options"]  # No PATCH/DELETE on scans
 
     def get_queryset(self):
-        qs = SecureWiseScan.objects.filter(
-            organization_id__in=_get_user_org_ids(self.request.user)
-        ).select_related("project", "repository", "policy", "triggered_by")
+        qs = SecureWiseScan.objects.filter(organization_id__in=_get_user_org_ids(self.request.user)).select_related(
+            "project", "repository", "policy", "triggered_by"
+        )
         project_id = self.request.query_params.get("project")
         if project_id:
             qs = qs.filter(project_id=project_id)
@@ -423,6 +479,7 @@ class ScanViewSet(viewsets.ModelViewSet):
         m = _membership(self.request.user, org)
         if m is None or m.role not in WRITE_ROLES:
             from rest_framework.exceptions import PermissionDenied
+
             raise PermissionDenied("You do not have permission to create scans.")
         scan = serializer.save(triggered_by=self.request.user, status="pending")
         return scan
@@ -430,7 +487,7 @@ class ScanViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        scan = self.perform_create(serializer)
+        self.perform_create(serializer)
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
@@ -476,9 +533,9 @@ class FindingViewSet(viewsets.ModelViewSet):
     http_method_names = ["get", "patch", "post", "head", "options"]
 
     def get_queryset(self):
-        qs = SecureWiseFinding.objects.filter(
-            organization_id__in=_get_user_org_ids(self.request.user)
-        ).select_related("scan", "project", "reviewed_by")
+        qs = SecureWiseFinding.objects.filter(organization_id__in=_get_user_org_ids(self.request.user)).select_related(
+            "scan", "project", "reviewed_by"
+        )
         project_id = self.request.query_params.get("project")
         if project_id:
             qs = qs.filter(project_id=project_id)
@@ -500,11 +557,15 @@ class FindingViewSet(viewsets.ModelViewSet):
         old_status = serializer.instance.status
         instance = serializer.save()
         if instance.status != old_status:
-            _audit(self.request.user, "finding_status_changed",
-                   org=instance.organization,
-                   target_type="SecureWiseFinding", target_id=instance.id,
-                   detail={"old_status": old_status, "new_status": instance.status},
-                   request=self.request)
+            _audit(
+                self.request.user,
+                "finding_status_changed",
+                org=instance.organization,
+                target_type="SecureWiseFinding",
+                target_id=instance.id,
+                detail={"old_status": old_status, "new_status": instance.status},
+                request=self.request,
+            )
 
     @action(detail=True, methods=["post"], url_path="accept-risk")
     def accept_risk(self, request, pk=None):
@@ -515,12 +576,15 @@ class FindingViewSet(viewsets.ModelViewSet):
         finding.reviewed_at = timezone.now()
         finding.review_note = request.data.get("note", "")
         finding.save(update_fields=["status", "reviewed_by", "reviewed_at", "review_note"])
-        _audit(request.user, "finding_status_changed",
-               org=finding.organization,
-               target_type="SecureWiseFinding", target_id=finding.id,
-               detail={"old_status": old_status, "new_status": "accepted_risk",
-                       "note": finding.review_note},
-               request=request)
+        _audit(
+            request.user,
+            "finding_status_changed",
+            org=finding.organization,
+            target_type="SecureWiseFinding",
+            target_id=finding.id,
+            detail={"old_status": old_status, "new_status": "accepted_risk", "note": finding.review_note},
+            request=request,
+        )
         return Response(self.get_serializer(finding).data)
 
     @action(detail=True, methods=["post"], url_path="mark-false-positive")
@@ -532,12 +596,15 @@ class FindingViewSet(viewsets.ModelViewSet):
         finding.reviewed_at = timezone.now()
         finding.review_note = request.data.get("note", "")
         finding.save(update_fields=["status", "reviewed_by", "reviewed_at", "review_note"])
-        _audit(request.user, "finding_status_changed",
-               org=finding.organization,
-               target_type="SecureWiseFinding", target_id=finding.id,
-               detail={"old_status": old_status, "new_status": "false_positive",
-                       "note": finding.review_note},
-               request=request)
+        _audit(
+            request.user,
+            "finding_status_changed",
+            org=finding.organization,
+            target_type="SecureWiseFinding",
+            target_id=finding.id,
+            detail={"old_status": old_status, "new_status": "false_positive", "note": finding.review_note},
+            request=request,
+        )
         return Response(self.get_serializer(finding).data)
 
 
@@ -552,9 +619,9 @@ class ReportViewSet(viewsets.ModelViewSet):
     http_method_names = ["get", "post", "head", "options"]
 
     def get_queryset(self):
-        qs = SecureWiseReport.objects.filter(
-            organization_id__in=_get_user_org_ids(self.request.user)
-        ).select_related("project", "scan", "generated_by")
+        qs = SecureWiseReport.objects.filter(organization_id__in=_get_user_org_ids(self.request.user)).select_related(
+            "project", "scan", "generated_by"
+        )
         project_id = self.request.query_params.get("project")
         if project_id:
             qs = qs.filter(project_id=project_id)
@@ -565,6 +632,7 @@ class ReportViewSet(viewsets.ModelViewSet):
         m = _membership(self.request.user, org)
         if m is None:
             from rest_framework.exceptions import PermissionDenied
+
             raise PermissionDenied("You are not a member of this organization.")
 
         scan = serializer.validated_data.get("scan")
@@ -584,9 +652,15 @@ class ReportViewSet(viewsets.ModelViewSet):
 
         report.save(update_fields=["report_data", "quality_gate_passed", "status"])
 
-        _audit(self.request.user, "report_generated", org=org,
-               target_type="SecureWiseReport", target_id=report.id,
-               detail={"title": report.title}, request=self.request)
+        _audit(
+            self.request.user,
+            "report_generated",
+            org=org,
+            target_type="SecureWiseReport",
+            target_id=report.id,
+            detail={"title": report.title},
+            request=self.request,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -599,15 +673,14 @@ class IntegrationViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return SecureWiseIntegration.objects.filter(
-            organization_id__in=_get_user_org_ids(self.request.user)
-        )
+        return SecureWiseIntegration.objects.filter(organization_id__in=_get_user_org_ids(self.request.user))
 
     def perform_create(self, serializer):
         org = serializer.validated_data["organization"]
         m = _membership(self.request.user, org)
         if m is None or m.role not in ADMIN_ROLES:
             from rest_framework.exceptions import PermissionDenied
+
             raise PermissionDenied("Only org admins can manage integrations.")
         serializer.save(created_by=self.request.user)
 
@@ -622,9 +695,9 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        qs = SecureWiseAuditLog.objects.filter(
-            organization_id__in=_get_user_org_ids(self.request.user)
-        ).select_related("user")
+        qs = SecureWiseAuditLog.objects.filter(organization_id__in=_get_user_org_ids(self.request.user)).select_related(
+            "user"
+        )
         org_id = self.request.query_params.get("organization")
         if org_id:
             qs = qs.filter(organization_id=org_id)
@@ -645,9 +718,7 @@ class DashboardSummaryView(APIView):
         total_projects = SecureWiseProject.objects.filter(organization_id__in=org_ids).count()
         total_scans = SecureWiseScan.objects.filter(organization_id__in=org_ids).count()
 
-        findings_qs = SecureWiseFinding.objects.filter(
-            organization_id__in=org_ids, status="open"
-        )
+        findings_qs = SecureWiseFinding.objects.filter(organization_id__in=org_ids, status="open")
         open_findings = findings_qs.count()
         critical_high = findings_qs.filter(severity__in=["critical", "high"]).count()
 
@@ -657,15 +728,19 @@ class DashboardSummaryView(APIView):
             severity_counts[sev] = findings_qs.filter(severity=sev).count()
 
         # Recent scans (last 10)
-        recent_scans = SecureWiseScan.objects.filter(
-            organization_id__in=org_ids
-        ).select_related("project").order_by("-created_at")[:10]
+        recent_scans = (
+            SecureWiseScan.objects.filter(organization_id__in=org_ids)
+            .select_related("project")
+            .order_by("-created_at")[:10]
+        )
 
         from .serializers import SecureWiseScanSerializer
+
         recent_scans_data = SecureWiseScanSerializer(recent_scans, many=True).data
 
         # Top risky projects (by open critical/high findings)
         from django.db.models import Count
+
         risky_projects = (
             SecureWiseFinding.objects.filter(
                 organization_id__in=org_ids,
@@ -685,13 +760,15 @@ class DashboardSummaryView(APIView):
             deduct = min(100, (critical_count * 10) + (high_count * 5))
             security_score = max(0, 100 - deduct)
 
-        return Response({
-            "total_projects": total_projects,
-            "total_scans": total_scans,
-            "open_findings": open_findings,
-            "critical_high_count": critical_high,
-            "security_score": security_score,
-            "severity_counts": severity_counts,
-            "recent_scans": recent_scans_data,
-            "top_risky_projects": list(risky_projects),
-        })
+        return Response(
+            {
+                "total_projects": total_projects,
+                "total_scans": total_scans,
+                "open_findings": open_findings,
+                "critical_high_count": critical_high,
+                "security_score": security_score,
+                "severity_counts": severity_counts,
+                "recent_scans": recent_scans_data,
+                "top_risky_projects": list(risky_projects),
+            }
+        )

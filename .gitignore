@@ -211,7 +211,7 @@ __marimo__/
 staticfiles/
 
 # Local development — do not commit
-.flake8
+# .flake8 — removed: flake8 config must be tracked
 # .github/ — removed: CI workflows must be tracked
 documents/
 media/

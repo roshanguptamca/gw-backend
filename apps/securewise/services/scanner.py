@@ -18,7 +18,6 @@ from __future__ import annotations
 import logging
 import subprocess
 import tempfile
-import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -249,9 +248,9 @@ SCANNER_MAP = {
     "dast": MockDastScanner,
     "sca": MockScaScanner,
     "secrets": MockSecretScanner,
-    "iac": MockScaScanner,       # TODO: Trivy IaC
+    "iac": MockScaScanner,  # TODO: Trivy IaC
     "container": MockScaScanner,  # TODO: Trivy image
-    "api": MockDastScanner,       # TODO: dedicated API scanner
+    "api": MockDastScanner,  # TODO: dedicated API scanner
 }
 
 
@@ -275,7 +274,8 @@ class ScannerRunner:
     def run_scan(self, scan_id: str) -> None:
         """Entry point called by the view after saving the scan."""
         from django.utils import timezone
-        from apps.securewise.models import SecureWiseScan, SecureWiseFinding, SecureWiseAuditLog
+
+        from apps.securewise.models import SecureWiseAuditLog, SecureWiseFinding, SecureWiseScan
 
         try:
             scan = SecureWiseScan.objects.select_related(
@@ -366,10 +366,16 @@ class ScannerRunner:
         scan.duration_seconds = duration
         scan.error_message = error_msg
         scan.quality_gate_passed = quality_gate_passed
-        scan.save(update_fields=[
-            "status", "completed_at", "duration_seconds",
-            "error_message", "quality_gate_passed", "scanner_metadata",
-        ])
+        scan.save(
+            update_fields=[
+                "status",
+                "completed_at",
+                "duration_seconds",
+                "error_message",
+                "quality_gate_passed",
+                "scanner_metadata",
+            ]
+        )
 
         SecureWiseAuditLog.objects.create(
             organization=scan.organization,
@@ -398,6 +404,7 @@ class ScannerRunner:
             if token:
                 # Build authenticated URL — never log this
                 from urllib.parse import urlparse, urlunparse
+
                 parsed = urlparse(clone_url)
                 authed = parsed._replace(netloc=f"oauth2:{token}@{parsed.netloc}")
                 clone_url_with_token = urlunparse(authed)
@@ -415,7 +422,9 @@ class ScannerRunner:
         try:
             subprocess.run(
                 ["git", "clone", "--depth", "1", clone_url, str(repo_path)],
-                capture_output=True, timeout=120, check=True,
+                capture_output=True,
+                timeout=120,
+                check=True,
             )
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"Failed to clone repository: {clone_url}") from e

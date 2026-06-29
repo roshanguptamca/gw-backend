@@ -60,11 +60,7 @@ jobs:
         run: isort --check-only --diff .
 
       - name: flake8 — style / error check
-        run: |
-          flake8 . \
-            --max-line-length=120 \
-            --extend-ignore=E203,W503,E501 \
-            --exclude=venv,.venv,migrations,staticfiles,node_modules
+        run: flake8 .
 
   # ── 2. Tests + Coverage ──────────────────────────────────────────────────
   test:

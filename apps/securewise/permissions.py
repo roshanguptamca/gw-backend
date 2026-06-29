@@ -1,6 +1,5 @@
 import logging
 
-from django.utils import timezone
 from rest_framework import permissions
 
 from .models import SecureWiseMembership, SecureWiseOrganization

@@ -1,10 +1,10 @@
 import uuid
 
-from cryptography.fernet import Fernet
 from django.conf import settings
 from django.core.validators import URLValidator
 from django.db import models
-from django.utils import timezone
+
+from cryptography.fernet import Fernet
 
 
 def _get_fernet():
@@ -165,12 +165,8 @@ class SecureWiseOrganization(models.Model):
 
 class SecureWiseMembership(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    organization = models.ForeignKey(
-        SecureWiseOrganization, on_delete=models.CASCADE, related_name="memberships"
-    )
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="sw_memberships"
-    )
+    organization = models.ForeignKey(SecureWiseOrganization, on_delete=models.CASCADE, related_name="memberships")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="sw_memberships")
     role = models.CharField(max_length=30, choices=ROLE_CHOICES, default="developer")
     invited_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -197,13 +193,9 @@ class SecureWiseMembership(models.Model):
 
 class SecureWiseGitIntegration(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    organization = models.ForeignKey(
-        SecureWiseOrganization, on_delete=models.CASCADE, related_name="git_integrations"
-    )
+    organization = models.ForeignKey(SecureWiseOrganization, on_delete=models.CASCADE, related_name="git_integrations")
     provider = models.CharField(max_length=30, choices=GIT_PROVIDER_CHOICES)
-    auth_type = models.CharField(
-        max_length=30, choices=GIT_AUTH_TYPE_CHOICES, default="personal_access_token"
-    )
+    auth_type = models.CharField(max_length=30, choices=GIT_AUTH_TYPE_CHOICES, default="personal_access_token")
     name = models.CharField(max_length=150)
     base_url = models.URLField(default="https://github.com")
     # Token is stored encrypted; never returned in API responses
@@ -218,9 +210,7 @@ class SecureWiseGitIntegration(models.Model):
     )
     connected_at = models.DateTimeField(auto_now_add=True)
     last_used_at = models.DateTimeField(null=True, blank=True)
-    status = models.CharField(
-        max_length=20, choices=GIT_INTEGRATION_STATUS_CHOICES, default="active"
-    )
+    status = models.CharField(max_length=20, choices=GIT_INTEGRATION_STATUS_CHOICES, default="active")
     metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -256,9 +246,7 @@ class SecureWiseGitIntegration(models.Model):
 
 class SecureWiseProject(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    organization = models.ForeignKey(
-        SecureWiseOrganization, on_delete=models.CASCADE, related_name="projects"
-    )
+    organization = models.ForeignKey(SecureWiseOrganization, on_delete=models.CASCADE, related_name="projects")
     name = models.CharField(max_length=150)
     slug = models.SlugField(max_length=100)
     description = models.TextField(blank=True)
@@ -294,9 +282,7 @@ class SecureWiseProject(models.Model):
 
 class SecureWiseRepository(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    organization = models.ForeignKey(
-        SecureWiseOrganization, on_delete=models.CASCADE, related_name="repositories"
-    )
+    organization = models.ForeignKey(SecureWiseOrganization, on_delete=models.CASCADE, related_name="repositories")
     project = models.ForeignKey(
         SecureWiseProject,
         on_delete=models.SET_NULL,
@@ -320,9 +306,7 @@ class SecureWiseRepository(models.Model):
     visibility = models.CharField(max_length=20, choices=VISIBILITY_CHOICES, default="public")
     access_mode = models.CharField(max_length=20, choices=ACCESS_MODE_CHOICES, default="public")
     last_access_check_at = models.DateTimeField(null=True, blank=True)
-    last_access_status = models.CharField(
-        max_length=20, choices=LAST_ACCESS_STATUS_CHOICES, blank=True
-    )
+    last_access_status = models.CharField(max_length=20, choices=LAST_ACCESS_STATUS_CHOICES, blank=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -346,9 +330,7 @@ class SecureWiseRepository(models.Model):
 
 class SecureWiseScanPolicy(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    organization = models.ForeignKey(
-        SecureWiseOrganization, on_delete=models.CASCADE, related_name="scan_policies"
-    )
+    organization = models.ForeignKey(SecureWiseOrganization, on_delete=models.CASCADE, related_name="scan_policies")
     project = models.ForeignKey(
         SecureWiseProject,
         on_delete=models.SET_NULL,
@@ -363,9 +345,7 @@ class SecureWiseScanPolicy(models.Model):
         help_text="List of scan type keys, e.g. ['sast','sca']",
     )
     # Quality gate configuration
-    fail_on_severity = models.CharField(
-        max_length=20, choices=SEVERITY_CHOICES, default="high"
-    )
+    fail_on_severity = models.CharField(max_length=20, choices=SEVERITY_CHOICES, default="high")
     max_critical = models.IntegerField(default=0)
     max_high = models.IntegerField(default=5)
     schedule_cron = models.CharField(max_length=100, blank=True, help_text="Cron expression for auto-scheduling.")
@@ -395,12 +375,8 @@ class SecureWiseScanPolicy(models.Model):
 
 class SecureWiseScan(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    organization = models.ForeignKey(
-        SecureWiseOrganization, on_delete=models.CASCADE, related_name="scans"
-    )
-    project = models.ForeignKey(
-        SecureWiseProject, on_delete=models.CASCADE, related_name="scans"
-    )
+    organization = models.ForeignKey(SecureWiseOrganization, on_delete=models.CASCADE, related_name="scans")
+    project = models.ForeignKey(SecureWiseProject, on_delete=models.CASCADE, related_name="scans")
     repository = models.ForeignKey(
         SecureWiseRepository,
         on_delete=models.SET_NULL,
@@ -450,12 +426,8 @@ class SecureWiseScan(models.Model):
 class SecureWiseFinding(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     scan = models.ForeignKey(SecureWiseScan, on_delete=models.CASCADE, related_name="findings")
-    project = models.ForeignKey(
-        SecureWiseProject, on_delete=models.CASCADE, related_name="findings"
-    )
-    organization = models.ForeignKey(
-        SecureWiseOrganization, on_delete=models.CASCADE, related_name="findings"
-    )
+    project = models.ForeignKey(SecureWiseProject, on_delete=models.CASCADE, related_name="findings")
+    organization = models.ForeignKey(SecureWiseOrganization, on_delete=models.CASCADE, related_name="findings")
 
     title = models.CharField(max_length=500)
     description = models.TextField(blank=True)
@@ -522,12 +494,8 @@ class SecureWiseReport(models.Model):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    organization = models.ForeignKey(
-        SecureWiseOrganization, on_delete=models.CASCADE, related_name="reports"
-    )
-    project = models.ForeignKey(
-        SecureWiseProject, on_delete=models.CASCADE, related_name="reports"
-    )
+    organization = models.ForeignKey(SecureWiseOrganization, on_delete=models.CASCADE, related_name="reports")
+    project = models.ForeignKey(SecureWiseProject, on_delete=models.CASCADE, related_name="reports")
     scan = models.ForeignKey(
         SecureWiseScan,
         on_delete=models.SET_NULL,
@@ -572,9 +540,7 @@ class SecureWiseIntegration(models.Model):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    organization = models.ForeignKey(
-        SecureWiseOrganization, on_delete=models.CASCADE, related_name="integrations"
-    )
+    organization = models.ForeignKey(SecureWiseOrganization, on_delete=models.CASCADE, related_name="integrations")
     integration_type = models.CharField(max_length=30, choices=INTEGRATION_TYPE_CHOICES)
     name = models.CharField(max_length=150)
     config = models.JSONField(default=dict, blank=True, help_text="Non-sensitive config values.")
