@@ -6,7 +6,6 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
 
-
 SMTP_SETTINGS = {
     "EMAIL_BACKEND": "django.core.mail.backends.locmem.EmailBackend",
     "EMAIL_SENDER_EMAIL": "noreply@guidewisey.com",
@@ -23,6 +22,7 @@ class BrevoEmailServiceTest(TestCase):
     def test_send_verification_email_uses_correct_recipient(self):
         """Verification email should be addressed to the target user."""
         from django.core import mail
+
         from apps.future_wise.email_service import BrevoEmailService
 
         service = BrevoEmailService()
@@ -36,6 +36,7 @@ class BrevoEmailServiceTest(TestCase):
     def test_send_verification_email_contains_url(self):
         """Verification email HTML should contain the verification URL."""
         from django.core import mail
+
         from apps.future_wise.email_service import BrevoEmailService
 
         verification_url = "https://example.com/verify/tok123"
@@ -51,6 +52,7 @@ class BrevoEmailServiceTest(TestCase):
         """Free reminder email should be sent without attachments."""
         from django.core import mail
         from django.utils import timezone
+
         from apps.future_wise.email_service import BrevoEmailService
 
         reminder = MagicMock()
@@ -75,6 +77,7 @@ class BrevoEmailServiceTest(TestCase):
         """Reminder email with attachment data should include the attachment."""
         from django.core import mail
         from django.utils import timezone
+
         from apps.future_wise.email_service import BrevoEmailService
 
         reminder = MagicMock()
@@ -106,6 +109,7 @@ class BrevoEmailServiceTest(TestCase):
         """Premium reminder should use the premium email template."""
         from django.core import mail
         from django.utils import timezone
+
         from apps.future_wise.email_service import BrevoEmailService
 
         reminder = MagicMock()
@@ -141,7 +145,8 @@ class BrevoEmailServiceTest(TestCase):
     @override_settings(BREVO_API_KEY="test-api-key")
     def test_brevo_api_path_used_when_api_key_set(self):
         """When BREVO_API_KEY is set, HTTP API should be used instead of SMTP."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         from apps.future_wise.email_service import BrevoEmailService
 
         mock_resp = MagicMock()
@@ -161,6 +166,7 @@ class BrevoEmailServiceTest(TestCase):
     def test_brevo_api_failure_raises_delivery_error(self):
         """Brevo API HTTP errors should be wrapped in BrevoDeliveryError."""
         import requests as req
+
         from apps.future_wise.email_service import BrevoDeliveryError, BrevoEmailService
 
         with patch("apps.future_wise.email_service.requests.post", side_effect=req.ConnectionError("API timeout")):

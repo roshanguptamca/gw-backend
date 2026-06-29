@@ -10,7 +10,6 @@ from docx.shared import Inches, Pt, RGBColor
 from apps.files.models import UserFile
 from apps.resumes.services import resume_snapshot
 
-
 DEFAULT_SECTION_ORDER = [
     "summary",
     "experience",

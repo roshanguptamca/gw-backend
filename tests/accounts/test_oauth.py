@@ -6,14 +6,15 @@ from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.utils import timezone
+
 from rest_framework.test import APIClient
 
 from apps.accounts.models import OAuthTransaction, UserAuthProvider, UserProfile
 from apps.accounts.oauth import (
     OAuthError,
     SocialProfile,
-    _exchange_code,
     _callback_url,
+    _exchange_code,
     _provider_settings,
     connect_social_account,
     fetch_social_profile,

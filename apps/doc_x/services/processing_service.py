@@ -6,12 +6,12 @@ File retrieval goes through services.file_storage so it works with both
 S3 and DB storage backends.
 """
 
+import logging
 import os
 import tempfile
-import logging
 
-from apps.doc_x.models import Document, DocumentChunk, ProcessingJob
 from apps.doc_x.extract import extract_text
+from apps.doc_x.models import Document, DocumentChunk, ProcessingJob
 from services.file_storage import get_file_storage
 from services.gemini import GeminiClient
 

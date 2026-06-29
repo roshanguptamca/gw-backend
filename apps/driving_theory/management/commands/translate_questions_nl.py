@@ -14,8 +14,8 @@ Usage:
 Resumable: questions that already have question_text_nl are skipped.
 """
 
-import time
 import logging
+import time
 
 from django.core.management.base import BaseCommand, CommandError
 

@@ -4,17 +4,13 @@ import os
 import tempfile
 import uuid
 
-from drf_spectacular.utils import (
-    extend_schema,
-    OpenApiParameter,
-    OpenApiExample,
-    inline_serializer,
-)
-from guidewisey.decorators import question_limit
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema, inline_serializer
 from rest_framework import serializers as drf_serializers
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+
+from guidewisey.decorators import question_limit
 from services.ai import AIClient
 from services.gemini import GeminiClient
 
@@ -26,8 +22,8 @@ except ImportError:
     S3Client = None
     _S3_AVAILABLE = False
 
-from .extract import extract_pdf, extract_docx, extract_image
-from .models import Document, Conversation, UserQuestionLimit
+from .extract import extract_docx, extract_image, extract_pdf
+from .models import Conversation, Document, UserQuestionLimit
 from .serializers import DocumentSerializer
 
 logger = logging.getLogger(__name__)

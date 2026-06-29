@@ -7,7 +7,6 @@ from django.db import transaction
 
 from apps.driving_theory.models import DrivingQuestion, DrivingQuestionOption, DrivingTopic
 
-
 TOPIC_MINIMUMS = {
     "introduction-to-dutch-driving": 50,
     "road-users": 100,

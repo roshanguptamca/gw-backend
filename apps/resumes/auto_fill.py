@@ -9,22 +9,14 @@ from apps.jobs.models import JobDescription
 from apps.jobs.services import canonical_skill, parse_job_text, parse_job_url
 
 from .limits import can_create_resume, can_edit_resume, get_owned_resume
-from .models import (
-    PersonalDetail,
-    Resume,
-    ResumeSummary,
-    ResumeUpload,
-    Skill,
-    TemporaryGeneratedResume,
-)
+from .models import PersonalDetail, Resume, ResumeSummary, ResumeUpload, Skill, TemporaryGeneratedResume
 from .services import (
     create_resume_from_snapshot,
     create_version,
-    parsed_resume_is_current,
     parse_upload,
+    parsed_resume_is_current,
     resume_snapshot,
 )
-
 
 TEXT = {
     "en": {

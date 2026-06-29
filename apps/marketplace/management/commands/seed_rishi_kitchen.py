@@ -12,6 +12,7 @@ Features:
 Usage:
     python manage.py seed_rishi_kitchen
 """
+
 from __future__ import annotations
 
 import logging
@@ -19,8 +20,10 @@ import os
 import secrets
 import string
 import urllib.request
+
 try:
     import requests as _requests
+
     _HAS_REQUESTS = True
 except ImportError:
     _HAS_REQUESTS = False
@@ -31,14 +34,7 @@ from django.core.files.base import ContentFile
 from django.core.management.base import BaseCommand
 
 from apps.accounts.models import UserProfile
-from apps.marketplace.models import (
-    Category,
-    Product,
-    ProductImage,
-    SellerProfile,
-    Shop,
-    ShopSettings,
-)
+from apps.marketplace.models import Category, Product, ProductImage, SellerProfile, Shop, ShopSettings
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -67,8 +63,8 @@ DEFAULT_STOCK = 20
 # ---------------------------------------------------------------------------
 
 CATEGORIES = [
-    {"name": "Snacks",     "slug": "snacks"},
-    {"name": "Sweets",     "slug": "sweets"},
+    {"name": "Snacks", "slug": "snacks"},
+    {"name": "Sweets", "slug": "sweets"},
     {"name": "Fresh Food", "slug": "fresh-food"},
 ]
 
@@ -79,20 +75,20 @@ CATEGORIES = [
 _BASE = "https://images.unsplash.com"
 PRODUCT_IMAGES: dict[str, str] = {
     # Snacks
-    "namak-para-saloni":    f"{_BASE}/photo-1513558161293-cdaf765ed2fd?w=600&q=85",
-    "samosa":               f"{_BASE}/photo-1601050690597-df0568f70950?w=600&q=85",
-    "vada-pav":             f"{_BASE}/photo-1606491956689-2ea866880c84?w=600&q=85",
+    "namak-para-saloni": f"{_BASE}/photo-1513558161293-cdaf765ed2fd?w=600&q=85",
+    "samosa": f"{_BASE}/photo-1601050690597-df0568f70950?w=600&q=85",
+    "vada-pav": f"{_BASE}/photo-1606491956689-2ea866880c84?w=600&q=85",
     "murmura-namkeen-250g": f"{_BASE}/photo-1571506165871-ee72a35bc9d4?w=600&q=85",
     "murmura-namkeen-500g": f"{_BASE}/photo-1571506165871-ee72a35bc9d4?w=600&q=85",
     # Sweets
-    "gulab-jamun":          f"{_BASE}/photo-1627308595229-7830a5c91f9f?w=600&q=85",
-    "gujia-rava-250g":      f"{_BASE}/photo-1587314168485-3236d6710814?w=600&q=85",
-    "gujia-rava-500g":      f"{_BASE}/photo-1587314168485-3236d6710814?w=600&q=85",
-    "gujia-mava-250g":      f"{_BASE}/photo-1590080875515-8a3a8dc5735e?w=600&q=85",
-    "gujia-mava-500g":      f"{_BASE}/photo-1590080875515-8a3a8dc5735e?w=600&q=85",
+    "gulab-jamun": f"{_BASE}/photo-1627308595229-7830a5c91f9f?w=600&q=85",
+    "gujia-rava-250g": f"{_BASE}/photo-1587314168485-3236d6710814?w=600&q=85",
+    "gujia-rava-500g": f"{_BASE}/photo-1587314168485-3236d6710814?w=600&q=85",
+    "gujia-mava-250g": f"{_BASE}/photo-1590080875515-8a3a8dc5735e?w=600&q=85",
+    "gujia-mava-500g": f"{_BASE}/photo-1590080875515-8a3a8dc5735e?w=600&q=85",
     # Fresh Food
-    "idli":                 f"{_BASE}/photo-1555126634-323283e090fa?w=600&q=85",
-    "minapa-garelu":        f"{_BASE}/photo-1551024601-bec78aea704b?w=600&q=85",
+    "idli": f"{_BASE}/photo-1555126634-323283e090fa?w=600&q=85",
+    "minapa-garelu": f"{_BASE}/photo-1551024601-bec78aea704b?w=600&q=85",
 }
 
 # ---------------------------------------------------------------------------
@@ -217,6 +213,7 @@ PRODUCTS = [
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _generate_password(length: int = 16) -> str:
     alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
     return "".join(secrets.choice(alphabet) for _ in range(length))
@@ -229,10 +226,7 @@ def _download_image(url: str, filename: str) -> "ContentFile | None":
     Falls back to urllib with system SSL context if requests is unavailable.
     Returns None on any error so the seed continues gracefully.
     """
-    ua = (
-        "GuideWisey-marketplace-seed/1.0 "
-        "(https://guidewisey.com; marketplace@guidewisey.com)"
-    )
+    ua = "GuideWisey-marketplace-seed/1.0 " "(https://guidewisey.com; marketplace@guidewisey.com)"
     try:
         if _HAS_REQUESTS:
             resp = _requests.get(url, headers={"User-Agent": ua}, timeout=15)
@@ -240,10 +234,9 @@ def _download_image(url: str, filename: str) -> "ContentFile | None":
             return ContentFile(resp.content, name=filename)
         else:
             import ssl
+
             ctx = ssl.create_default_context()
-            req = urllib.request.Request(
-                url, headers={"User-Agent": ua, "Accept": "image/*"}
-            )
+            req = urllib.request.Request(url, headers={"User-Agent": ua, "Accept": "image/*"})
             with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
                 return ContentFile(resp.read(), name=filename)
     except Exception as exc:
@@ -254,6 +247,7 @@ def _download_image(url: str, filename: str) -> "ContentFile | None":
 # ---------------------------------------------------------------------------
 # Command
 # ---------------------------------------------------------------------------
+
 
 class Command(BaseCommand):
     help = "Seed Rishi Kitchen shop for GuideWisey Marketplace (idempotent)"

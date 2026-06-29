@@ -6,7 +6,6 @@ from rest_framework.response import Response
 
 from apps.resumes.models import Education, PersonalDetail, Skill, WorkExperience
 
-
 CURATED = {
     "skills": [
         ("React", "Technical"),

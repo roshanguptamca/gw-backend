@@ -9,8 +9,8 @@ Usage:
 """
 
 from django.core.management.base import BaseCommand
-from apps.driving_theory.models import DrivingQuestion, DrivingQuestionOption, DrivingTopic
 
+from apps.driving_theory.models import DrivingQuestion, DrivingQuestionOption, DrivingTopic
 
 # ---------------------------------------------------------------------------
 # Dutch translations keyed by question ID

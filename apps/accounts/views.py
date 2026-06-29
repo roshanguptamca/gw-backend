@@ -9,12 +9,8 @@ from django.utils import timezone, translation
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext_lazy as _
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
-from drf_spectacular.utils import (
-    extend_schema,
-    OpenApiExample,
-    OpenApiResponse,
-    inline_serializer,
-)
+
+from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import serializers as drf_serializers
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -26,9 +22,9 @@ from rest_framework.views import APIView
 from .models import LANGUAGE_CHOICES, UserProfile
 from .serializers import (
     ChangePasswordSerializer,
-    UserRegistrationSerializer,
     ForgotPasswordSerializer,
     ResetPasswordSerializer,
+    UserRegistrationSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -158,7 +154,12 @@ class RegisterView(APIView):
             account_type = request.data.get("account_type", "buyer")
             is_seller = hasattr(user, "seller_profile")
             return Response(
-                {"message": str(_("User created")), "id": user.id, "is_seller": is_seller, "account_type": account_type},
+                {
+                    "message": str(_("User created")),
+                    "id": user.id,
+                    "is_seller": is_seller,
+                    "account_type": account_type,
+                },
                 status=status.HTTP_201_CREATED,
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -636,8 +637,10 @@ class ResendConfirmationView(APIView):
 
     def post(self, request):
         from django.contrib.auth import get_user_model
+
+        from apps.future_wise.email_service import BrevoDeliveryError, BrevoEmailService
+
         from .models import UserProfile
-        from apps.future_wise.email_service import BrevoEmailService, BrevoDeliveryError
 
         email = request.data.get("email", "").strip().lower()
         if not email:
@@ -693,8 +696,11 @@ class ForgotPasswordView(APIView):
     )
     def post(self, request):
         from django.contrib.auth import get_user_model as _get_user_model
+
+        from apps.future_wise.email_service import BrevoDeliveryError
+        from apps.future_wise.email_service import BrevoEmailService as _BrevoEmailService
+
         from .models import UserProfile as _UserProfile
-        from apps.future_wise.email_service import BrevoEmailService as _BrevoEmailService, BrevoDeliveryError
 
         _User = _get_user_model()
 

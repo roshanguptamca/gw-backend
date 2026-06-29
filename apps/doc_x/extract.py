@@ -1,9 +1,10 @@
-from pypdf import PdfReader
-from docx import Document as DocxDocument
-import pytesseract
-from PIL import Image
-import pandas as pd
 import logging
+
+import pandas as pd
+import pytesseract
+from docx import Document as DocxDocument
+from PIL import Image
+from pypdf import PdfReader
 
 logger = logging.getLogger(__name__)
 

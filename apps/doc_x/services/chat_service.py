@@ -3,9 +3,11 @@
 Chat service - handles chat sessions and messages for documents.
 """
 import logging
-from typing import Optional, List
+from typing import List, Optional
+
 from django.contrib.auth import get_user_model
-from apps.doc_x.models import Document, ChatSession, ChatMessage, UserQuestionLimit
+
+from apps.doc_x.models import ChatMessage, ChatSession, Document, UserQuestionLimit
 from services.gemini import GeminiClient
 
 logger = logging.getLogger(__name__)

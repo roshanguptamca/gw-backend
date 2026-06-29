@@ -8,6 +8,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.utils import timezone
+
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 
 logger = logging.getLogger(__name__)

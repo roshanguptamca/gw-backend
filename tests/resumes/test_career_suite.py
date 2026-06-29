@@ -14,8 +14,8 @@ from rest_framework.test import APIClient
 
 from apps.exports.services import generate_docx, get_export_photo, render_resume_html
 from apps.files.models import UserFile
-from apps.jobs.services import analyze_match, parse_job_text, parse_job_url
 from apps.jobs.models import JobDescription, TemporaryJobDescription
+from apps.jobs.services import analyze_match, parse_job_text, parse_job_url
 from apps.resumes.models import (
     AnonymousResumeIdentity,
     Education,

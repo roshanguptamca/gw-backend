@@ -22,12 +22,7 @@ import logging
 
 from django.utils import timezone
 
-from .models import (
-    EmailReminder,
-    ReminderChannel,
-    ReminderDeliveryLog,
-    UserNotificationPreference,
-)
+from .models import EmailReminder, ReminderChannel, ReminderDeliveryLog, UserNotificationPreference
 from .providers import PROVIDER_REGISTRY
 
 logger = logging.getLogger(__name__)

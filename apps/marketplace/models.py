@@ -91,7 +91,9 @@ class Category(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["shop", "slug"], name="unique_marketplace_category_per_shop"),
-            models.UniqueConstraint(fields=["slug"], condition=models.Q(shop__isnull=True), name="unique_global_category"),
+            models.UniqueConstraint(
+                fields=["slug"], condition=models.Q(shop__isnull=True), name="unique_global_category"
+            ),
         ]
         verbose_name_plural = "categories"
 

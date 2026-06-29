@@ -1,8 +1,9 @@
-from django.contrib import admin
 from django.conf import settings
-from django.urls import path, include
 from django.conf.urls.static import static
-from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
+from django.contrib import admin
+from django.urls import include, path
+
+from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -20,6 +21,7 @@ urlpatterns = [
     path("api/", include("apps.files.urls")),
     path("api/", include("apps.marketplace.urls")),
     path("api/buddy/", include("apps.speaking_buddy.urls")),
+    path("api/securewise/", include("apps.securewise.urls")),
     # OpenAPI schema + UI
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
@@ -32,6 +34,7 @@ else:
     # Serve uploaded media files in production.
     # For high-traffic deployments replace this with S3 + django-storages.
     from django.views.static import serve as _media_serve
+
     urlpatterns += [
         path(
             settings.MEDIA_URL.lstrip("/") + "<path:path>",

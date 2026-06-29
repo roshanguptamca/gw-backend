@@ -1,22 +1,23 @@
 import logging
-import tempfile
 import os
+import tempfile
 
 from django.http import Http404
+
+from drf_spectacular.utils import OpenApiExample, extend_schema
 from rest_framework import status
-from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from drf_spectacular.utils import extend_schema, OpenApiExample
 
-from .models import InsuranceSession, InsuranceMessage
+from .models import InsuranceMessage, InsuranceSession
 from .serializers import (
     ExplainRequestSerializer,
     InsuranceChatRequestSerializer,
-    InsuranceSessionSerializer,
-    InsuranceSessionListSerializer,
     InsuranceMessageSerializer,
+    InsuranceSessionListSerializer,
+    InsuranceSessionSerializer,
 )
 from .services.gemini import InsuranceGeminiService
 
@@ -49,7 +50,7 @@ def _get_anon_insurance_remaining(request):
 
 def _extract_text_from_file(file):
     """Extract text from an uploaded file. Returns (text, filename, file_bytes)."""
-    from apps.doc_x.extract import extract_pdf, extract_docx, extract_text_file
+    from apps.doc_x.extract import extract_docx, extract_pdf, extract_text_file
 
     filename = file.name or "upload"
     ext = os.path.splitext(filename)[1].lower()

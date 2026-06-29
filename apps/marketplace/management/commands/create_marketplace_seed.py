@@ -8,6 +8,7 @@ Usage:
     python manage.py create_marketplace_seed
     python manage.py create_marketplace_seed --clear   # drop all marketplace data first
 """
+
 from __future__ import annotations
 
 import random
@@ -440,6 +441,7 @@ BUYER = {
 # ---------------------------------------------------------------------------
 # Command
 # ---------------------------------------------------------------------------
+
 
 class Command(BaseCommand):
     help = "Populate the database with default test shops, products and sample orders."

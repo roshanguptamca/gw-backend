@@ -5,10 +5,10 @@ from django.db import IntegrityError, transaction
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 
+import requests
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from PIL import Image, UnidentifiedImageError
-import requests
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view, parser_classes, permission_classes
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -18,12 +18,21 @@ from rest_framework.response import Response
 from apps.exports.services import get_template_settings, render_resume_html, save_export
 from apps.files.models import UserFile
 from apps.jobs.models import JobDescription
-from apps.templates_app.serializers import (
-    PreviewTemplateSerializer,
-    ResumeTemplateSerializer,
-    SelectTemplateSerializer,
-)
+from apps.templates_app.serializers import PreviewTemplateSerializer, ResumeTemplateSerializer, SelectTemplateSerializer
 
+from .anonymous_identity import resolve_anonymous_identity
+from .auto_fill import AutoFillResumeService
+from .limits import (
+    REGISTERED_MAX_RESUMES,
+    active_resume_count,
+    can_create_resume,
+    can_edit_resume,
+    data_changes,
+    get_owned_resume,
+    increment_resume_edit_count,
+    owned_resumes,
+    usage_for_request,
+)
 from .models import (
     Award,
     Certification,
@@ -33,9 +42,9 @@ from .models import (
     Reference,
     Resume,
     ResumeLanguage,
-    TemporaryGeneratedResume,
     ResumeUpload,
     Skill,
+    TemporaryGeneratedResume,
     WorkExperience,
 )
 from .serializers import (
@@ -54,21 +63,8 @@ from .serializers import (
     SkillSerializer,
     WorkExperienceSerializer,
 )
-from .services import apply_parsed_resume, create_version, parsed_resume_is_current, parse_upload
+from .services import apply_parsed_resume, create_version, parse_upload, parsed_resume_is_current
 from .summary_generator import generate_professional_summary, generate_skill_suggestions
-from .auto_fill import AutoFillResumeService
-from .anonymous_identity import resolve_anonymous_identity
-from .limits import (
-    active_resume_count,
-    can_create_resume,
-    can_edit_resume,
-    data_changes,
-    get_owned_resume,
-    increment_resume_edit_count,
-    owned_resumes,
-    usage_for_request,
-    REGISTERED_MAX_RESUMES,
-)
 
 
 class ResumeViewSet(viewsets.ModelViewSet):
@@ -602,9 +598,10 @@ def claim_anonymous_resume(request):
     # requests, so locate the pre-login identity using the supplied aliases and
     # the current network/session values.
     if identity is None:
+        from django.db.models import Q
+
         from .anonymous_identity import get_client_ip, normalize_email, normalize_phone
         from .models import AnonymousResumeIdentity, OptimizedResume, TemporaryGeneratedResume
-        from django.db.models import Q
 
         query = Q()
         email = normalize_email(request.data.get("email") or getattr(request.user, "email", ""))

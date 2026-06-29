@@ -5,12 +5,13 @@ import secrets
 from dataclasses import dataclass
 from urllib.parse import urlencode
 
-import jwt
-import requests
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.utils import timezone
+
+import jwt
+import requests
 
 from .models import OAuthTransaction, UserAuthProvider, UserProfile
 

@@ -1,8 +1,9 @@
 """Insurance-specific Gemini AI service (uses shared GeminiClient / google-genai SDK)."""
 
 import json
-import re
 import logging
+import re
+
 from services.gemini import GeminiClient
 
 logger = logging.getLogger(__name__)

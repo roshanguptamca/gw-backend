@@ -2,8 +2,10 @@
 """
 Integration tests for Doc_X - test complete workflows.
 """
-import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
+
+import pytest
+
 from apps.doc_x.models import Document
 
 

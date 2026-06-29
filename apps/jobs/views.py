@@ -8,8 +8,6 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from apps.resumes.models import Resume
-from apps.resumes.serializers import ResumeSerializer
 from apps.resumes.anonymous_identity import resolve_anonymous_identity
 from apps.resumes.limits import (
     REGISTERED_MAX_RESUMES,
@@ -19,6 +17,8 @@ from apps.resumes.limits import (
     increment_resume_edit_count,
     usage_for_request,
 )
+from apps.resumes.models import Resume
+from apps.resumes.serializers import ResumeSerializer
 
 from .models import JobDescription, JobMatch
 from .serializers import JobDescriptionSerializer, JobMatchSerializer, OptimizeRequestSerializer

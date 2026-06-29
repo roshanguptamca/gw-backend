@@ -1,9 +1,22 @@
 import os
 
 from django.contrib.auth import get_user_model
+
 from rest_framework import serializers
 
-from .models import Campaign, Category, Coupon, Order, OrderCancellationRequest, OrderItem, Product, ProductImage, SellerProfile, Shop, ShopSettings
+from .models import (
+    Campaign,
+    Category,
+    Coupon,
+    Order,
+    OrderCancellationRequest,
+    OrderItem,
+    Product,
+    ProductImage,
+    SellerProfile,
+    Shop,
+    ShopSettings,
+)
 from .services import create_order_from_payload, create_seller_with_shop, generate_unique_slug
 
 User = get_user_model()
@@ -241,7 +254,9 @@ class OrderCreateSerializer(serializers.Serializer):
     customer_phone = serializers.CharField(max_length=30)
     delivery_address = serializers.CharField(required=False, allow_blank=True)
     order_type = serializers.ChoiceField(choices=Order.ORDER_TYPE_CHOICES, default="pickup")
-    delivery_zone = serializers.ChoiceField(choices=Order.DELIVERY_ZONE_CHOICES, required=False, allow_blank=True, default="")
+    delivery_zone = serializers.ChoiceField(
+        choices=Order.DELIVERY_ZONE_CHOICES, required=False, allow_blank=True, default=""
+    )
     payment_method = serializers.ChoiceField(choices=Order.PAYMENT_METHOD_CHOICES, default="cash")
     customer_note = serializers.CharField(required=False, allow_blank=True)
     coupon_code = serializers.CharField(required=False, allow_blank=True)
@@ -250,9 +265,7 @@ class OrderCreateSerializer(serializers.Serializer):
 
     def validate_terms_accepted(self, value):
         if not value:
-            raise serializers.ValidationError(
-                "You must accept the Terms & Conditions to place an order."
-            )
+            raise serializers.ValidationError("You must accept the Terms & Conditions to place an order.")
         return value
 
     def validate_items(self, items):
@@ -435,6 +448,7 @@ class PublicProductSerializer(ProductSerializer):
 
 class BuyerOrderSerializer(OrderSerializer):
     """OrderSerializer extended with cancellation request details for buyers."""
+
     cancellation_request = OrderCancellationRequestSerializer(read_only=True)
 
     class Meta(OrderSerializer.Meta):
@@ -443,6 +457,7 @@ class BuyerOrderSerializer(OrderSerializer):
 
 class MarketplaceSearchResultSerializer(serializers.Serializer):
     """Used internally; actual response built directly in MarketplaceSearchView."""
+
     shops = PublicShopSerializer(many=True, read_only=True)
     products = PublicProductSerializer(many=True, read_only=True)
     total_shops = serializers.IntegerField(read_only=True)

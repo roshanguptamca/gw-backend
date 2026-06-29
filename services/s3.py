@@ -1,7 +1,8 @@
-import os
 import logging
+import os
+
 import boto3
-from botocore.exceptions import NoCredentialsError, PartialCredentialsError, ClientError
+from botocore.exceptions import ClientError, NoCredentialsError, PartialCredentialsError
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)

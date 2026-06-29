@@ -1,14 +1,7 @@
 # app/serializers.py
 from rest_framework import serializers
-from .models import (
-    Document,
-    Conversation,
-    DocumentFile,
-    DocumentChunk,
-    ProcessingJob,
-    ChatSession,
-    ChatMessage,
-)
+
+from .models import ChatMessage, ChatSession, Conversation, Document, DocumentChunk, DocumentFile, ProcessingJob
 
 
 class DocumentSerializer(serializers.ModelSerializer):

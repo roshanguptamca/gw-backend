@@ -1,6 +1,17 @@
 from django.contrib import admin
 
-from .models import Campaign, Category, Coupon, Order, OrderItem, Product, ProductImage, SellerProfile, Shop, ShopSettings
+from .models import (
+    Campaign,
+    Category,
+    Coupon,
+    Order,
+    OrderItem,
+    Product,
+    ProductImage,
+    SellerProfile,
+    Shop,
+    ShopSettings,
+)
 
 
 @admin.action(description="Approve selected shops")

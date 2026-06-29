@@ -15,9 +15,10 @@ import logging
 import re
 from typing import Optional
 
-import requests
 from django.conf import settings
 from django.template.loader import render_to_string
+
+import requests
 
 logger = logging.getLogger(__name__)
 

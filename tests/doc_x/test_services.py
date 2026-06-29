@@ -3,8 +3,9 @@
 Unit tests for Doc_X service classes.
 """
 import pytest
-from apps.doc_x.services import DocumentService, ProcessingService, ChatService
+
 from apps.doc_x.models import Document
+from apps.doc_x.services import ChatService, DocumentService, ProcessingService
 
 
 @pytest.mark.django_db
