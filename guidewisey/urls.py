@@ -20,6 +20,7 @@ urlpatterns = [
     path("api/", include("apps.files.urls")),
     path("api/", include("apps.marketplace.urls")),
     path("api/buddy/", include("apps.speaking_buddy.urls")),
+    path("api/securewise/", include("apps.securewise.urls")),
     # OpenAPI schema + UI
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),

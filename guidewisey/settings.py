@@ -76,6 +76,7 @@ INSTALLED_APPS = [
     "apps.templates_app",
     "apps.speaking_buddy.apps.SpeakingBuddyConfig",
     "apps.marketplace.apps.MarketplaceConfig",
+    "apps.securewise.apps.SecureWiseConfig",
     "django_apscheduler",
 ]
 
@@ -161,14 +162,18 @@ CORS_ALLOWED_ORIGINS = [
     "https://gw-frontend-nine.vercel.app",
     "https://gw-frontend-git-main-roshans-projects-8dfa7f93.vercel.app",
     "https://gw-frontend-7kjrbapg8-roshans-projects-8dfa7f93.vercel.app",
-]
+    # SecureWise portal
+    "https://securewise.guidewisey.com",
+] + _env_list("EXTRA_CORS_ORIGINS")
 
 if IS_DEVELOPMENT:
     CORS_ALLOWED_ORIGINS += [
         "http://localhost:3000",
         "http://localhost:5173",
+        "http://localhost:5174",  # securewise-frontend dev port
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
     ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -240,7 +245,17 @@ if IS_PRODUCTION:
     X_FRAME_OPTIONS = "DENY"
     CORS_ALLOWED_ORIGIN_REGEXES = [
         r"^https://gw-frontend-.*\.vercel\.app$",
+        r"^https://securewise.*\.vercel\.app$",
     ]
+
+# -------------------------------
+# SecureWise SASP Configuration
+# -------------------------------
+SECUREWISE_ENABLED = os.getenv("SECUREWISE_ENABLED", "true").lower() == "true"
+SECUREWISE_FRONTEND_URL = os.getenv("SECUREWISE_FRONTEND_URL", "https://securewise.guidewisey.com")
+# AES-256 key for token encryption (generate with: Fernet.generate_key())
+# Must be set in production. In dev, falls back to a SHA-256 of SECRET_KEY.
+SECUREWISE_ENCRYPTION_KEY = os.getenv("SECUREWISE_ENCRYPTION_KEY", "")
 
 # -------------------------------
 # Password Validators
@@ -504,6 +519,7 @@ REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {
     "oauth_start": os.getenv("OAUTH_START_RATE", "20/hour"),
     "oauth_callback": os.getenv("OAUTH_CALLBACK_RATE", "30/hour"),
     "marketplace_order": os.getenv("MARKETPLACE_ORDER_RATE", "30/hour"),
+    "sw_repo_validate": os.getenv("SW_REPO_VALIDATE_RATE", "20/hour"),
 }
 
 # ── Sentry Observability ─────────────────────────────────────
