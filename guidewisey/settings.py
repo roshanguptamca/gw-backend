@@ -508,21 +508,26 @@ CACHES = {
     }
 }
 
-REST_FRAMEWORK["DEFAULT_THROTTLE_CLASSES"] = [
-    "rest_framework.throttling.AnonRateThrottle",
-    "rest_framework.throttling.UserRateThrottle",
-]
-REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {
-    "anon": "100/day",
-    "user": "1000/day",
-    "futurewave_anon_create": FUTUREWAVE_ANON_CREATE_RATE,
-    "futurewave_user_create": FUTUREWAVE_USER_CREATE_RATE,
-    "futurewave_verify": FUTUREWAVE_VERIFY_RATE,
-    "oauth_start": os.getenv("OAUTH_START_RATE", "20/hour"),
-    "oauth_callback": os.getenv("OAUTH_CALLBACK_RATE", "30/hour"),
-    "marketplace_order": os.getenv("MARKETPLACE_ORDER_RATE", "30/hour"),
-    "sw_repo_validate": os.getenv("SW_REPO_VALIDATE_RATE", "20/hour"),
-}
+if not DEBUG:
+    REST_FRAMEWORK["DEFAULT_THROTTLE_CLASSES"] = [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ]
+    REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {
+        "anon": "100/day",
+        "user": "1000/day",
+        "futurewave_anon_create": FUTUREWAVE_ANON_CREATE_RATE,
+        "futurewave_user_create": FUTUREWAVE_USER_CREATE_RATE,
+        "futurewave_verify": FUTUREWAVE_VERIFY_RATE,
+        "oauth_start": os.getenv("OAUTH_START_RATE", "20/hour"),
+        "oauth_callback": os.getenv("OAUTH_CALLBACK_RATE", "30/hour"),
+        "marketplace_order": os.getenv("MARKETPLACE_ORDER_RATE", "30/hour"),
+        "sw_repo_validate": os.getenv("SW_REPO_VALIDATE_RATE", "20/hour"),
+    }
+else:
+    # Disable throttling in local development to prevent E2E test interference
+    REST_FRAMEWORK["DEFAULT_THROTTLE_CLASSES"] = []
+    REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {}
 
 # ── Sentry Observability ─────────────────────────────────────
 SENTRY_DSN = os.getenv("SENTRY_DSN", "")
