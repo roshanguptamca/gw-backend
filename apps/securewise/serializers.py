@@ -63,9 +63,11 @@ class SecureWiseOrganizationSerializer(serializers.ModelSerializer):
             base = slugify(attrs["name"])
             slug = base
             n = 1
-            while SecureWiseOrganization.objects.filter(slug=slug).exclude(
-                pk=self.instance.pk if self.instance else None
-            ).exists():
+            while (
+                SecureWiseOrganization.objects.filter(slug=slug)
+                .exclude(pk=self.instance.pk if self.instance else None)
+                .exists()
+            ):
                 slug = f"{base}-{n}"
                 n += 1
             attrs["slug"] = slug
@@ -196,9 +198,11 @@ class SecureWiseProjectSerializer(serializers.ModelSerializer):
             slug = base
             n = 1
             org = attrs.get("organization", getattr(self.instance, "organization", None))
-            while SecureWiseProject.objects.filter(slug=slug, organization=org).exclude(
-                pk=self.instance.pk if self.instance else None
-            ).exists():
+            while (
+                SecureWiseProject.objects.filter(slug=slug, organization=org)
+                .exclude(pk=self.instance.pk if self.instance else None)
+                .exists()
+            ):
                 slug = f"{base}-{n}"
                 n += 1
             attrs["slug"] = slug
