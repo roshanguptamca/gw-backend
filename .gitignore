@@ -212,7 +212,7 @@ staticfiles/
 
 # Local development — do not commit
 .flake8
-.github/
+# .github/ — removed: CI workflows must be tracked
 documents/
 media/
 .vscode/

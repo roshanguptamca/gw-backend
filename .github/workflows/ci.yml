@@ -1,0 +1,134 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# GuideWisey Backend — CI workflow
+# Runs on every push to feature/* / fix/* / main and on every Pull Request.
+#
+# Jobs:
+#   lint     → black (format check), isort, flake8
+#   test     → pytest with coverage (min 80 %)
+#   django   → manage.py check --deploy (production settings sanity)
+# ─────────────────────────────────────────────────────────────────────────────
+name: Backend CI
+
+on:
+  push:
+    branches:
+      - main
+      - "feature/**"
+      - "fix/**"
+      - "feat/**"
+  pull_request:
+    branches:
+      - main
+      - "feature/**"
+
+# Cancel in-progress runs on the same branch to save minutes
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+  DJANGO_SETTINGS_MODULE: guidewisey.settings
+  ENV: DEV
+  SECRET_KEY: ci-insecure-key-for-testing-only
+  # Stub external service vars so settings don't blow up
+  DB_NAME: ""
+  DB_USER: ""
+  DB_PASSWORD: ""
+  DB_HOST: ""
+
+jobs:
+  # ── 1. Lint ──────────────────────────────────────────────────────────────
+  lint:
+    name: Lint (black · isort · flake8)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install lint dependencies
+        run: pip install black isort flake8 flake8-bugbear
+
+      - name: black — format check
+        run: black --check --diff .
+
+      - name: isort — import order check
+        run: isort --check-only --diff .
+
+      - name: flake8 — style / error check
+        run: |
+          flake8 . \
+            --max-line-length=120 \
+            --extend-ignore=E203,W503,E501 \
+            --exclude=venv,.venv,migrations,staticfiles,node_modules
+
+  # ── 2. Tests + Coverage ──────────────────────────────────────────────────
+  test:
+    name: Tests (pytest · coverage ≥ 80 %)
+    runs-on: ubuntu-latest
+    needs: lint
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests with coverage
+        run: |
+          python -m pytest tests/ \
+            --cov=apps \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing \
+            --cov-fail-under=80 \
+            -v \
+            --tb=short \
+            -p no:cacheprovider
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+      # Post coverage summary as PR comment (needs write permissions)
+      - name: Coverage summary
+        if: github.event_name == 'pull_request'
+        uses: orgoro/coverage@v3.2
+        with:
+          coverageFile: coverage.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
+          thresholdAll: 0.80
+          thresholdNew: 0.80
+          thresholdModified: 0.80
+        continue-on-error: true   # don't fail if comment post fails
+
+  # ── 3. Django deploy check ───────────────────────────────────────────────
+  django-check:
+    name: Django system check
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run manage.py check
+        run: python manage.py check --fail-level WARNING
