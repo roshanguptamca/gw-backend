@@ -26,6 +26,11 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.AlterField(
+            model_name="product",
+            name="sku",
+            field=models.CharField(blank=True, max_length=80, null=True),
+        ),
         migrations.RunPython(prepare_skus_for_unique_constraint, migrations.RunPython.noop),
         migrations.AlterField(
             model_name="product",
