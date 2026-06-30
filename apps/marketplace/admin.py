@@ -181,8 +181,10 @@ class ProductImageInline(admin.TabularInline):
 class ProductAdmin(admin.ModelAdmin):
     form = ProductAdminForm
     list_display = [
-        "name",
         "shop",
+        "name",
+        "sku",
+        "category",
         "price",
         "stock_quantity",
         "cloudinary_image",
@@ -190,8 +192,19 @@ class ProductAdmin(admin.ModelAdmin):
         "is_approved",
         "is_featured",
     ]
-    list_filter = ["is_active", "is_approved", "is_featured", "shop"]
-    search_fields = ["name", "sku", "shop__name"]
+    list_filter = [
+        ("shop", admin.RelatedOnlyFieldListFilter),
+        "is_active",
+        "is_approved",
+        "is_featured",
+        "category",
+    ]
+    list_select_related = ["shop", "category"]
+    ordering = ["shop__name", "name"]
+    list_per_page = 50
+    show_full_result_count = False
+    search_fields = ["name", "=sku", "shop__name", "shop__owner__email"]
+    autocomplete_fields = ["shop", "category"]
     prepopulated_fields = {"slug": ("name",)}
     readonly_fields = ["cloudinary_image", "image_url", "image_public_id"]
     inlines = [ProductImageInline]

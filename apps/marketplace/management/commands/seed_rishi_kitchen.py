@@ -8,6 +8,7 @@ Features:
   - Production-safe — no data destruction, no hardcoded passwords
   - Password sourced from RISHI_KITCHEN_PASSWORD env var; auto-generated if absent
   - Uses the local marketplace placeholder until seller-owned photos are uploaded
+  - Manual-only — never invoked by migrations or deployment startup
 
 Usage:
     python manage.py seed_rishi_kitchen

@@ -20,10 +20,6 @@ python manage.py collectstatic --noinput
 echo "Applying migrations..."
 python manage.py migrate --noinput
 
-# Seed Rishi Kitchen shop (idempotent — safe to run on every deploy)
-echo "Running Rishi Kitchen seed..."
-python manage.py seed_rishi_kitchen || echo "WARNING: seed_rishi_kitchen failed — continuing startup"
-
 # Suppress pypdf ARC4 deprecation warnings
 export PYTHONWARNINGS="ignore::DeprecationWarning:pypdf"
 
