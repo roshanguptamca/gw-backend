@@ -7,7 +7,7 @@ Features:
   - Fully idempotent — safe to run multiple times (get_or_create / update_or_create)
   - Production-safe — no data destruction, no hardcoded passwords
   - Password sourced from RISHI_KITCHEN_PASSWORD env var; auto-generated if absent
-  - Downloads royalty-free product images from Unsplash (no watermark, free license)
+  - Uses the local marketplace placeholder until seller-owned photos are uploaded
 
 Usage:
     python manage.py seed_rishi_kitchen
@@ -19,22 +19,13 @@ import logging
 import os
 import secrets
 import string
-import urllib.request
-
-try:
-    import requests as _requests
-
-    _HAS_REQUESTS = True
-except ImportError:
-    _HAS_REQUESTS = False
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
-from django.core.files.base import ContentFile
 from django.core.management.base import BaseCommand
 
 from apps.accounts.models import UserProfile
-from apps.marketplace.models import Category, Product, ProductImage, SellerProfile, Shop, ShopSettings
+from apps.marketplace.models import Category, Product, SellerProfile, Shop, ShopSettings
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -69,27 +60,10 @@ CATEGORIES = [
 ]
 
 # ---------------------------------------------------------------------------
-# Royalty-free Unsplash image URLs  (no watermark, Unsplash free license)
-# Images are downloaded once at seed time and stored in Django media storage.
+# Product image placeholder. Seller-owned photos can later replace this through
+# the Cloudinary-backed seller product API.
 # ---------------------------------------------------------------------------
-_BASE = "https://images.unsplash.com"
-PRODUCT_IMAGES: dict[str, str] = {
-    # Snacks
-    "namak-para-saloni": f"{_BASE}/photo-1513558161293-cdaf765ed2fd?w=600&q=85",
-    "samosa": f"{_BASE}/photo-1601050690597-df0568f70950?w=600&q=85",
-    "vada-pav": f"{_BASE}/photo-1606491956689-2ea866880c84?w=600&q=85",
-    "murmura-namkeen-250g": f"{_BASE}/photo-1571506165871-ee72a35bc9d4?w=600&q=85",
-    "murmura-namkeen-500g": f"{_BASE}/photo-1571506165871-ee72a35bc9d4?w=600&q=85",
-    # Sweets
-    "gulab-jamun": f"{_BASE}/photo-1627308595229-7830a5c91f9f?w=600&q=85",
-    "gujia-rava-250g": f"{_BASE}/photo-1587314168485-3236d6710814?w=600&q=85",
-    "gujia-rava-500g": f"{_BASE}/photo-1587314168485-3236d6710814?w=600&q=85",
-    "gujia-mava-250g": f"{_BASE}/photo-1590080875515-8a3a8dc5735e?w=600&q=85",
-    "gujia-mava-500g": f"{_BASE}/photo-1590080875515-8a3a8dc5735e?w=600&q=85",
-    # Fresh Food
-    "idli": f"{_BASE}/photo-1555126634-323283e090fa?w=600&q=85",
-    "minapa-garelu": f"{_BASE}/photo-1551024601-bec78aea704b?w=600&q=85",
-}
+PRODUCT_PLACEHOLDER_URL = "/assets/images/product-placeholder.webp"
 
 # ---------------------------------------------------------------------------
 # Product definitions
@@ -104,7 +78,7 @@ PRODUCTS = [
         "description": "Crispy homemade Indian savoury snack, perfect with tea.",
         "price": Decimal("5.00"),
         "weight_grams": 500,
-        "sku": "RK-S-001",
+        "sku": "RK-NP-500",
         "is_featured": True,
     },
     {
@@ -113,7 +87,7 @@ PRODUCTS = [
         "category": "snacks",
         "description": "Crispy pastry filled with traditional Indian spiced potato filling. 2 pieces.",
         "price": Decimal("5.00"),
-        "sku": "RK-S-002",
+        "sku": "RK-SAM-2",
     },
     {
         "name": "Vada Pav",
@@ -121,7 +95,7 @@ PRODUCTS = [
         "category": "snacks",
         "description": "Popular Indian street food with spiced potato fritter served in a bun. 2 pieces.",
         "price": Decimal("5.00"),
-        "sku": "RK-S-003",
+        "sku": "RK-VP-2",
     },
     {
         "name": "Murmura Namkeen 250g",
@@ -130,7 +104,7 @@ PRODUCTS = [
         "description": "Light and crunchy puffed rice snack with traditional spices.",
         "price": Decimal("5.00"),
         "weight_grams": 250,
-        "sku": "RK-S-004",
+        "sku": "RK-MN-250",
     },
     {
         "name": "Murmura Namkeen 500g",
@@ -139,7 +113,7 @@ PRODUCTS = [
         "description": "Family-size puffed rice snack mix with authentic Indian flavour.",
         "price": Decimal("10.00"),
         "weight_grams": 500,
-        "sku": "RK-S-005",
+        "sku": "RK-MN-500",
     },
     # ── Sweets ────────────────────────────────────────────────────────────
     {
@@ -149,7 +123,7 @@ PRODUCTS = [
         "description": "Soft milk-based sweet dumplings soaked in aromatic sugar syrup.",
         "price": Decimal("10.00"),
         "weight_grams": 500,
-        "sku": "RK-W-001",
+        "sku": "RK-GJ-500",
         "is_featured": True,
     },
     {
@@ -159,7 +133,7 @@ PRODUCTS = [
         "description": "Traditional festive sweet pastry filled with roasted semolina.",
         "price": Decimal("5.00"),
         "weight_grams": 250,
-        "sku": "RK-W-002",
+        "sku": "RK-GR-250",
     },
     {
         "name": "Gujia Rava 500g",
@@ -168,7 +142,7 @@ PRODUCTS = [
         "description": "Family-size festive sweet pastry filled with roasted semolina.",
         "price": Decimal("10.00"),
         "weight_grams": 500,
-        "sku": "RK-W-003",
+        "sku": "RK-GR-500",
     },
     {
         "name": "Gujia Mava 250g",
@@ -177,7 +151,7 @@ PRODUCTS = [
         "description": "Rich traditional Gujia filled with sweetened milk solids.",
         "price": Decimal("10.00"),
         "weight_grams": 250,
-        "sku": "RK-W-004",
+        "sku": "RK-GM-250",
     },
     {
         "name": "Gujia Mava 500g",
@@ -186,7 +160,7 @@ PRODUCTS = [
         "description": "Premium festive Gujia with rich mava filling.",
         "price": Decimal("18.00"),
         "weight_grams": 500,
-        "sku": "RK-W-005",
+        "sku": "RK-GM-500",
     },
     # ── Fresh Food ────────────────────────────────────────────────────────
     {
@@ -195,7 +169,7 @@ PRODUCTS = [
         "category": "fresh-food",
         "description": "Soft steamed South Indian rice cakes served fresh. 2 pieces.",
         "price": Decimal("5.00"),
-        "sku": "RK-F-001",
+        "sku": "RK-IDLI-2",
         "is_featured": True,
     },
     {
@@ -204,7 +178,7 @@ PRODUCTS = [
         "category": "fresh-food",
         "description": "Traditional South Indian lentil doughnuts, crispy outside and soft inside. 2 pieces.",
         "price": Decimal("5.00"),
-        "sku": "RK-F-002",
+        "sku": "RK-MG-2",
     },
 ]
 
@@ -217,31 +191,6 @@ PRODUCTS = [
 def _generate_password(length: int = 16) -> str:
     alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
     return "".join(secrets.choice(alphabet) for _ in range(length))
-
-
-def _download_image(url: str, filename: str) -> "ContentFile | None":
-    """Download an image from a public URL and return a Django ContentFile.
-
-    Prefers the `requests` library (bundled with Django, handles SSL via certifi).
-    Falls back to urllib with system SSL context if requests is unavailable.
-    Returns None on any error so the seed continues gracefully.
-    """
-    ua = "GuideWisey-marketplace-seed/1.0 " "(https://guidewisey.com; marketplace@guidewisey.com)"
-    try:
-        if _HAS_REQUESTS:
-            resp = _requests.get(url, headers={"User-Agent": ua}, timeout=15)
-            resp.raise_for_status()
-            return ContentFile(resp.content, name=filename)
-        else:
-            import ssl
-
-            ctx = ssl.create_default_context()
-            req = urllib.request.Request(url, headers={"User-Agent": ua, "Accept": "image/*"})
-            with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
-                return ContentFile(resp.read(), name=filename)
-    except Exception as exc:
-        logger.warning("Could not download image %s: %s", url, exc)
-        return None
 
 
 # ---------------------------------------------------------------------------
@@ -380,8 +329,6 @@ class Command(BaseCommand):
         for prod_def in PRODUCTS:
             slug = prod_def["slug"]
             category = category_map.get(prod_def["category"])
-            ext_url = PRODUCT_IMAGES.get(slug, "")
-
             product_fields = {
                 "name": prod_def["name"],
                 "description": prod_def["description"],
@@ -394,7 +341,8 @@ class Command(BaseCommand):
                 "is_approved": True,
                 "is_featured": prod_def.get("is_featured", False),
                 "weight_grams": prod_def.get("weight_grams"),
-                "external_image_url": ext_url,
+                "image_url": PRODUCT_PLACEHOLDER_URL,
+                "external_image_url": "",
             }
 
             product, created = Product.objects.get_or_create(
@@ -408,13 +356,14 @@ class Command(BaseCommand):
                 self._log(f"  + {product.name} (EUR {product.price})", self.style.SUCCESS)
             else:
                 self._log(f"  -> Exists: {product.name}")
-                # Always update external_image_url AND clear stale local image path.
-                # Render uses an ephemeral filesystem — any previously downloaded file
-                # is gone after redeploy, leaving a dead DB path that causes 404s.
                 update_fields = []
-                if ext_url and product.external_image_url != ext_url:
-                    product.external_image_url = ext_url
-                    update_fields.append("external_image_url")
+                for field, value in product_fields.items():
+                    # Never replace an uploaded Cloudinary image with the placeholder.
+                    if field == "image_url" and product.image_public_id:
+                        continue
+                    if getattr(product, field) != value:
+                        setattr(product, field, value)
+                        update_fields.append(field)
                 if product.image:
                     product.image = None
                     update_fields.append("image")
@@ -422,9 +371,9 @@ class Command(BaseCommand):
                     product.save(update_fields=update_fields)
                     self._log(f"     + Updated fields: {update_fields}", self.style.SUCCESS)
 
-            if product.external_image_url:
+            if product.image_url:
                 img_ok += 1
-                self._log(f"     -> Image URL: {product.external_image_url[:60]}...")
+                self._log(f"     -> Image URL: {product.image_url[:60]}...")
 
         # ── Summary ──────────────────────────────────────────────────────
         self._log("\n" + "=" * 60)
@@ -436,9 +385,8 @@ class Command(BaseCommand):
             f"  Seller   : {SELLER_EMAIL}\n"
             f"  Products : {Product.objects.filter(shop=shop).count()} total "
             f"({created_count} newly created)\n"
-            f"  Images   : {img_ok} with Unsplash URL\n"
+            f"  Images   : {img_ok} with Cloudinary or placeholder URL\n"
             f"  Pickup   : Free\n"
             f"  Delivery : EUR 5 Netherlands / EUR 10 International\n"
-            f"\n  INFO: Images served via Unsplash CDN — no local files needed.\n"
-            f"  INFO: Replace external_image_url with seller-owned photos before going live.\n"
+            f"\n  INFO: Upload seller-owned photos from the product editor before going live.\n"
         )

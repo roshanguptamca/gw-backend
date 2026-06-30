@@ -297,6 +297,15 @@ STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
+# Cloudinary is used explicitly by the marketplace upload service. Keeping it
+# out of DEFAULT_FILE_STORAGE avoids changing storage behavior for other apps.
+CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME", "")
+CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY", "")
+CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET", "")
+CLOUDINARY_FOLDER_PREFIX = (
+    os.getenv("CLOUDINARY_FOLDER_PREFIX", "guidewisey/products").strip("/") or "guidewisey/products"
+)
+
 # -------------------------------
 # Django REST Framework
 # -------------------------------

@@ -1,9 +1,19 @@
-import os
+import re
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
+from django.db.models import Max
 
 from rest_framework import serializers
 
+from .cloudinary_service import (
+    BANNER_IMAGE_MAX_BYTES,
+    PRODUCT_IMAGE_MAX_BYTES,
+    upload_product_gallery_image,
+    upload_product_main_image,
+    validate_image_file,
+)
 from .models import (
     Campaign,
     Category,
@@ -21,20 +31,12 @@ from .services import create_order_from_payload, create_seller_with_shop, genera
 
 User = get_user_model()
 
-IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
-PRODUCT_IMAGE_MAX_BYTES = 2 * 1024 * 1024
-BANNER_IMAGE_MAX_BYTES = 5 * 1024 * 1024
-
 
 def validate_image_upload(file, *, max_bytes):
-    if not file:
-        return file
-    content_type = getattr(file, "content_type", "")
-    if content_type not in IMAGE_CONTENT_TYPES:
-        raise serializers.ValidationError("Only jpg, jpeg, png, and webp images are allowed.")
-    if file.size > max_bytes:
-        raise serializers.ValidationError(f"Image must be {max_bytes // (1024 * 1024)} MB or smaller.")
-    return file
+    try:
+        return validate_image_file(file, max_bytes=max_bytes)
+    except DjangoValidationError as exc:
+        raise serializers.ValidationError(exc.messages) from exc
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -97,15 +99,13 @@ class ShopSerializer(serializers.ModelSerializer):
 class PublicProductImageSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductImage
-        fields = ["id", "image", "alt_text", "sort_order"]
+        fields = ["id", "image_url", "alt_text", "sort_order"]
 
 
 class ProductSerializer(serializers.ModelSerializer):
     category_detail = CategorySerializer(source="category", read_only=True)
     images = PublicProductImageSerializer(many=True, read_only=True)
-    # image_url returns the uploaded image URL if present, otherwise falls back
-    # to external_image_url (e.g. Unsplash CDN for seed products).
-    # Frontend should always use image_url — never reference 'image' directly.
+    image = serializers.ImageField(write_only=True, required=False, allow_null=True)
     image_url = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
@@ -125,6 +125,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "stock_quantity",
             "sku",
             "image",
+            "image_public_id",
             "image_url",
             "external_image_url",
             "images",
@@ -136,29 +137,46 @@ class ProductSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "shop", "slug", "is_approved", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "shop",
+            "slug",
+            "image_public_id",
+            "image_url",
+            "is_approved",
+            "created_at",
+            "updated_at",
+        ]
 
     def get_image_url(self, obj):
-        """Return the best available image URL for this product.
-
-        Priority:
-          1. Uploaded image file — only if the file actually exists on disk
-             (guards against stale DB paths on ephemeral filesystems like Render).
-          2. external_image_url — CDN / Unsplash URL stored in DB.
-        """
-        if obj.image:
-            try:
-                if os.path.exists(obj.image.path):
-                    request = self.context.get("request")
-                    return request.build_absolute_uri(obj.image.url) if request else obj.image.url
-            except (ValueError, NotImplementedError):
-                # path not available for remote storages (S3 etc.) — use URL directly
-                request = self.context.get("request")
-                return request.build_absolute_uri(obj.image.url) if request else obj.image.url
-        return obj.external_image_url or None
+        return obj.image_url or ""
 
     def validate_image(self, value):
         return validate_image_upload(value, max_bytes=PRODUCT_IMAGE_MAX_BYTES)
+
+    def validate_sku(self, value):
+        if value in (None, ""):
+            return None
+        value = value.strip().upper()
+        if not re.fullmatch(r"[A-Z0-9_-]+", value):
+            raise serializers.ValidationError("SKU may contain only letters, numbers, hyphens, and underscores.")
+        return value
+
+    def validate(self, attrs):
+        image = attrs.get("image")
+        sku = attrs.get("sku", getattr(self.instance, "sku", None))
+        if image and not sku:
+            raise serializers.ValidationError({"sku": "A SKU is required before uploading product images."})
+        if (
+            self.instance
+            and "sku" in attrs
+            and attrs["sku"] != self.instance.sku
+            and (self.instance.image_public_id or self.instance.images.exclude(image_public_id="").exists())
+        ):
+            raise serializers.ValidationError(
+                {"sku": "SKU cannot be changed after Cloudinary images have been uploaded."}
+            )
+        return attrs
 
     def validate_category(self, category):
         if category is None:
@@ -169,28 +187,61 @@ class ProductSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Category does not belong to your shop.")
         return category
 
+    @transaction.atomic
     def create(self, validated_data):
+        image_file = validated_data.pop("image", None)
         shop = self.context["request"].user.seller_profile.shop
         validated_data["shop"] = shop
         validated_data["slug"] = generate_unique_slug(Product, validated_data["name"], shop=shop)
         validated_data["is_approved"] = False
-        return super().create(validated_data)
+        product = super().create(validated_data)
+        if image_file:
+            try:
+                upload_product_main_image(product, image_file)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({"image": exc.messages}) from exc
+        return product
 
+    @transaction.atomic
     def update(self, instance, validated_data):
+        image_file = validated_data.pop("image", None)
         if "name" in validated_data and validated_data["name"] != instance.name:
             validated_data["slug"] = generate_unique_slug(Product, validated_data["name"], shop=instance.shop)
             validated_data["is_approved"] = False
-        return super().update(instance, validated_data)
+        product = super().update(instance, validated_data)
+        if image_file:
+            try:
+                upload_product_main_image(product, image_file)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({"image": exc.messages}) from exc
+        return product
 
 
 class ProductImageSerializer(serializers.ModelSerializer):
+    image = serializers.ImageField(write_only=True, required=True)
+
     class Meta:
         model = ProductImage
-        fields = ["id", "product", "image", "alt_text", "sort_order"]
-        read_only_fields = ["id", "product"]
+        fields = ["id", "product", "image", "image_public_id", "image_url", "alt_text", "sort_order"]
+        read_only_fields = ["id", "product", "image_public_id", "image_url"]
 
     def validate_image(self, value):
         return validate_image_upload(value, max_bytes=PRODUCT_IMAGE_MAX_BYTES)
+
+    def create(self, validated_data):
+        product = validated_data.pop("product")
+        image_file = validated_data.pop("image")
+        sort_order = validated_data.get("sort_order")
+        if sort_order is None:
+            highest = product.images.aggregate(value=Max("sort_order"))["value"]
+            sort_order = 0 if highest is None else highest + 1
+        try:
+            gallery_image = upload_product_gallery_image(product, image_file, sort_order)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"image": exc.messages}) from exc
+        gallery_image.alt_text = validated_data.get("alt_text", "")
+        gallery_image.save(update_fields=["alt_text"])
+        return gallery_image
 
 
 class OrderItemSerializer(serializers.ModelSerializer):
