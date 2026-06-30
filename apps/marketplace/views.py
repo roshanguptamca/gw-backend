@@ -1,8 +1,10 @@
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Count, Q, Sum
 from django.utils import timezone
 
-from rest_framework import status, viewsets
+from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -20,6 +22,7 @@ from .models import (
     SellerProfile,
     Shop,
 )
+from .cloudinary_service import delete_cloudinary_image
 from .permissions import IsSeller, IsShopOwner, IsSuperAdmin
 from .serializers import (
     AdminProductApprovalSerializer,
@@ -51,6 +54,13 @@ from .services import (
     send_cancellation_result_email_to_buyer,
     update_order_status,
 )
+
+
+def _delete_cloudinary_image_or_400(public_id):
+    try:
+        delete_cloudinary_image(public_id)
+    except DjangoValidationError as exc:
+        raise DRFValidationError({"image": exc.messages}) from exc
 
 
 class PublicShopViewSet(viewsets.ReadOnlyModelViewSet):
@@ -407,6 +417,12 @@ class SellerProductViewSet(viewsets.ModelViewSet):
             .order_by("-created_at")
         )
 
+    def perform_destroy(self, instance):
+        _delete_cloudinary_image_or_400(instance.image_public_id)
+        for gallery_image in instance.images.all():
+            _delete_cloudinary_image_or_400(gallery_image.image_public_id)
+        instance.delete()
+
     @action(detail=True, methods=["post"], parser_classes=[MultiPartParser, FormParser])
     def images(self, request, pk=None):
         product = self.get_object()
@@ -424,6 +440,7 @@ class SellerProductImageViewSet(viewsets.GenericViewSet):
 
     def destroy(self, request, pk=None):
         image = self.get_object()
+        _delete_cloudinary_image_or_400(image.image_public_id)
         image.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -538,10 +555,24 @@ class AdminShopViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(ShopSerializer(shop, context={"request": request}).data)
 
 
-class AdminProductViewSet(viewsets.ReadOnlyModelViewSet):
+class AdminProductViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
     serializer_class = ProductSerializer
     permission_classes = [IsSuperAdmin]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
     queryset = Product.objects.select_related("shop", "category").prefetch_related("images").order_by("-created_at")
+
+    @action(detail=True, methods=["post"], parser_classes=[MultiPartParser, FormParser])
+    def images(self, request, pk=None):
+        product = self.get_object()
+        serializer = ProductImageSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        serializer.save(product=product)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["patch"])
     def approve(self, request, pk=None):

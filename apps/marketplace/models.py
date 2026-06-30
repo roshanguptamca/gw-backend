@@ -112,8 +112,10 @@ class Product(models.Model):
     price = models.DecimalField(max_digits=10, decimal_places=2)
     compare_at_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     stock_quantity = models.PositiveIntegerField(default=0)
-    sku = models.CharField(max_length=80, blank=True)
+    sku = models.CharField(max_length=80, unique=True, null=True, blank=True)
     image = models.ImageField(upload_to="products/main/", blank=True, null=True)
+    image_public_id = models.CharField(max_length=255, blank=True)
+    image_url = models.URLField(max_length=500, blank=True)
     external_image_url = models.URLField(
         max_length=500,
         blank=True,
@@ -142,7 +144,9 @@ class Product(models.Model):
 
 class ProductImage(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="images")
-    image = models.ImageField(upload_to="products/gallery/")
+    image = models.ImageField(upload_to="products/gallery/", blank=True, null=True)
+    image_public_id = models.CharField(max_length=255, blank=True)
+    image_url = models.URLField(max_length=500, blank=True)
     alt_text = models.CharField(max_length=150, blank=True)
     sort_order = models.PositiveIntegerField(default=0)
 
