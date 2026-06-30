@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.test import TestCase, override_settings
+from django.urls import reverse
 
 from PIL import Image
 from rest_framework import status
@@ -267,3 +268,99 @@ class RishiKitchenCloudinarySeedTests(TestCase):
         self.assertEqual(products.count(), 12)
         self.assertEqual(set(products.values_list("sku", flat=True)), expected_skus)
         self.assertFalse(products.exclude(image_url="/assets/images/product-placeholder.webp").exists())
+
+
+@override_settings(**CLOUDINARY_TEST_SETTINGS)
+class CloudinaryDjangoAdminTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = User.objects.create_superuser(
+            username="django-admin@example.com",
+            email="django-admin@example.com",
+            password="adminpass123",
+        )
+        seller, _, self.shop = create_seller_with_shop(
+            email="admin-product-seller@example.com",
+            password="sellerpass123",
+            first_name="Admin",
+            last_name="Seller",
+            business_name="Admin Product Seller",
+            created_by=self.admin,
+        )
+        self.product = Product.objects.create(
+            shop=self.shop,
+            name="Admin Product",
+            slug="admin-product",
+            sku="ADMIN-SKU-1",
+            price=Decimal("12.00"),
+            stock_quantity=5,
+        )
+        self.client.force_login(self.admin)
+
+    @patch("cloudinary.uploader.upload")
+    def test_django_admin_main_image_uses_shared_cloudinary_service(self, upload):
+        upload.return_value = {
+            "public_id": "guidewisey/products/ADMIN-SKU-1/main",
+            "secure_url": "https://res.cloudinary.com/test-cloud/image/upload/admin-product.webp",
+        }
+
+        response = self.client.post(
+            reverse("admin:marketplace_product_change", args=[self.product.pk]),
+            {
+                "shop": self.shop.pk,
+                "category": "",
+                "name": self.product.name,
+                "slug": self.product.slug,
+                "description": "",
+                "ingredients": "",
+                "allergens": "",
+                "price": "12.00",
+                "compare_at_price": "",
+                "stock_quantity": "5",
+                "sku": self.product.sku,
+                "image": image_upload(),
+                "external_image_url": "",
+                "is_active": "on",
+                "preparation_time_minutes": "0",
+                "weight_grams": "",
+                "images-TOTAL_FORMS": "0",
+                "images-INITIAL_FORMS": "0",
+                "images-MIN_NUM_FORMS": "0",
+                "images-MAX_NUM_FORMS": "1000",
+                "_save": "Save",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.image.name, "")
+        self.assertEqual(self.product.image_public_id, upload.return_value["public_id"])
+        self.assertEqual(self.product.image_url, upload.return_value["secure_url"])
+        self.assertEqual(upload.call_args.kwargs["public_id"], "guidewisey/products/ADMIN-SKU-1/main")
+
+        change_page = self.client.get(reverse("admin:marketplace_product_change", args=[self.product.pk]))
+        self.assertContains(change_page, self.product.image_url)
+
+    @patch("cloudinary.uploader.upload")
+    def test_django_admin_gallery_image_uses_shared_cloudinary_service(self, upload):
+        upload.return_value = {
+            "public_id": "guidewisey/products/ADMIN-SKU-1/gallery/2",
+            "secure_url": "https://res.cloudinary.com/test-cloud/image/upload/admin-gallery.webp",
+        }
+
+        response = self.client.post(
+            reverse("admin:marketplace_productimage_add"),
+            {
+                "product": self.product.pk,
+                "image": image_upload(),
+                "alt_text": "Admin gallery image",
+                "sort_order": "2",
+                "_save": "Save",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        gallery_image = ProductImage.objects.get(product=self.product, sort_order=2)
+        self.assertEqual(gallery_image.image.name, "")
+        self.assertEqual(gallery_image.image_public_id, upload.return_value["public_id"])
+        self.assertEqual(gallery_image.image_url, upload.return_value["secure_url"])
