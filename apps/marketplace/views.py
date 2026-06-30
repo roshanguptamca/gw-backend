@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from .cloudinary_service import delete_cloudinary_image
 from .models import (
     Campaign,
     Category,
@@ -22,7 +23,6 @@ from .models import (
     SellerProfile,
     Shop,
 )
-from .cloudinary_service import delete_cloudinary_image
 from .permissions import IsSeller, IsShopOwner, IsSuperAdmin
 from .serializers import (
     AdminProductApprovalSerializer,
