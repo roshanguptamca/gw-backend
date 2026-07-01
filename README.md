@@ -229,6 +229,32 @@ FUTUREWAVE_FRONTEND_BASE_URL=http://localhost:3000
 
 > **Zero dependencies locally:** SQLite is used when DB vars are blank. Email prints to the console when `EMAIL_HOST_PASSWORD` is not set.
 
+### Twilio WhatsApp Sandbox
+
+To test WhatsApp reminders with a Twilio trial account:
+
+1. Open the Twilio Console → **Messaging** → **Try it out** → **Send a WhatsApp message** / **Sandbox**.
+2. Copy the sandbox number and join phrase shown there.
+3. From the recipient phone, send the `join xxxx` phrase to the sandbox number in WhatsApp.
+4. Add these vars to `.env`, then restart the backend:
+
+```bash
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=your_twilio_auth_token
+TWILIO_WHATSAPP_NUMBER=+14155238886
+TWILIO_WHATSAPP_FROM=+14155238886   # defaults to TWILIO_WHATSAPP_NUMBER
+TWILIO_WHATSAPP_ENABLED=true
+```
+
+Template-based sends can also use Twilio Content API:
+
+```bash
+TWILIO_WHATSAPP_CONTENT_SID=HXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_WHATSAPP_USE_TEMPLATE=true
+```
+
+If `TWILIO_WHATSAPP_USE_TEMPLATE=true`, the provider falls back to `TWILIO_WHATSAPP_CONTENT_SID` when a reminder/context-specific `content_sid` is not supplied.
+
 ### Run
 
 ```bash
