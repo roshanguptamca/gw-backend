@@ -11,7 +11,10 @@ ALLOWED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
 ALLOWED_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 PRODUCT_IMAGE_MAX_BYTES = 2 * 1024 * 1024
 BANNER_IMAGE_MAX_BYTES = 5 * 1024 * 1024
+SHOP_LOGO_MAX_BYTES = PRODUCT_IMAGE_MAX_BYTES
+SHOP_BANNER_MAX_BYTES = BANNER_IMAGE_MAX_BYTES
 _SAFE_SKU = re.compile(r"^[A-Za-z0-9_-]+$")
+_SAFE_SLUG = re.compile(r"^[a-z0-9_-]+$")
 
 
 def validate_image_file(image_file, *, max_bytes=PRODUCT_IMAGE_MAX_BYTES):
@@ -63,8 +66,23 @@ def _product_public_id(product, suffix):
     return f"{prefix}/{sku}/{suffix}"
 
 
-def _upload(image_file, public_id):
-    validate_image_file(image_file)
+def _shop_public_id(shop, suffix):
+    slug = (shop.slug or "").strip()
+    if not slug:
+        raise ValidationError("A shop slug is required before uploading shop images.")
+    if not _SAFE_SLUG.fullmatch(slug):
+        raise ValidationError("Shop slug may contain only lowercase letters, numbers, hyphens, and underscores.")
+    product_prefix = settings.CLOUDINARY_FOLDER_PREFIX.strip("/")
+    root_prefix, separator, leaf = product_prefix.rpartition("/")
+    if leaf == "products":
+        shop_prefix = f"{root_prefix}/shops" if separator else "shops"
+    else:
+        shop_prefix = f"{product_prefix}/shops"
+    return f"{shop_prefix}/{slug}/{suffix}"
+
+
+def _upload(image_file, public_id, *, max_bytes=PRODUCT_IMAGE_MAX_BYTES):
+    validate_image_file(image_file, max_bytes=max_bytes)
     try:
         result = _cloudinary_uploader().upload(
             image_file,
@@ -119,6 +137,26 @@ def upload_product_gallery_image(product, image_file, sort_order):
             image_url=secure_url,
         )
     return gallery_image
+
+
+def upload_shop_logo(shop, image_file):
+    public_id = _shop_public_id(shop, "logo")
+    uploaded_public_id, secure_url = _upload(image_file, public_id, max_bytes=SHOP_LOGO_MAX_BYTES)
+    shop.logo_public_id = uploaded_public_id
+    shop.logo_url = secure_url
+    shop.logo = None
+    shop.save(update_fields=["logo_public_id", "logo_url", "logo", "updated_at"])
+    return shop
+
+
+def upload_shop_banner(shop, image_file):
+    public_id = _shop_public_id(shop, "banner")
+    uploaded_public_id, secure_url = _upload(image_file, public_id, max_bytes=SHOP_BANNER_MAX_BYTES)
+    shop.banner_public_id = uploaded_public_id
+    shop.banner_url = secure_url
+    shop.banner_image = None
+    shop.save(update_fields=["banner_public_id", "banner_url", "banner_image", "updated_at"])
+    return shop
 
 
 def delete_cloudinary_image(public_id):

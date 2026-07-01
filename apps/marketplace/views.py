@@ -541,9 +541,15 @@ class AdminSellerViewSet(viewsets.ModelViewSet):
         return Response(SellerProfileSerializer(seller, context={"request": request}).data)
 
 
-class AdminShopViewSet(viewsets.ReadOnlyModelViewSet):
+class AdminShopViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
     serializer_class = ShopSerializer
     permission_classes = [IsSuperAdmin]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
     queryset = Shop.objects.select_related("settings").order_by("-created_at")
 
     @action(detail=True, methods=["patch"])

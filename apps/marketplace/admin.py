@@ -4,9 +4,13 @@ from django.core.files.uploadedfile import UploadedFile
 from django.utils.html import format_html
 
 from .cloudinary_service import (
+    SHOP_BANNER_MAX_BYTES,
+    SHOP_LOGO_MAX_BYTES,
     delete_cloudinary_image,
     upload_product_gallery_image,
     upload_product_main_image,
+    upload_shop_banner,
+    upload_shop_logo,
     validate_image_file,
 )
 from .models import (
@@ -99,6 +103,43 @@ class ProductImageAdminForm(forms.ModelForm):
         return cleaned_data
 
 
+class ShopAdminForm(forms.ModelForm):
+    logo = forms.ImageField(
+        required=False,
+        help_text="jpg, jpeg, png, or webp; maximum 2 MB. Uploaded directly to Cloudinary.",
+    )
+    banner_image = forms.ImageField(
+        required=False,
+        help_text="jpg, jpeg, png, or webp; maximum 5 MB. Uploaded directly to Cloudinary.",
+    )
+
+    class Meta:
+        model = Shop
+        fields = "__all__"
+
+    def clean_logo(self):
+        image_file = self.cleaned_data.get("logo")
+        if isinstance(image_file, UploadedFile):
+            validate_image_file(image_file, max_bytes=SHOP_LOGO_MAX_BYTES)
+        return image_file
+
+    def clean_banner_image(self):
+        image_file = self.cleaned_data.get("banner_image")
+        if isinstance(image_file, UploadedFile):
+            validate_image_file(image_file, max_bytes=SHOP_BANNER_MAX_BYTES)
+        return image_file
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if (
+            self.instance.pk
+            and cleaned_data.get("slug") != self.instance.slug
+            and (self.instance.logo_public_id or self.instance.banner_public_id)
+        ):
+            self.add_error("slug", "Slug cannot be changed after Cloudinary shop images have been uploaded.")
+        return cleaned_data
+
+
 @admin.action(description="Approve selected shops")
 def approve_shops(modeladmin, request, queryset):
     queryset.update(is_approved=True, is_active=True)
@@ -145,11 +186,59 @@ class SellerProfileAdmin(admin.ModelAdmin):
 
 @admin.register(Shop)
 class ShopAdmin(admin.ModelAdmin):
-    list_display = ["name", "owner", "city", "is_active", "is_approved", "created_at"]
+    form = ShopAdminForm
+    list_display = [
+        "name",
+        "logo_preview",
+        "banner_preview",
+        "owner",
+        "city",
+        "is_active",
+        "is_approved",
+        "created_at",
+    ]
     list_filter = ["is_active", "is_approved", "pickup_available", "delivery_available", "city"]
     search_fields = ["name", "owner__email", "slug"]
     prepopulated_fields = {"slug": ("name",)}
+    readonly_fields = [
+        "logo_preview",
+        "logo_url",
+        "logo_public_id",
+        "banner_preview",
+        "banner_url",
+        "banner_public_id",
+    ]
     actions = [approve_shops, deactivate_shops]
+
+    @admin.display(description="Logo")
+    def logo_preview(self, obj):
+        return image_preview(obj.logo_url)
+
+    @admin.display(description="Banner")
+    def banner_preview(self, obj):
+        return image_preview(obj.banner_url)
+
+    def save_model(self, request, obj, form, change):
+        logo_file = form.cleaned_data.get("logo")
+        banner_file = form.cleaned_data.get("banner_image")
+        obj.logo = None
+        obj.banner_image = None
+        super().save_model(request, obj, form, change)
+        if isinstance(logo_file, UploadedFile):
+            upload_shop_logo(obj, logo_file)
+        if isinstance(banner_file, UploadedFile):
+            upload_shop_banner(obj, banner_file)
+
+    def delete_model(self, request, obj):
+        delete_cloudinary_image(obj.logo_public_id)
+        delete_cloudinary_image(obj.banner_public_id)
+        super().delete_model(request, obj)
+
+    def delete_queryset(self, request, queryset):
+        for shop in queryset:
+            delete_cloudinary_image(shop.logo_public_id)
+            delete_cloudinary_image(shop.banner_public_id)
+        super().delete_queryset(request, queryset)
 
 
 @admin.register(ShopSettings)

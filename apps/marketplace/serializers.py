@@ -8,10 +8,13 @@ from django.db.models import Max
 from rest_framework import serializers
 
 from .cloudinary_service import (
-    BANNER_IMAGE_MAX_BYTES,
     PRODUCT_IMAGE_MAX_BYTES,
+    SHOP_BANNER_MAX_BYTES,
+    SHOP_LOGO_MAX_BYTES,
     upload_product_gallery_image,
     upload_product_main_image,
+    upload_shop_banner,
+    upload_shop_logo,
     validate_image_file,
 )
 from .models import (
@@ -66,6 +69,8 @@ class ShopSettingsSerializer(serializers.ModelSerializer):
 class ShopSerializer(serializers.ModelSerializer):
     settings = ShopSettingsSerializer(read_only=True)
     product_count = serializers.IntegerField(read_only=True)
+    logo = serializers.ImageField(write_only=True, required=False)
+    banner_image = serializers.ImageField(write_only=True, required=False)
 
     class Meta:
         model = Shop
@@ -75,7 +80,11 @@ class ShopSerializer(serializers.ModelSerializer):
             "slug",
             "description",
             "logo",
+            "logo_public_id",
+            "logo_url",
             "banner_image",
+            "banner_public_id",
+            "banner_url",
             "city",
             "delivery_area",
             "pickup_available",
@@ -87,13 +96,37 @@ class ShopSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "slug", "is_approved", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "slug",
+            "logo_public_id",
+            "logo_url",
+            "banner_public_id",
+            "banner_url",
+            "is_approved",
+            "created_at",
+            "updated_at",
+        ]
 
     def validate_logo(self, value):
-        return validate_image_upload(value, max_bytes=PRODUCT_IMAGE_MAX_BYTES)
+        return validate_image_upload(value, max_bytes=SHOP_LOGO_MAX_BYTES)
 
     def validate_banner_image(self, value):
-        return validate_image_upload(value, max_bytes=BANNER_IMAGE_MAX_BYTES)
+        return validate_image_upload(value, max_bytes=SHOP_BANNER_MAX_BYTES)
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        logo_file = validated_data.pop("logo", None)
+        banner_file = validated_data.pop("banner_image", None)
+        shop = super().update(instance, validated_data)
+        try:
+            if logo_file:
+                upload_shop_logo(shop, logo_file)
+            if banner_file:
+                upload_shop_banner(shop, banner_file)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"images": exc.messages}) from exc
+        return shop
 
 
 class PublicProductImageSerializer(serializers.ModelSerializer):
@@ -357,7 +390,7 @@ class CampaignSerializer(serializers.ModelSerializer):
         read_only_fields = ["id"]
 
     def validate_banner_image(self, value):
-        return validate_image_upload(value, max_bytes=BANNER_IMAGE_MAX_BYTES)
+        return validate_image_upload(value, max_bytes=SHOP_BANNER_MAX_BYTES)
 
     def validate_featured_product(self, product):
         if product is None:
@@ -478,8 +511,8 @@ class PublicShopSerializer(ShopSerializer):
             "name",
             "slug",
             "description",
-            "logo",
-            "banner_image",
+            "logo_url",
+            "banner_url",
             "city",
             "delivery_area",
             "pickup_available",
