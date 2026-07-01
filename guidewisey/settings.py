@@ -191,7 +191,7 @@ CSRF_TRUSTED_ORIGINS = list(
     dict.fromkeys(
         _env_list(
             "CSRF_TRUSTED_ORIGINS",
-            "https://api.guidewisey.com,https://guidewisey.com,https://www.guidewisey.com",
+            "https://api.guidewisey.com,https://guidewisey.com,https://www.guidewisey.com,https://securewise.guidewisey.com",
         )
     )
 )
