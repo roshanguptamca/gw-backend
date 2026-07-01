@@ -30,8 +30,11 @@ from rest_framework.views import APIView
 from .email_service import BrevoEmailService
 from .models import EmailReminder, ReminderAttachment, ReminderChannel, UserNotificationPreference
 from .serializers import (
+    AIMessageGenerationRequestSerializer,
+    AIMessageGenerationResponseSerializer,
     AttachmentUploadSerializer,
     CreateReminderSerializer,
+    LetterTypeOptionSerializer,
     NotificationPreferenceSerializer,
     ReminderDeliveryStatusSerializer,
     ReminderDetailSerializer,
@@ -40,6 +43,7 @@ from .serializers import (
     UpdateNotificationPreferencesSerializer,
     UpdateReminderSerializer,
 )
+from .services import AIMessageGenerationError, generate_reminder_message
 from .storage import AttachmentStorage
 from .throttle import (
     CreateReminderAnonThrottle,
@@ -145,7 +149,7 @@ class ReminderListCreateView(APIView):
     @extend_schema(
         summary="Create a reminder",
         description=(
-            "Schedule a future self-email reminder. Works for both anonymous and authenticated users.\n\n"
+            "Schedule a future-self Smart Reminder. Works for both anonymous and authenticated users.\n\n"
             "**Anonymous users** receive a verification email and must click the link to activate the reminder.\n\n"
             "**Authenticated users** skip email verification — the reminder is immediately `scheduled`.\n\n"
             "Optionally attach up to 5 files (max 10 MB each). "
@@ -223,7 +227,7 @@ class ReminderListCreateView(APIView):
         if is_email_channel and email:
             if not check_daily_reminder_limit(email, user=request.user):
                 return Response(
-                    {"detail": "Free email reminder limit reached. You can create up to 3 email reminders per day."},
+                    {"detail": "Free Smart Reminder limit reached. You can create up to 3 Smart Reminders per day."},
                     status=status.HTTP_429_TOO_MANY_REQUESTS,
                 )
 
@@ -317,6 +321,49 @@ class ReminderListCreateView(APIView):
             }
 
         return Response(response_data, status=http_status)
+
+
+# ── Letter Type Metadata & AI Generation ─────────────────────────────────────
+
+
+@extend_schema(tags=["FutureWise"])
+class ReminderLetterTypeListView(APIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        summary="List reminder letter types",
+        description="Returns available Smart Reminder types with labels and helper descriptions.",
+        responses={200: LetterTypeOptionSerializer(many=True)},
+    )
+    def get(self, request):
+        return Response(EmailReminder.get_letter_type_options())
+
+
+@extend_schema(tags=["FutureWise"])
+class ReminderAIMessageGenerateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="Generate AI reminder content",
+        description=(
+            "Generates editable Smart Reminder copy only. "
+            "This does not create, update, schedule, or send any reminder."
+        ),
+        request=AIMessageGenerationRequestSerializer,
+        responses={
+            200: AIMessageGenerationResponseSerializer,
+            400: inline_serializer("ReminderAIGenerationError", fields={"detail": drf_serializers.CharField()}),
+            503: inline_serializer("ReminderAIUnavailable", fields={"error": drf_serializers.CharField()}),
+        },
+    )
+    def post(self, request):
+        serializer = AIMessageGenerationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            payload = generate_reminder_message(**serializer.validated_data)
+        except AIMessageGenerationError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return Response(payload, status=status.HTTP_200_OK)
 
 
 # ── Detail / Cancel ───────────────────────────────────────────────────────────

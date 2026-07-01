@@ -53,6 +53,23 @@ class EmailReminder(models.Model):
         GRIEF = "grief", "In Memory — Grief Letter"
         FORGIVENESS = "forgiveness", "Forgiveness Letter"
         GRATITUDE = "gratitude", "Gratitude Letter"
+        GENERAL_REMINDER = "general_reminder", "General Reminder"
+        APPOINTMENT_REMINDER = "appointment_reminder", "Appointment Reminder"
+        MEDICINE_REMINDER = "medicine_reminder", "Medicine Reminder"
+        BILL_PAYMENT_REMINDER = "bill_payment_reminder", "Bill Payment Reminder"
+        BIRTHDAY_WISH = "birthday_wish", "Birthday Wish"
+        ANNIVERSARY_WISH = "anniversary_wish", "Anniversary Wish"
+        WEDDING_ANNIVERSARY_WISH = "wedding_anniversary_wish", "Wedding Anniversary Wish"
+        FESTIVAL_WISH = "festival_wish", "Festival Wish"
+        HOLIDAY_GREETING = "holiday_greeting", "Holiday Greeting"
+        THANK_YOU_MESSAGE = "thank_you_message", "Thank You Message"
+        CONGRATULATIONS_MESSAGE = "congratulations_message", "Congratulations Message"
+        GET_WELL_SOON_MESSAGE = "get_well_soon_message", "Get Well Soon Message"
+        MEETING_REMINDER = "meeting_reminder", "Meeting Reminder"
+        SCHOOL_EVENT_REMINDER = "school_event_reminder", "School Event Reminder"
+        TRAVEL_REMINDER = "travel_reminder", "Travel Reminder"
+        SUBSCRIPTION_RENEWAL_REMINDER = "subscription_renewal_reminder", "Subscription Renewal Reminder"
+        CUSTOM_MESSAGE = "custom_message", "Custom Message"
 
     # ── Identity ──────────────────────────────────────────────────────────────
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -91,7 +108,7 @@ class EmailReminder(models.Model):
         db_index=True,
     )
     letter_type = models.CharField(
-        max_length=20,
+        max_length=40,
         choices=LetterType.choices,
         default=LetterType.FUTURE_SELF,
         db_index=True,
@@ -159,6 +176,47 @@ class EmailReminder(models.Model):
         hours = getattr(settings, "EMAIL_VERIFICATION_EXPIRY_HOURS", 24)
         return timezone.now() + timezone.timedelta(hours=hours)
 
+    @classmethod
+    def get_letter_type_metadata(cls) -> dict[str, dict[str, str]]:
+        descriptions = {
+            cls.LetterType.FUTURE_SELF: "Write a thoughtful note for your future self to revisit later.",
+            cls.LetterType.MILESTONE: "Prepare a message to open when a life milestone or goal is reached.",
+            cls.LetterType.GRIEF: "Share comfort, remembrance, or support for a difficult loss.",
+            cls.LetterType.FORGIVENESS: "Express healing, understanding, or a sincere apology.",
+            cls.LetterType.GRATITUDE: "Capture appreciation for someone who has made a difference.",
+            cls.LetterType.GENERAL_REMINDER: "Create a flexible reminder for any personal or practical task.",
+            cls.LetterType.APPOINTMENT_REMINDER: "Remind someone about an upcoming appointment and key details.",
+            cls.LetterType.MEDICINE_REMINDER: "Prompt a medicine dose with a calm, supportive tone.",
+            cls.LetterType.BILL_PAYMENT_REMINDER: "Nudge someone to pay a bill before the due date.",
+            cls.LetterType.BIRTHDAY_WISH: "Send a warm birthday greeting with a personal touch.",
+            cls.LetterType.ANNIVERSARY_WISH: "Celebrate a meaningful anniversary with a heartfelt message.",
+            cls.LetterType.WEDDING_ANNIVERSARY_WISH: "Mark a wedding anniversary with loving, celebratory words.",
+            cls.LetterType.FESTIVAL_WISH: "Share festive wishes for a cultural or community celebration.",
+            cls.LetterType.HOLIDAY_GREETING: "Send a cheerful holiday greeting for a seasonal occasion.",
+            cls.LetterType.THANK_YOU_MESSAGE: "Craft a sincere thank-you note for help, kindness, or support.",
+            cls.LetterType.CONGRATULATIONS_MESSAGE: "Celebrate an achievement with an uplifting congratulations message.",
+            cls.LetterType.GET_WELL_SOON_MESSAGE: "Offer comfort and encouragement during recovery.",
+            cls.LetterType.MEETING_REMINDER: "Remind someone about a meeting, agenda, or next steps.",
+            cls.LetterType.SCHOOL_EVENT_REMINDER: "Highlight an upcoming school event for students or parents.",
+            cls.LetterType.TRAVEL_REMINDER: "Share travel timing, packing, or itinerary reminders.",
+            cls.LetterType.SUBSCRIPTION_RENEWAL_REMINDER: "Warn about an upcoming subscription renewal or expiry.",
+            cls.LetterType.CUSTOM_MESSAGE: "Generate a message for a unique situation in your own style.",
+            "": "Leave the type blank when you want a fully custom reminder prompt.",
+        }
+        return {
+            choice.value: {
+                "value": choice.value,
+                "label": str(choice.label),
+                "description": descriptions.get(choice.value, ""),
+            }
+            for choice in cls.LetterType
+        } | {"": {"value": "", "label": "No specific type", "description": descriptions[""]}}
+
+    @classmethod
+    def get_letter_type_options(cls) -> list[dict[str, str]]:
+        metadata = cls.get_letter_type_metadata()
+        return [metadata[choice.value] for choice in cls.LetterType]
+
     # ── Instance Helpers ──────────────────────────────────────────────────────
     def is_verification_token_valid(self) -> bool:
         return timezone.now() < self.verification_token_expires_at
@@ -182,6 +240,10 @@ class EmailReminder(models.Model):
     @property
     def brand_name(self) -> str:
         return "DearTomorrow" if self.tier == self.Tier.PREMIUM else "FutureWise"
+
+    @property
+    def letter_type_description(self) -> str:
+        return self.get_letter_type_metadata().get(self.letter_type or "", {}).get("description", "")
 
 
 class ReminderAttachment(models.Model):

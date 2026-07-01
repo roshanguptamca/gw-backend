@@ -52,7 +52,7 @@ _scheduler_started = False
 class FutureWiseConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "apps.future_wise"
-    verbose_name = "FutureWise / DearTomorrow Reminders"
+    verbose_name = "FutureWise / DearTomorrow Smart Reminders"
 
     def ready(self):
         global _scheduler_started

@@ -6,7 +6,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -123,6 +123,53 @@ class CreateReminderViewTest(TestCase):
         response = self.client.post(self.url, {"email": "a@b.com"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @patch("apps.future_wise.views.BrevoEmailService")
+    def test_authenticated_create_accepts_new_letter_type(self, mock_brevo):
+        user = User.objects.create_user("lettertype", "letter@example.com", "pass")
+        self.client.force_authenticate(user=user)
+        payload = {
+            "email": "letter@example.com",
+            "subject": "Doctor visit",
+            "message": "See you there.",
+            "scheduled_at": FUTURE.isoformat(),
+            "letter_type": "appointment_reminder",
+        }
+        response = self.client.post(self.url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["letter_type"], "appointment_reminder")
+        self.assertIn("letter_type_description", response.data)
+        mock_brevo.return_value.send_verification_email.assert_not_called()
+
+    @patch("apps.future_wise.views.BrevoEmailService")
+    def test_authenticated_create_allows_blank_letter_type(self, mock_brevo):
+        user = User.objects.create_user("blankletter", "blank@example.com", "pass")
+        self.client.force_authenticate(user=user)
+        payload = {
+            "email": "blank@example.com",
+            "subject": "Anything",
+            "message": "Custom note.",
+            "scheduled_at": FUTURE.isoformat(),
+            "letter_type": "",
+        }
+        response = self.client.post(self.url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["letter_type"], "")
+        mock_brevo.return_value.send_verification_email.assert_not_called()
+
+    def test_create_rejects_unknown_letter_type(self):
+        user = User.objects.create_user("badletter", "badletter@example.com", "pass")
+        self.client.force_authenticate(user=user)
+        payload = {
+            "email": "badletter@example.com",
+            "subject": "Unknown type",
+            "message": "Nope.",
+            "scheduled_at": FUTURE.isoformat(),
+            "letter_type": "unknown_kind",
+        }
+        response = self.client.post(self.url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("letter_type", response.data)
+
 
 class ListRemindersViewTest(TestCase):
 
@@ -195,6 +242,77 @@ class ReminderDetailViewTest(TestCase):
         self.client.force_authenticate(user=self.user)
         response = self.client.delete(url)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class ReminderMetadataAndAIGenerationViewTest(TestCase):
+
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user("aiuser", "aiuser@example.com", "pass")
+        self.letter_types_url = reverse("future_wise:reminder-letter-types")
+        self.ai_generate_url = reverse("future_wise:reminder-ai-generate-message")
+
+    def test_letter_types_endpoint_lists_new_types_with_descriptions(self):
+        response = self.client.get(self.letter_types_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        values = {item["value"]: item for item in response.data}
+        self.assertIn("future_self", values)
+        self.assertIn("subscription_renewal_reminder", values)
+        self.assertEqual(values["custom_message"]["label"], "Custom Message")
+        self.assertTrue(values["meeting_reminder"]["description"])
+
+    @patch("apps.future_wise.views.generate_reminder_message")
+    def test_ai_message_generation_success(self, mock_generate):
+        self.client.force_authenticate(user=self.user)
+        mock_generate.return_value = {
+            "subject": "Meeting reminder for Sam",
+            "email_body": "Hi Sam,\n\nJust a reminder about tomorrow's project sync.\n\nBest,\nGuideWisey",
+            "short_message": "Reminder: project sync tomorrow at 10:00.",
+            "call_script": "Hi Sam, this is your reminder about tomorrow's project sync at 10:00.",
+        }
+        payload = {
+            "letter_type": "meeting_reminder",
+            "occasion": "Project sync",
+            "tone": "professional",
+            "recipient_name": "Sam",
+            "language": "English",
+            "channels": ["email", "voice_call"],
+            "extra_context": "Mention tomorrow's 10:00 agenda review.",
+        }
+        response = self.client.post(self.ai_generate_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, mock_generate.return_value)
+        mock_generate.assert_called_once_with(
+            letter_type="meeting_reminder",
+            occasion="Project sync",
+            tone="professional",
+            recipient_name="Sam",
+            language="English",
+            channels=["email", "voice"],
+            extra_context="Mention tomorrow's 10:00 agenda review.",
+        )
+
+    @override_settings(OPENAI_API_KEY="", AI_PROVIDER_FALLBACKS="openai")
+    def test_ai_generation_returns_503_when_provider_unavailable(self):
+        self.client.force_authenticate(user=self.user)
+        response = self.client.post(
+            self.ai_generate_url,
+            {"letter_type": "custom_message", "channels": ["email"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(
+            response.data["error"],
+            "AI message generation is currently unavailable. Please write your message manually.",
+        )
+
+    def test_ai_generation_requires_authentication(self):
+        response = self.client.post(
+            self.ai_generate_url,
+            {"letter_type": "custom_message", "channels": ["email"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
 class VerifyEmailViewTest(TestCase):
@@ -336,7 +454,7 @@ class DailyReminderLimitTest(TestCase):
         self._seed_abuse_log("limit@example.com", 3)
         response = self.client.post(self.url, self.payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertIn("3 email reminders per day", response.data["detail"])
+        self.assertIn("3 Smart Reminders per day", response.data["detail"])
 
     @patch("apps.future_wise.views.BrevoEmailService")
     @patch("apps.future_wise.views.AttachmentStorage")

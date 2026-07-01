@@ -16,6 +16,8 @@ class OpenAIProvider(BaseAIProvider):
     def __init__(self):
         from openai import OpenAI
 
+        if not settings.OPENAI_API_KEY:
+            raise RuntimeError("OpenAI is not configured. Set OPENAI_API_KEY.")
         self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
     def generate(self, system_prompt: str, user_prompt: str) -> str:
@@ -34,6 +36,8 @@ class AzureOpenAIProvider(BaseAIProvider):
     def __init__(self):
         from openai import AzureOpenAI
 
+        if not settings.AZURE_OPENAI_API_KEY or not settings.AZURE_OPENAI_ENDPOINT:
+            raise RuntimeError("Azure OpenAI is not configured. Set AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT.")
         self.client = AzureOpenAI(
             api_key=settings.AZURE_OPENAI_API_KEY,
             azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
