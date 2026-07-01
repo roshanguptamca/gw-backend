@@ -242,6 +242,174 @@ class CloudinaryProductImageAPITests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["image_url"], "")
 
+    def test_product_list_and_detail_include_main_and_sorted_gallery_images(self):
+        self.shop.is_approved = True
+        self.shop.save(update_fields=["is_approved"])
+        self.product.is_active = True
+        self.product.is_approved = True
+        self.product.image_url = "https://res.cloudinary.com/test-cloud/image/upload/main.webp"
+        self.product.save(update_fields=["is_active", "is_approved", "image_url"])
+        ProductImage.objects.create(
+            product=self.product,
+            image_url="https://res.cloudinary.com/test-cloud/image/upload/gallery-2.webp",
+            sort_order=2,
+            alt_text="Second view",
+        )
+        ProductImage.objects.create(
+            product=self.product,
+            image_url="https://res.cloudinary.com/test-cloud/image/upload/gallery-1.webp",
+            sort_order=1,
+            alt_text="First view",
+        )
+
+        detail = self.client.get(f"/api/marketplace/products/{self.product.id}/")
+        listing = self.client.get("/api/marketplace/products/")
+
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail.data["image_url"], self.product.image_url)
+        self.assertEqual([image["sort_order"] for image in detail.data["images"]], [1, 2])
+        listed_product = next(item for item in listing.data if item["id"] == self.product.id)
+        self.assertEqual(listed_product["image_url"], self.product.image_url)
+        self.assertEqual([image["sort_order"] for image in listed_product["images"]], [1, 2])
+
+
+@override_settings(**CLOUDINARY_TEST_SETTINGS)
+class CloudinaryShopImageAPITests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = User.objects.create_superuser(
+            username="shop-image-admin@example.com",
+            email="shop-image-admin@example.com",
+            password="adminpass123",
+        )
+        self.seller, _, self.shop = create_seller_with_shop(
+            email="shop-image-seller@example.com",
+            password="sellerpass123",
+            first_name="Shop",
+            last_name="Seller",
+            business_name="Cloud Shop",
+            created_by=self.admin,
+        )
+        self.other_seller, _, self.other_shop = create_seller_with_shop(
+            email="other-shop-image-seller@example.com",
+            password="sellerpass123",
+            first_name="Other",
+            last_name="Seller",
+            business_name="Other Cloud Shop",
+            created_by=self.admin,
+        )
+
+    @patch("cloudinary.uploader.upload")
+    def test_seller_logo_upload_stores_cloudinary_fields(self, upload):
+        upload.return_value = {
+            "public_id": f"guidewisey/shops/{self.shop.slug}/logo",
+            "secure_url": "https://res.cloudinary.com/test-cloud/image/upload/shop-logo.webp",
+        }
+        self.client.force_authenticate(self.seller)
+
+        response = self.client.patch(
+            "/api/seller/shop/",
+            {"logo": image_upload("logo.png")},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["logo_url"], upload.return_value["secure_url"])
+        self.shop.refresh_from_db()
+        self.assertEqual(self.shop.logo.name, "")
+        self.assertEqual(self.shop.logo_public_id, upload.return_value["public_id"])
+        self.assertEqual(self.shop.logo_url, upload.return_value["secure_url"])
+        self.assertEqual(upload.call_args.kwargs["public_id"], f"guidewisey/shops/{self.shop.slug}/logo")
+
+    @patch("cloudinary.uploader.upload")
+    def test_seller_banner_upload_stores_cloudinary_fields(self, upload):
+        upload.return_value = {
+            "public_id": f"guidewisey/shops/{self.shop.slug}/banner",
+            "secure_url": "https://res.cloudinary.com/test-cloud/image/upload/shop-banner.webp",
+        }
+        self.client.force_authenticate(self.seller)
+
+        response = self.client.patch(
+            "/api/seller/shop/",
+            {"banner_image": image_upload("banner.png")},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["banner_url"], upload.return_value["secure_url"])
+        self.shop.refresh_from_db()
+        self.assertEqual(self.shop.banner_image.name, "")
+        self.assertEqual(self.shop.banner_public_id, upload.return_value["public_id"])
+        self.assertEqual(self.shop.banner_url, upload.return_value["secure_url"])
+
+    @patch("cloudinary.uploader.upload")
+    def test_invalid_shop_image_type_is_rejected(self, upload):
+        self.client.force_authenticate(self.seller)
+        invalid = SimpleUploadedFile("logo.gif", b"GIF89a", content_type="image/gif")
+
+        response = self.client.patch("/api/seller/shop/", {"logo": invalid}, format="multipart")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        upload.assert_not_called()
+
+    @patch("cloudinary.uploader.upload")
+    def test_oversized_shop_logo_is_rejected(self, upload):
+        self.client.force_authenticate(self.seller)
+
+        response = self.client.patch(
+            "/api/seller/shop/",
+            {"logo": image_upload("logo.png", extra_bytes=2 * 1024 * 1024)},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("2 MB", str(response.data))
+        upload.assert_not_called()
+
+    @patch("cloudinary.uploader.upload")
+    def test_oversized_shop_banner_is_rejected(self, upload):
+        self.client.force_authenticate(self.seller)
+
+        response = self.client.patch(
+            "/api/seller/shop/",
+            {"banner_image": image_upload("banner.png", extra_bytes=5 * 1024 * 1024)},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("5 MB", str(response.data))
+        upload.assert_not_called()
+
+    @patch("cloudinary.uploader.upload")
+    def test_seller_cannot_upload_for_another_shop(self, upload):
+        self.client.force_authenticate(self.seller)
+
+        response = self.client.patch(
+            f"/api/admin/shops/{self.other_shop.id}/",
+            {"logo": image_upload("other-logo.png")},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        upload.assert_not_called()
+
+    @patch("cloudinary.uploader.upload")
+    def test_super_admin_can_upload_for_any_shop(self, upload):
+        upload.return_value = {
+            "public_id": f"guidewisey/shops/{self.other_shop.slug}/logo",
+            "secure_url": "https://res.cloudinary.com/test-cloud/image/upload/other-logo.webp",
+        }
+        self.client.force_authenticate(self.admin)
+
+        response = self.client.patch(
+            f"/api/admin/shops/{self.other_shop.id}/",
+            {"logo": image_upload("other-logo.png")},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["logo_url"], upload.return_value["secure_url"])
+
 
 class RishiKitchenCloudinarySeedTests(TestCase):
     @override_settings(CLOUDINARY_FOLDER_PREFIX="guidewisey/products")
@@ -364,3 +532,41 @@ class CloudinaryDjangoAdminTests(TestCase):
         self.assertEqual(gallery_image.image.name, "")
         self.assertEqual(gallery_image.image_public_id, upload.return_value["public_id"])
         self.assertEqual(gallery_image.image_url, upload.return_value["secure_url"])
+
+    @patch("cloudinary.uploader.upload")
+    def test_django_admin_shop_images_use_shared_cloudinary_service(self, upload):
+        upload.side_effect = [
+            {
+                "public_id": f"guidewisey/shops/{self.shop.slug}/logo",
+                "secure_url": "https://res.cloudinary.com/test-cloud/image/upload/admin-shop-logo.webp",
+            },
+            {
+                "public_id": f"guidewisey/shops/{self.shop.slug}/banner",
+                "secure_url": "https://res.cloudinary.com/test-cloud/image/upload/admin-shop-banner.webp",
+            },
+        ]
+
+        response = self.client.post(
+            reverse("admin:marketplace_shop_change", args=[self.shop.pk]),
+            {
+                "owner": self.shop.owner_id,
+                "seller_profile": self.shop.seller_profile_id,
+                "name": self.shop.name,
+                "slug": self.shop.slug,
+                "description": "",
+                "logo": image_upload("admin-logo.png"),
+                "banner_image": image_upload("admin-banner.png"),
+                "city": "",
+                "delivery_area": "",
+                "pickup_available": "on",
+                "is_active": "on",
+                "_save": "Save",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.shop.refresh_from_db()
+        self.assertEqual(self.shop.logo.name, "")
+        self.assertEqual(self.shop.banner_image.name, "")
+        self.assertEqual(self.shop.logo_public_id, f"guidewisey/shops/{self.shop.slug}/logo")
+        self.assertEqual(self.shop.banner_public_id, f"guidewisey/shops/{self.shop.slug}/banner")

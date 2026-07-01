@@ -33,7 +33,11 @@ class Shop(models.Model):
     slug = models.SlugField(unique=True)
     description = models.TextField(blank=True)
     logo = models.ImageField(upload_to="shops/logos/", blank=True, null=True)
+    logo_public_id = models.CharField(max_length=255, blank=True)
+    logo_url = models.URLField(max_length=500, blank=True)
     banner_image = models.ImageField(upload_to="shops/banners/", blank=True, null=True)
+    banner_public_id = models.CharField(max_length=255, blank=True)
+    banner_url = models.URLField(max_length=500, blank=True)
     city = models.CharField(max_length=100, blank=True)
     delivery_area = models.TextField(blank=True)
     pickup_available = models.BooleanField(default=True)
@@ -149,6 +153,9 @@ class ProductImage(models.Model):
     image_url = models.URLField(max_length=500, blank=True)
     alt_text = models.CharField(max_length=150, blank=True)
     sort_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["sort_order", "id"]
 
     def __str__(self):
         return self.alt_text or self.product.name
