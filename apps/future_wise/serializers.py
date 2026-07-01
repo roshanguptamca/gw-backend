@@ -98,6 +98,7 @@ class CreateReminderSerializer(serializers.Serializer):
     letter_type = serializers.ChoiceField(
         choices=EmailReminder.LetterType.choices,
         default=EmailReminder.LetterType.FUTURE_SELF,
+        allow_blank=True,
     )
     # Multi-channel fields
     channels = ChannelListField(
@@ -140,6 +141,7 @@ class CreateReminderSerializer(serializers.Serializer):
 
 class UpdateReminderSerializer(serializers.ModelSerializer):
     channels = ChannelListField(required=False)
+    letter_type = serializers.ChoiceField(choices=EmailReminder.LetterType.choices, required=False, allow_blank=True)
 
     class Meta:
         model = EmailReminder
@@ -213,6 +215,7 @@ class ReminderDetailSerializer(serializers.ModelSerializer):
     brand_name = serializers.CharField(read_only=True)
     is_anonymous = serializers.BooleanField(read_only=True)
     channels = serializers.ListField(source="selected_channels", read_only=True)
+    letter_type_description = serializers.CharField(read_only=True)
 
     class Meta:
         model = EmailReminder
@@ -224,6 +227,7 @@ class ReminderDetailSerializer(serializers.ModelSerializer):
             "scheduled_at",
             "tier",
             "letter_type",
+            "letter_type_description",
             "brand_name",
             "status",
             "retry_count",
@@ -242,6 +246,7 @@ class ReminderDetailSerializer(serializers.ModelSerializer):
 class ReminderListSerializer(serializers.ModelSerializer):
     attachment_count = serializers.SerializerMethodField()
     channels = serializers.ListField(source="selected_channels", read_only=True)
+    letter_type_description = serializers.CharField(read_only=True)
 
     class Meta:
         model = EmailReminder
@@ -252,6 +257,7 @@ class ReminderListSerializer(serializers.ModelSerializer):
             "scheduled_at",
             "tier",
             "letter_type",
+            "letter_type_description",
             "status",
             "sent_at",
             "created_at",
@@ -357,3 +363,26 @@ class TestReminderSerializer(serializers.Serializer):
     """Used for POST /reminders/<id>/test/"""
 
     channel = serializers.ChoiceField(choices=["email", "sms", "voice", "whatsapp", "telegram"])
+
+
+class LetterTypeOptionSerializer(serializers.Serializer):
+    value = serializers.CharField()
+    label = serializers.CharField()
+    description = serializers.CharField()
+
+
+class AIMessageGenerationRequestSerializer(serializers.Serializer):
+    letter_type = serializers.ChoiceField(choices=EmailReminder.LetterType.choices, allow_blank=True)
+    occasion = serializers.CharField(required=False, allow_blank=True, default="")
+    tone = serializers.CharField(required=False, allow_blank=True, default="")
+    recipient_name = serializers.CharField(required=False, allow_blank=True, default="")
+    language = serializers.CharField(required=False, allow_blank=True, default="")
+    channels = ChannelListField(required=False, default=_default_email_channels)
+    extra_context = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class AIMessageGenerationResponseSerializer(serializers.Serializer):
+    subject = serializers.CharField()
+    email_body = serializers.CharField()
+    short_message = serializers.CharField()
+    call_script = serializers.CharField(allow_blank=True)

@@ -78,7 +78,7 @@ class BrevoEmailService:
         )
         self._send(
             to_email=to_email,
-            subject="Verify your email — FutureWise Reminder",
+            subject="Verify your email — FutureWise Smart Reminder",
             html=html,
         )
 

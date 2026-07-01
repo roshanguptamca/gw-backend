@@ -581,7 +581,7 @@ SPECTACULAR_SETTINGS = {
         "## Apps\n"
         "- **Accounts** — registration, login, session management\n"
         "- **Doc-X** — AI-powered document parsing and Q&A\n"
-        "- **FutureWise / DearTomorrow** — schedule a future-self email reminder\n"
+        "- **FutureWise / DearTomorrow** — schedule a future-self Smart Reminder\n"
     ),
     "VERSION": "2.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
@@ -650,7 +650,7 @@ SPECTACULAR_SETTINGS = {
             "name": "Doc-X V1 (Legacy)",
             "description": "Legacy document processing endpoints — kept for backward compatibility",
         },
-        {"name": "FutureWise", "description": "Schedule future self-email reminders with optional attachments"},
+        {"name": "FutureWise", "description": "Schedule Smart Reminders with optional attachments"},
         {
             "name": "Insurance Explainer",
             "description": (
