@@ -2,10 +2,12 @@
 Unit tests for WhatsAppReminderProvider.
 """
 
+import json
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
 
+from apps.future_wise.providers import PROVIDER_REGISTRY
 from apps.future_wise.providers.whatsapp_provider import WhatsAppReminderProvider
 
 
@@ -14,6 +16,7 @@ def _make_reminder(**kwargs):
     r.id = "test-uuid-whatsapp"
     r.email = "user@example.com"
     r.subject = kwargs.get("subject", "Hey future me")
+    r.message = kwargs.get("message", "Remember to check in with yourself.")
     r.brand_name = "FutureWise"
     return r
 
@@ -22,11 +25,15 @@ def _make_reminder(**kwargs):
     TWILIO_ACCOUNT_SID="ACtest",
     TWILIO_AUTH_TOKEN="authtoken",
     TWILIO_WHATSAPP_NUMBER="+14155238886",
+    TWILIO_WHATSAPP_FROM="+14155238886",
 )
 class WhatsAppReminderProviderTest(TestCase):
 
     def test_channel_code(self):
         self.assertEqual(WhatsAppReminderProvider.channel_code, "whatsapp")
+
+    def test_provider_registry_contains_whatsapp(self):
+        self.assertIs(PROVIDER_REGISTRY["whatsapp"], WhatsAppReminderProvider)
 
     def test_is_available_opted_in_with_phone(self):
         provider = WhatsAppReminderProvider()
@@ -62,10 +69,60 @@ class WhatsAppReminderProviderTest(TestCase):
         self.assertTrue(call_kwargs["to"].startswith("whatsapp:"))
 
     @patch("twilio.rest.Client")
+    def test_send_template_message_from_context(self, mock_client_cls):
+        mock_msg = MagicMock(sid="WA_template", status="queued")
+        mock_client_cls.return_value.messages.create.return_value = mock_msg
+        provider = WhatsAppReminderProvider()
+        ctx = {
+            "phone_number": "+447700900123",
+            "whatsapp_opted_in": True,
+            "content_sid": "HX123",
+            "content_variables": {"1": "Alex", "2": "tomorrow"},
+        }
+
+        result = provider.send(_make_reminder(), ctx)
+
+        self.assertTrue(result.success)
+        call_kwargs = mock_client_cls.return_value.messages.create.call_args[1]
+        self.assertEqual(call_kwargs["content_sid"], "HX123")
+        self.assertEqual(call_kwargs["content_variables"], json.dumps(ctx["content_variables"]))
+        self.assertNotIn("body", call_kwargs)
+
+    @override_settings(
+        TWILIO_WHATSAPP_USE_TEMPLATE=True,
+        TWILIO_WHATSAPP_CONTENT_SID="HX_from_settings",
+    )
+    @patch("twilio.rest.Client")
+    def test_send_template_message_from_settings(self, mock_client_cls):
+        mock_msg = MagicMock(sid="WA_template_settings", status="queued")
+        mock_client_cls.return_value.messages.create.return_value = mock_msg
+        provider = WhatsAppReminderProvider()
+        ctx = {"phone_number": "+447700900123", "whatsapp_opted_in": True}
+
+        result = provider.send(_make_reminder(), ctx)
+
+        self.assertTrue(result.success)
+        call_kwargs = mock_client_cls.return_value.messages.create.call_args[1]
+        self.assertEqual(call_kwargs["content_sid"], "HX_from_settings")
+        self.assertEqual(call_kwargs["content_variables"], "{}")
+        self.assertNotIn("body", call_kwargs)
+
+    @patch("twilio.rest.Client")
     def test_send_permanent_failure(self, mock_client_cls):
         from twilio.base.exceptions import TwilioRestException
 
         exc = TwilioRestException(status=400, uri="", msg="User not opted in", code=63016)
+        mock_client_cls.return_value.messages.create.side_effect = exc
+        provider = WhatsAppReminderProvider()
+        result = provider.send(_make_reminder(), {"phone_number": "+447700900123", "whatsapp_opted_in": True})
+        self.assertFalse(result.success)
+        self.assertTrue(result.is_permanent_failure)
+
+    @patch("twilio.rest.Client")
+    def test_send_invalid_recipient_is_permanent_failure(self, mock_client_cls):
+        from twilio.base.exceptions import TwilioRestException
+
+        exc = TwilioRestException(status=400, uri="", msg="Invalid message recipient", code=63024)
         mock_client_cls.return_value.messages.create.side_effect = exc
         provider = WhatsAppReminderProvider()
         result = provider.send(_make_reminder(), {"phone_number": "+447700900123", "whatsapp_opted_in": True})

@@ -159,6 +159,34 @@ class ReminderDispatcherTest(TestCase):
         self.assertTrue(result)
 
     @patch("apps.future_wise.dispatcher.PROVIDER_REGISTRY")
+    def test_dispatch_whatsapp_channel_success_when_requested_and_opted_in(self, mock_registry):
+        user = User.objects.create_user("dispatchwa", "dispatchwa@example.com", "pass")
+        whatsapp_channel = _make_channel("whatsapp")
+        UserNotificationPreference.objects.create(
+            user=user,
+            email=user.email,
+            channel=whatsapp_channel,
+            is_opted_in=True,
+            whatsapp_opted_in=True,
+            phone_number="+447700900999",
+        )
+        reminder = _make_reminder(user=user, email=user.email, phone_number="", channels_requested="whatsapp")
+        mock_provider = MagicMock()
+        mock_provider.is_available.return_value = True
+        mock_provider.send.return_value = DeliveryResult(success=True, provider_message_id="wa_ok")
+        mock_registry.get.side_effect = lambda code: (lambda: mock_provider) if code == "whatsapp" else None
+
+        dispatcher = ReminderDispatcher()
+        result = dispatcher.dispatch(reminder)
+
+        self.assertTrue(result)
+        mock_provider.send.assert_called_once()
+        self.assertEqual(
+            ReminderDeliveryLog.objects.get(reminder=reminder, channel=whatsapp_channel).status,
+            ReminderDeliveryLog.DeliveryStatus.SUCCESS,
+        )
+
+    @patch("apps.future_wise.dispatcher.PROVIDER_REGISTRY")
     def test_dispatch_increments_attempt_number_on_retry(self, mock_registry):
         reminder = _make_reminder(channels_requested="email")
         mock_provider = self._mock_provider(success=False)

@@ -22,6 +22,7 @@ import logging
 from django.conf import settings
 
 from .base import DeliveryResult, IReminderProvider
+from .twilio_client import get_twilio_client
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,6 @@ class VoiceCallReminderProvider(IReminderProvider):
     def send(self, reminder, recipient_context: dict) -> DeliveryResult:
         try:
             from twilio.base.exceptions import TwilioRestException
-            from twilio.rest import Client
         except ImportError:
             logger.error("VoiceCallReminderProvider: twilio package not installed.")
             return DeliveryResult(success=False, error_message="twilio package not installed")
@@ -46,7 +46,7 @@ class VoiceCallReminderProvider(IReminderProvider):
         twiml = self._build_twiml(reminder)
 
         try:
-            client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+            client = get_twilio_client()
             call = client.calls.create(
                 twiml=twiml,
                 from_=settings.TWILIO_PHONE_NUMBER,
