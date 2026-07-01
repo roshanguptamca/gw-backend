@@ -10,6 +10,61 @@ from .models import EmailReminder, ReminderAttachment, ReminderDeliveryLog, User
 from .validators import validate_attachment_count, validate_attachment_file, validate_scheduled_at
 
 _E164_RE = re.compile(r"^\+[1-9]\d{7,14}$")
+SUPPORTED_CHANNELS = {"email", "sms", "voice", "whatsapp", "telegram"}
+CHANNEL_ALIASES = {"call": "voice", "voice_call": "voice"}
+
+
+def _default_email_channels():
+    return ["email"]
+
+
+class ChannelListField(serializers.ListField):
+    def __init__(self, **kwargs):
+        super().__init__(child=serializers.CharField(max_length=20), **kwargs)
+
+    def to_internal_value(self, data):
+        if isinstance(data, str):
+            data = [channel.strip() for channel in data.split(",") if channel.strip()]
+        elif isinstance(data, (list, tuple)):
+            data = [channel.strip() for value in data for channel in str(value).split(",") if channel.strip()]
+        channels = super().to_internal_value(data)
+        normalized = []
+        for channel in channels:
+            code = CHANNEL_ALIASES.get(channel.lower().strip(), channel.lower().strip())
+            if code not in SUPPORTED_CHANNELS:
+                raise serializers.ValidationError(f"Unsupported reminder channel: {channel}.")
+            if code not in normalized:
+                normalized.append(code)
+        if not normalized:
+            raise serializers.ValidationError("Select at least one reminder channel.")
+        return normalized
+
+
+def validate_channel_contacts(data, instance=None):
+    channels = data.get("channels")
+    if channels is None and instance is not None:
+        channels = instance.selected_channels
+    channels = channels or ["email"]
+
+    email = data.get("email", instance.email if instance is not None else "")
+    phone_number = data.get("phone_number", instance.phone_number if instance is not None else "")
+    telegram_chat_id = data.get(
+        "telegram_chat_id",
+        instance.telegram_chat_id if instance is not None else "",
+    )
+    errors = {}
+    if "email" in channels and not email:
+        errors["email"] = "An email address is required for email delivery."
+    if {"sms", "voice", "whatsapp"} & set(channels) and not phone_number:
+        errors["phone_number"] = "A phone number is required for SMS, Voice, or WhatsApp channels."
+    if "telegram" in channels and not telegram_chat_id:
+        errors["telegram_chat_id"] = (
+            "A Telegram chat ID is required for the Telegram channel. "
+            "Send /start to the GuideWisey bot to obtain it."
+        )
+    if errors:
+        raise serializers.ValidationError(errors)
+    return data
 
 
 # ── Nested ────────────────────────────────────────────────────────────────────
@@ -45,10 +100,9 @@ class CreateReminderSerializer(serializers.Serializer):
         default=EmailReminder.LetterType.FUTURE_SELF,
     )
     # Multi-channel fields
-    channels = serializers.ListField(
-        child=serializers.CharField(max_length=20),
+    channels = ChannelListField(
         required=False,
-        default=list,
+        default=_default_email_channels,
         help_text="Delivery channels e.g. ['email','sms','telegram']",
     )
     phone_number = serializers.CharField(
@@ -81,26 +135,55 @@ class CreateReminderSerializer(serializers.Serializer):
         return value
 
     def validate(self, data: dict) -> dict:
-        channels = data.get("channels") or []
-        phone_channels = {"sms", "voice", "whatsapp"}
+        return validate_channel_contacts(data)
 
-        # Email is required only when the email channel is selected (or no channel specified)
-        if not channels or "email" in channels:
-            if not data.get("email"):
-                raise serializers.ValidationError({"email": "An email address is required for email delivery."})
 
-        if phone_channels & set(channels) and not data.get("phone_number"):
-            raise serializers.ValidationError(
-                {"phone_number": "A phone number is required for SMS, Voice, or WhatsApp channels."}
-            )
-        if "telegram" in channels and not data.get("telegram_chat_id"):
-            raise serializers.ValidationError(
-                {
-                    "telegram_chat_id": "A Telegram chat ID is required for the Telegram channel. "
-                    "Send /start to the GuideWisey bot to obtain it."
-                }
-            )
-        return data
+class UpdateReminderSerializer(serializers.ModelSerializer):
+    channels = ChannelListField(required=False)
+
+    class Meta:
+        model = EmailReminder
+        fields = [
+            "email",
+            "subject",
+            "message",
+            "scheduled_at",
+            "tier",
+            "letter_type",
+            "channels",
+            "phone_number",
+            "telegram_chat_id",
+        ]
+        extra_kwargs = {
+            "email": {"required": False, "allow_blank": True},
+            "subject": {"required": False},
+            "message": {"required": False},
+            "scheduled_at": {"required": False},
+            "phone_number": {"required": False, "allow_blank": True},
+            "telegram_chat_id": {"required": False, "allow_blank": True},
+        }
+
+    def validate_scheduled_at(self, value):
+        validate_scheduled_at(value)
+        return value
+
+    def validate_email(self, value):
+        return value.lower().strip()
+
+    def validate_phone_number(self, value):
+        if value and not _E164_RE.match(value):
+            raise serializers.ValidationError("Phone number must be in E.164 format, e.g. +447700900123")
+        return value
+
+    def validate(self, data):
+        return validate_channel_contacts(data, self.instance)
+
+    def update(self, instance, validated_data):
+        channels = validated_data.pop("channels", None)
+        if channels is not None:
+            instance.channels = channels
+            instance.channels_requested = ",".join(channels)
+        return super().update(instance, validated_data)
 
 
 class AttachmentUploadSerializer(serializers.Serializer):
@@ -129,6 +212,7 @@ class ReminderDetailSerializer(serializers.ModelSerializer):
     attachments = ReminderAttachmentSerializer(many=True, read_only=True)
     brand_name = serializers.CharField(read_only=True)
     is_anonymous = serializers.BooleanField(read_only=True)
+    channels = serializers.ListField(source="selected_channels", read_only=True)
 
     class Meta:
         model = EmailReminder
@@ -146,6 +230,7 @@ class ReminderDetailSerializer(serializers.ModelSerializer):
             "sent_at",
             "created_at",
             "channels_requested",
+            "channels",
             "phone_number",
             "telegram_chat_id",
             "attachments",
@@ -156,6 +241,7 @@ class ReminderDetailSerializer(serializers.ModelSerializer):
 
 class ReminderListSerializer(serializers.ModelSerializer):
     attachment_count = serializers.SerializerMethodField()
+    channels = serializers.ListField(source="selected_channels", read_only=True)
 
     class Meta:
         model = EmailReminder
@@ -170,6 +256,10 @@ class ReminderListSerializer(serializers.ModelSerializer):
             "sent_at",
             "created_at",
             "attachment_count",
+            "channels",
+            "channels_requested",
+            "phone_number",
+            "telegram_chat_id",
         ]
         read_only_fields = fields
 

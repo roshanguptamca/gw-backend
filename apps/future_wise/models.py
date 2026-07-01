@@ -115,6 +115,11 @@ class EmailReminder(models.Model):
         default="email",
         help_text="Comma-separated channel codes e.g. 'email,sms,telegram'.",
     )
+    channels = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Canonical list of requested channel codes. Falls back to channels_requested for legacy rows.",
+    )
 
     # ── Delivery State ────────────────────────────────────────────────────────
     status = models.CharField(
@@ -163,6 +168,12 @@ class EmailReminder(models.Model):
 
         max_retries = getattr(settings, "FUTUREWAVE_MAX_RETRIES", 3)
         return self.retry_count < max_retries
+
+    @property
+    def selected_channels(self) -> list[str]:
+        if isinstance(self.channels, list) and self.channels:
+            return [str(channel).strip() for channel in self.channels if str(channel).strip()]
+        return [channel.strip() for channel in (self.channels_requested or "email").split(",") if channel.strip()]
 
     @property
     def is_anonymous(self) -> bool:

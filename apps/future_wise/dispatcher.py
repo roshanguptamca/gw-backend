@@ -178,8 +178,7 @@ class ReminderDispatcher:
         return ctx
 
     def _requested_channels(self, reminder: EmailReminder) -> list[str]:
-        raw = getattr(reminder, "channels_requested", "email") or "email"
-        return [ch.strip() for ch in raw.split(",") if ch.strip()]
+        return reminder.selected_channels
 
     def _next_attempt_number(self, reminder: EmailReminder, channel: ReminderChannel) -> int:
         last = (
