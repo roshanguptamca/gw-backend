@@ -38,6 +38,7 @@ from .serializers import (
     ReminderListSerializer,
     TestReminderSerializer,
     UpdateNotificationPreferencesSerializer,
+    UpdateReminderSerializer,
 )
 from .storage import AttachmentStorage
 from .throttle import (
@@ -251,7 +252,8 @@ class ReminderListCreateView(APIView):
             letter_type=body_serializer.validated_data.get("letter_type", EmailReminder.LetterType.FUTURE_SELF),
             phone_number=body_serializer.validated_data.get("phone_number", ""),
             telegram_chat_id=body_serializer.validated_data.get("telegram_chat_id", ""),
-            channels_requested=",".join(channels or ["email"]),
+            channels=channels,
+            channels_requested=",".join(channels),
             status=(
                 EmailReminder.Status.SCHEDULED
                 if (is_auth or is_beta_channel)
@@ -323,8 +325,9 @@ class ReminderListCreateView(APIView):
 @extend_schema(tags=["FutureWise"])
 class ReminderDetailView(APIView):
     """
-    GET    — retrieve a single reminder (owner or anonymous token holder).
-    DELETE — cancel a reminder (owner only; only if not yet sent).
+    GET          — retrieve a single reminder (owner or anonymous token holder).
+    PATCH / PUT  — update a pending future reminder.
+    DELETE       — delete a pending future reminder.
     """
 
     def _get_reminder(self, request, pk):
@@ -393,12 +396,48 @@ class ReminderDetailView(APIView):
         serializer = ReminderDetailSerializer(reminder)
         return Response(serializer.data)
 
+    def _update(self, request, pk, partial):
+        reminder = self._get_reminder(request, pk)
+        editable_statuses = {
+            EmailReminder.Status.PENDING_VERIFICATION,
+            EmailReminder.Status.SCHEDULED,
+        }
+        if reminder.status not in editable_statuses:
+            return Response(
+                {"detail": f"Cannot update a reminder with status '{reminder.status}'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = UpdateReminderSerializer(
+            reminder,
+            data=request.data,
+            partial=partial,
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(ReminderDetailSerializer(reminder).data)
+
     @extend_schema(
-        summary="Cancel a reminder",
+        summary="Update a future reminder",
+        request=UpdateReminderSerializer,
+        responses={200: ReminderDetailSerializer},
+    )
+    def patch(self, request, pk):
+        return self._update(request, pk, partial=True)
+
+    @extend_schema(
+        summary="Replace a future reminder",
+        request=UpdateReminderSerializer,
+        responses={200: ReminderDetailSerializer},
+    )
+    def put(self, request, pk):
+        return self._update(request, pk, partial=False)
+
+    @extend_schema(
+        summary="Delete a reminder",
         description=(
-            "Cancel a scheduled reminder. "
-            "Only the owner (authenticated) can cancel. "
-            "Cannot cancel reminders that are already `sent`, `dead_letter`, or `cancelled`."
+            "Delete a pending or scheduled reminder. "
+            "Only the owner can delete it. Sent or otherwise processing reminders cannot be deleted."
         ),
         parameters=[
             OpenApiParameter(
@@ -412,7 +451,7 @@ class ReminderDetailView(APIView):
         responses={
             200: inline_serializer(
                 "CancelReminderResponse",
-                fields={"detail": drf_serializers.CharField(default="Reminder cancelled.")},
+                fields={"detail": drf_serializers.CharField(default="Reminder deleted.")},
             ),
             400: inline_serializer(
                 "CancelReminderError",
@@ -423,14 +462,14 @@ class ReminderDetailView(APIView):
         },
         examples=[
             OpenApiExample(
-                "Cancelled",
-                value={"detail": "Reminder cancelled."},
+                "Deleted",
+                value={"detail": "Reminder deleted."},
                 response_only=True,
                 status_codes=["200"],
             ),
             OpenApiExample(
-                "Cannot cancel sent reminder",
-                value={"detail": "Cannot cancel a reminder with status 'sent'."},
+                "Cannot delete sent reminder",
+                value={"detail": "Cannot delete a reminder with status 'sent'."},
                 response_only=True,
                 status_codes=["400"],
             ),
@@ -439,20 +478,18 @@ class ReminderDetailView(APIView):
     def delete(self, request, pk):
         reminder = self._get_reminder(request, pk)
 
-        non_cancellable = {
-            EmailReminder.Status.SENT,
-            EmailReminder.Status.DEAD_LETTER,
-            EmailReminder.Status.CANCELLED,
+        deletable = {
+            EmailReminder.Status.PENDING_VERIFICATION,
+            EmailReminder.Status.SCHEDULED,
         }
-        if reminder.status in non_cancellable:
+        if reminder.status not in deletable:
             return Response(
-                {"detail": f"Cannot cancel a reminder with status '{reminder.status}'."},
+                {"detail": f"Cannot delete a reminder with status '{reminder.status}'."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        reminder.status = EmailReminder.Status.CANCELLED
-        reminder.save(update_fields=["status", "updated_at"])
-        return Response({"detail": "Reminder cancelled."}, status=status.HTTP_200_OK)
+        reminder.delete()
+        return Response({"detail": "Reminder deleted."}, status=status.HTTP_200_OK)
 
 
 # ── Email Verification ────────────────────────────────────────────────────────

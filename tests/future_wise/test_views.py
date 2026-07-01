@@ -181,16 +181,15 @@ class ReminderDetailViewTest(TestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_cancel_scheduled_reminder(self):
+    def test_delete_scheduled_reminder(self):
         reminder = make_reminder(user=self.user)
         url = reverse("future_wise:reminder-detail", kwargs={"pk": reminder.id})
         self.client.force_authenticate(user=self.user)
         response = self.client.delete(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        reminder.refresh_from_db()
-        self.assertEqual(reminder.status, EmailReminder.Status.CANCELLED)
+        self.assertFalse(EmailReminder.objects.filter(pk=reminder.pk).exists())
 
-    def test_cannot_cancel_sent_reminder(self):
+    def test_cannot_delete_sent_reminder(self):
         reminder = make_reminder(user=self.user, status=EmailReminder.Status.SENT)
         url = reverse("future_wise:reminder-detail", kwargs={"pk": reminder.id})
         self.client.force_authenticate(user=self.user)
