@@ -20,6 +20,7 @@ class ScannerFinding:
     scanner_type: str
     file_path: str = ""
     line_number: int | None = None
+    code_snippet: str = ""
     endpoint: str = ""
     cwe_id: str = ""
     owasp_category: str = ""

@@ -7,10 +7,13 @@ Users can only access organizations where they are members.
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 
+from django.http import HttpResponse
 from django.db.models import Q
+from django.utils.text import slugify
 from django.utils import timezone
 
 from rest_framework import permissions, status, viewsets
@@ -49,6 +52,8 @@ from .serializers import (
     ScanEngineResultSerializer,
 )
 from .services.report import generate_report
+from .services.report_render import render_report_html, render_report_pdf
+from .services.ai_recommendation import generate_ai_fix_suggestion
 from .services.repository import (
     check_private_access,
     check_public_access,
@@ -383,6 +388,11 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
 class RepositoryValidateThrottle(UserRateThrottle):
     scope = "sw_repo_validate"
+
+
+class AIRecommendationThrottle(UserRateThrottle):
+    scope = "securewise_ai_suggestion"
+    rate = "20/hour"
 
 
 class RepositoryViewSet(viewsets.ModelViewSet):
@@ -734,6 +744,45 @@ class FindingViewSet(viewsets.ModelViewSet):
                 request=self.request,
             )
 
+    @action(detail=True, methods=["post"], url_path="ai-suggestion", throttle_classes=[AIRecommendationThrottle])
+    def ai_suggestion(self, request, pk=None):
+        finding = self.get_object()
+        if _membership(request.user, finding.organization) is None:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You are not a member of this organization.")
+
+        force = request.query_params.get("force", "").strip().lower() in {"1", "true", "yes"}
+        if finding.ai_fix_suggestion and not force:
+            try:
+                cached_value = json.loads(finding.ai_fix_suggestion)
+            except (TypeError, ValueError):
+                cached_value = finding.ai_fix_suggestion
+            return Response({"ai_fix_suggestion": cached_value, "cached": True})
+
+        suggestion = generate_ai_fix_suggestion(finding)
+        if suggestion is None:
+            return Response(
+                {
+                    "ai_fix_suggestion": None,
+                    "engine_unavailable": True,
+                    "detail": "AI recommendation engine is not available right now.",
+                }
+            )
+
+        finding.ai_fix_suggestion = json.dumps(suggestion)
+        finding.save(update_fields=["ai_fix_suggestion", "updated_at"])
+        _audit(
+            request.user,
+            "ai_suggestion_generated",
+            org=finding.organization,
+            target_type="SecureWiseFinding",
+            target_id=finding.id,
+            detail={"finding_id": str(finding.id), "confidence": suggestion["confidence"]},
+            request=request,
+        )
+        return Response({"ai_fix_suggestion": suggestion, "cached": False})
+
     @action(detail=True, methods=["post"], url_path="accept-risk")
     def accept_risk(self, request, pk=None):
         finding = self.get_object()
@@ -829,6 +878,24 @@ class ReportViewSet(viewsets.ModelViewSet):
             detail={"title": report.title},
             request=self.request,
         )
+
+    @action(detail=True, methods=["get"], url_path="html")
+    def html(self, request, pk=None):
+        report = self.get_object()
+        if report.status != "ready":
+            return Response({"detail": "Report is not ready yet."}, status=400)
+        return HttpResponse(render_report_html(report), content_type="text/html")
+
+    @action(detail=True, methods=["get"], url_path="pdf")
+    def pdf(self, request, pk=None):
+        report = self.get_object()
+        if report.status != "ready":
+            return Response({"detail": "Report is not ready yet."}, status=400)
+        pdf_bytes = render_report_pdf(report)
+        safe_title = slugify(report.title) or "securewise-report"
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="{safe_title}.pdf"'
+        return response
 
 
 # ---------------------------------------------------------------------------

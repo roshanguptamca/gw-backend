@@ -209,6 +209,7 @@ class ScannerRunner:
                 existing.confidence = f.confidence
                 existing.description = f.description
                 existing.evidence = f.evidence
+                existing.code_snippet = f.code_snippet
                 if existing.status == "fixed":
                     existing.status = "open"
                     existing.review_note = (
@@ -242,6 +243,7 @@ class ScannerRunner:
                     recommendation=f.recommendation,
                     bad_code_example=f.bad_code_example,
                     fixed_code_example=f.fixed_code_example,
+                    code_snippet=f.code_snippet,
                     evidence=f.evidence,
                     fingerprint=f.fingerprint,
                     status="open",
@@ -263,6 +265,7 @@ class ScannerRunner:
                     "confidence",
                     "description",
                     "evidence",
+                    "code_snippet",
                     "status",
                     "review_note",
                 ],

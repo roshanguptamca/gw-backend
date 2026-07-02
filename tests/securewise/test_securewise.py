@@ -225,6 +225,18 @@ class TestScanEngine:
         findings = SecureWiseFinding.objects.filter(scan=scan)
         assert findings.count() > 0
 
+    def test_scan_runner_captures_code_snippet(self, scan):
+        with patch("apps.securewise.services.scanner.clone_repository", side_effect=_seed_vulnerable_repo), patch(
+            "apps.securewise.scanners.sast.shutil.which", return_value=None
+        ):
+            ScannerRunner().run_scan(str(scan.id))
+
+        finding = SecureWiseFinding.objects.filter(scan=scan, file_path="app.py", code_snippet__contains="pickle.loads").first()
+        assert finding is not None
+        assert finding.code_snippet
+        assert "pickle.loads(raw_bytes)" in finding.code_snippet
+        assert ">> " in finding.code_snippet
+
     def test_quality_gate_fails_with_critical(self, scan):
         with patch("apps.securewise.services.scanner.clone_repository", side_effect=_seed_vulnerable_repo):
             runner = ScannerRunner()

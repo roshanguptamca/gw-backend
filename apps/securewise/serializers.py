@@ -1,6 +1,8 @@
 from django.contrib.auth import get_user_model
 from django.utils.text import slugify
 
+import json
+
 from rest_framework import serializers
 
 from .models import (
@@ -431,6 +433,15 @@ class ScanEngineResultSerializer(serializers.ModelSerializer):
 
 class SecureWiseFindingSerializer(serializers.ModelSerializer):
     reviewed_by_detail = MinimalUserSerializer(source="reviewed_by", read_only=True)
+    ai_fix_suggestion_parsed = serializers.SerializerMethodField()
+
+    def get_ai_fix_suggestion_parsed(self, obj):
+        if not obj.ai_fix_suggestion:
+            return None
+        try:
+            return json.loads(obj.ai_fix_suggestion)
+        except (TypeError, ValueError):
+            return None
 
     class Meta:
         model = SecureWiseFinding
@@ -455,9 +466,11 @@ class SecureWiseFindingSerializer(serializers.ModelSerializer):
             "recommendation",
             "bad_code_example",
             "fixed_code_example",
+            "code_snippet",
             "evidence",
             "fingerprint",
             "ai_fix_suggestion",
+            "ai_fix_suggestion_parsed",
             "reviewed_by",
             "reviewed_by_detail",
             "reviewed_at",
@@ -470,6 +483,9 @@ class SecureWiseFindingSerializer(serializers.ModelSerializer):
             "scan",
             "project",
             "organization",
+            "code_snippet",
+            "ai_fix_suggestion",
+            "ai_fix_suggestion_parsed",
             "reviewed_by",
             "reviewed_by_detail",
             "reviewed_at",

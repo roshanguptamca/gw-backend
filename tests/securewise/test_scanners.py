@@ -35,6 +35,7 @@ class TestBaseDataclasses:
         f = ScannerFinding(title="x", description="y", severity="low", confidence="low", scanner_type="sast")
         assert f.fingerprint  # auto-generated
         assert f.evidence == {}
+        assert f.code_snippet == ""
 
     def test_scanner_result_defaults(self):
         r = ScannerResult(success=True)

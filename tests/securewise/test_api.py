@@ -5,14 +5,17 @@ Tests all viewsets via the DRF test client to drive views.py coverage.
 
 from __future__ import annotations
 
+import json
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 
 import pytest
 from rest_framework.test import APIClient
 
 from apps.securewise.models import (
+    SecureWiseAuditLog,
     SecureWiseFinding,
     SecureWiseMembership,
     SecureWiseOrganization,
@@ -23,6 +26,7 @@ from apps.securewise.models import (
     SecureWiseScanPolicy,
 )
 from apps.securewise.services.scanner import ScannerRunner
+from apps.securewise.views import AIRecommendationThrottle
 
 User = get_user_model()
 pytestmark = pytest.mark.django_db
@@ -489,6 +493,51 @@ class TestFindingAPI:
         resp = auth_client.get("/api/securewise/findings/?status=open")
         assert resp.status_code == 200
 
+    def test_ai_suggestion_endpoint_returns_and_caches(self, auth_client, finding, owner):
+        suggestion = {
+            "explanation": "Validate and sanitize user input before use.",
+            "why_dangerous": "Unsafe deserialization can execute attacker-controlled payloads.",
+            "fixed_code_example": "data = json.loads(raw_bytes.decode())",
+            "framework_guidance": "Prefer safe serializers in Django request handlers.",
+            "confidence": "high",
+        }
+        with patch("apps.securewise.views.generate_ai_fix_suggestion", return_value=suggestion) as mock_generate:
+            resp = auth_client.post(f"/api/securewise/findings/{finding.id}/ai-suggestion/")
+            assert resp.status_code == 200
+            assert resp.json() == {"ai_fix_suggestion": suggestion, "cached": False}
+
+            finding.refresh_from_db()
+            assert json.loads(finding.ai_fix_suggestion) == suggestion
+            assert SecureWiseAuditLog.objects.filter(
+                event="ai_suggestion_generated",
+                target_type="SecureWiseFinding",
+                target_id=str(finding.id),
+            ).exists()
+
+            cached_resp = auth_client.post(f"/api/securewise/findings/{finding.id}/ai-suggestion/")
+            assert cached_resp.status_code == 200
+            assert cached_resp.json() == {"ai_fix_suggestion": suggestion, "cached": True}
+            assert mock_generate.call_count == 1
+
+    def test_ai_suggestion_throttle_returns_429(self, auth_client, finding):
+        cache.clear()
+        suggestion = {
+            "explanation": "Use parameterized queries.",
+            "why_dangerous": "String interpolation can enable injection.",
+            "fixed_code_example": "cursor.execute(query, [value])",
+            "framework_guidance": "Use Django ORM filters or query parameters.",
+            "confidence": "medium",
+        }
+        with patch.object(AIRecommendationThrottle, "rate", "1/hour"), patch(
+            "apps.securewise.views.generate_ai_fix_suggestion", return_value=suggestion
+        ):
+            first = auth_client.post(f"/api/securewise/findings/{finding.id}/ai-suggestion/")
+            second = auth_client.post(f"/api/securewise/findings/{finding.id}/ai-suggestion/?force=true")
+
+        assert first.status_code == 200
+        assert second.status_code == 429
+        cache.clear()
+
 
 # ---------------------------------------------------------------------------
 # Report endpoints
@@ -525,6 +574,48 @@ class TestReportAPI:
         data = resp.json()
         assert data["format"] == "json"
         assert data["status"] in ("pending", "ready")
+
+    def test_report_html_endpoint(self, auth_client, completed_scan, org, project):
+        create_resp = auth_client.post(
+            "/api/securewise/reports/",
+            {
+                "organization": str(org.id),
+                "project": str(project.id),
+                "scan": str(completed_scan.id),
+                "title": "SecureWise HTML Report",
+                "format": "json",
+            },
+            format="json",
+        )
+        report_id = create_resp.json()["id"]
+
+        resp = auth_client.get(f"/api/securewise/reports/{report_id}/html/")
+        assert resp.status_code == 200
+        assert resp["Content-Type"].startswith("text/html")
+        content = resp.content.decode()
+        assert "SecureWise" in content
+        assert "SecureWise HTML Report" in content
+        assert "Severity Counts" in content
+
+    def test_report_pdf_endpoint(self, auth_client, completed_scan, org, project):
+        create_resp = auth_client.post(
+            "/api/securewise/reports/",
+            {
+                "organization": str(org.id),
+                "project": str(project.id),
+                "scan": str(completed_scan.id),
+                "title": "SecureWise PDF Report",
+                "format": "json",
+            },
+            format="json",
+        )
+        report_id = create_resp.json()["id"]
+
+        resp = auth_client.get(f"/api/securewise/reports/{report_id}/pdf/")
+        assert resp.status_code == 200
+        assert resp["Content-Type"] == "application/pdf"
+        assert resp.content.startswith(b"%PDF")
+        assert len(resp.content) > 500
 
 
 # ---------------------------------------------------------------------------

@@ -566,6 +566,7 @@ class SecureWiseFinding(models.Model):
     recommendation = models.TextField(blank=True)
     bad_code_example = models.TextField(blank=True)
     fixed_code_example = models.TextField(blank=True)
+    code_snippet = models.TextField(blank=True)
     evidence = models.JSONField(default=dict, blank=True)
     fingerprint = models.CharField(max_length=128, blank=True, db_index=True)
 

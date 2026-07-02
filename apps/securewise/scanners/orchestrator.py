@@ -150,6 +150,7 @@ class ScannerOrchestrator:
             scan.save(update_fields=["progress"])
 
         self._correlate(all_findings)
+        self._populate_code_snippets(repo_path, all_findings)
 
         scan.status = "normalizing"
         scan.save(update_fields=["status"])
@@ -187,3 +188,42 @@ class ScannerOrchestrator:
                         {"engine": "dast", "title": dast_f.title, "endpoint": dast_f.endpoint}
                     )
                     break
+
+    def _populate_code_snippets(self, repo_path: Path, findings: list[ScannerFinding]):
+        repo_root = repo_path.resolve()
+        for finding in findings:
+            if not finding.file_path or not finding.line_number or finding.line_number < 1:
+                continue
+            snippet = self._extract_code_snippet(repo_root, finding.file_path, finding.line_number)
+            if snippet:
+                finding.code_snippet = snippet
+
+    def _extract_code_snippet(self, repo_root: Path, file_path: str, line_number: int) -> str:
+        try:
+            candidate = (repo_root / file_path).resolve()
+            candidate.relative_to(repo_root)
+        except (OSError, ValueError):
+            return ""
+
+        if not candidate.is_file():
+            return ""
+
+        try:
+            raw = candidate.read_bytes()
+            if b"\x00" in raw:
+                return ""
+            content = raw.decode("utf-8")
+        except (OSError, UnicodeDecodeError):
+            return ""
+
+        lines = content.splitlines()
+        if line_number > len(lines):
+            return ""
+
+        start = max(1, line_number - 3)
+        end = min(len(lines), line_number + 2)
+        snippet_lines = []
+        for current in range(start, end + 1):
+            marker = ">>" if current == line_number else "  "
+            snippet_lines.append(f"{marker} {current}: {lines[current - 1]}")
+        return "\n".join(snippet_lines)

@@ -497,6 +497,23 @@ Findings are enriched via two shared modules:
   language-specific templates (Python/Django, Java/Spring, JavaScript/Node, Go) and a
   generic fallback.
 
+While the cloned repository still exists on disk, `ScannerOrchestrator.run()` also captures a
+small numbered `code_snippet` window (3 lines before, the flagged line, 2 after) for findings
+with a real `file_path` + `line_number`. The snippet is path-traversal checked before reading,
+stored on `SecureWiseFinding.code_snippet`, and omitted for binary, missing, or non-file-backed
+findings such as API/DAST endpoint issues.
+
+SecureWise can optionally generate **AI fix suggestions** per finding via
+`POST /api/securewise/findings/{id}/ai-suggestion/`. This endpoint:
+- uses the shared `apps.ai_services.providers` abstraction (`AI_PROVIDER` must be configured),
+- caches the generated suggestion on the finding unless `?force=true` is supplied,
+- returns `engine_unavailable: true` instead of failing if no provider is available, and
+- is rate-limited per user to control cost/abuse.
+
+Reports can still be created as JSON data, and each ready report can now also be rendered as:
+- `GET /api/securewise/reports/{id}/html/` — branded inline HTML report
+- `GET /api/securewise/reports/{id}/pdf/` — branded PDF download rendered with WeasyPrint
+
 ### Full-scan engine selection
 
 For `scan_type="full"`, `ScannerOrchestrator.resolve_engines()` always includes
@@ -526,6 +543,10 @@ POST /api/securewise/scans/                     # create a scan
 POST /api/securewise/scans/{id}/start/          # kick off the background thread
 GET  /api/securewise/scans/{id}/progress/       # poll status/progress/per-engine summary
 GET  /api/securewise/scans/{id}/engine-results/ # detailed per-engine results
+POST /api/securewise/findings/{id}/ai-suggestion/ # cached AI remediation advice
+POST /api/securewise/findings/{id}/ai-suggestion/?force=true # refresh cached AI advice
+GET  /api/securewise/reports/{id}/html/         # branded HTML report
+GET  /api/securewise/reports/{id}/pdf/          # branded PDF report download
 GET  /api/securewise/dashboard/summary/         # org-wide security posture
 ```
 
