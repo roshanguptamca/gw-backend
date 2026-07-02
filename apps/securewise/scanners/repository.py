@@ -13,6 +13,7 @@ Security rules:
 from __future__ import annotations
 
 import logging
+import shutil
 import subprocess
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
@@ -20,8 +21,28 @@ from urllib.parse import urlparse, urlunparse
 logger = logging.getLogger(__name__)
 
 
+class GitUnavailableError(RuntimeError):
+    """Raised when the `git` binary is not installed/on PATH in this environment."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Git is not installed in this environment, so repository scanning is "
+            "unavailable. Ask an administrator to install `git` on the scan runner."
+        )
+
+
+def _require_git() -> None:
+    """Raise a clear, actionable error instead of letting a bare FileNotFoundError leak."""
+    if shutil.which("git") is None:
+        logger.error("git binary not found on PATH; repository scanning is unavailable")
+        raise GitUnavailableError()
+
+
 def validate_public_repo(url: str, timeout: int = 15) -> bool:
     """Return True if `git ls-remote --exit-code <url>` succeeds."""
+    if shutil.which("git") is None:
+        logger.warning("git binary not found on PATH; cannot validate repository %s", url)
+        return False
     clone_url = url if url.endswith(".git") else url + ".git"
     try:
         result = subprocess.run(
@@ -57,7 +78,11 @@ def safe_clone(
     a tempfile.TemporaryDirectory()).
 
     Never logs `clone_url` since it may contain a token.
+
+    Raises GitUnavailableError if `git` is not installed in this environment,
+    and RuntimeError with a clear message if the clone itself fails.
     """
+    _require_git()
     allowed_root = allowed_root or dest.parent
     safe_dest = _resolve_safe_dest(dest, allowed_root)
     try:
@@ -73,6 +98,13 @@ def safe_clone(
         )
     except subprocess.CalledProcessError as exc:
         raise RuntimeError("Failed to clone repository. Check the URL and access permissions.") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("Cloning the repository timed out.") from exc
+    except OSError as exc:
+        # Defensive: _require_git() already checked, but guard against a TOCTOU
+        # race (e.g. git removed mid-scan) with the same clear message instead
+        # of leaking a raw "[Errno 2] No such file or directory: 'git'".
+        raise GitUnavailableError() from exc
     finally:
         del clone_url
 
