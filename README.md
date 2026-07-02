@@ -448,6 +448,12 @@ make test-parallel  # parallel with pytest-xdist
 
 ## SecureWise (Security Application Scanning Platform)
 
+> **📐 Architecture & Roadmap:** Comprehensive architecture review, gap analysis, roadmap,
+> and design documents are available in [`docs/architecture/`](docs/architecture/). Start with
+> [`ARCHITECTURE_REVIEW.md`](docs/architecture/ARCHITECTURE_REVIEW.md) for the executive
+> summary, or [`CURRENT_STATE.md`](docs/architecture/CURRENT_STATE.md) for a detailed as-built
+> reference of every module.
+
 SecureWise (`apps/securewise/`) is a multi-tenant security scanning platform: organizations
 connect git repositories (public or private, via encrypted `SecureWiseGitIntegration` tokens),
 configure scan policies/quality gates, and run scans that produce `SecureWiseFinding` records
