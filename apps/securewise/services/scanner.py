@@ -166,10 +166,15 @@ class ScannerRunner:
         )
 
     # ------------------------------------------------------------------
-    def _evaluate_quality_gate(self, scan, findings: list) -> bool:
+    def _evaluate_quality_gate(self, scan, findings: list) -> bool | None:
+        """
+        Returns True/False if a quality gate policy was evaluated, or None if
+        no policy is attached to this scan (i.e. "not applicable" — this must
+        NOT be treated as "passed" by callers/UI).
+        """
         policy = scan.policy
         if not policy:
-            return True
+            return None
         severity_order = ["critical", "high", "medium", "low", "info"]
         fail_idx = severity_order.index(policy.fail_on_severity)
         for f in findings:
