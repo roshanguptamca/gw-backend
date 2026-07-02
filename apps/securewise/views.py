@@ -224,31 +224,74 @@ class GitIntegrationViewSet(viewsets.ModelViewSet):
         token = integration.get_token()
         if not token:
             return Response({"detail": "No token stored for this integration."}, status=400)
-        # Use a well-known public API endpoint to verify token validity
+        # Use a well-known API endpoint to verify token validity
         import urllib.error
         import urllib.request
 
         headers = {"Authorization": f"token {token}", "User-Agent": "SecureWise-SASP/1.0"}
-        url = (
-            f"{integration.base_url.rstrip('/')}/api/v3/user"
-            if "github" in integration.provider
-            else integration.base_url
-        )
+        base_url = integration.base_url.rstrip("/")
+        if "github" in integration.provider:
+            # github.com (SaaS) is served from api.github.com, NOT <base>/api/v3.
+            # /api/v3 is only valid for GitHub Enterprise Server installations.
+            if base_url in ("https://github.com", "http://github.com"):
+                url = "https://api.github.com/user"
+            else:
+                url = f"{base_url}/api/v3/user"
+        elif "gitlab" in integration.provider:
+            gitlab_base = "https://gitlab.com" if base_url in ("https://gitlab.com", "http://gitlab.com") else base_url
+            url = f"{gitlab_base}/api/v4/user"
+            headers["Authorization"] = f"Bearer {token}"
+        else:
+            url = base_url
+
         success = False
+        error_detail = ""
         try:
             req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, timeout=10) as resp:
                 success = resp.status == 200
-        except Exception:
-            pass
+        except urllib.error.HTTPError as e:
+            # Surface enough info to debug without ever logging the token itself.
+            if e.code in (401, 403):
+                error_detail = "Authentication failed: token is invalid, expired, or lacks required scopes."
+            elif e.code == 404:
+                error_detail = "API endpoint not found. Check the integration's base URL."
+            else:
+                error_detail = f"Provider returned HTTP {e.code}."
+            logger.warning(
+                "SecureWise git integration test failed for integration=%s provider=%s: HTTP %s",
+                integration.id,
+                integration.provider,
+                e.code,
+            )
+        except urllib.error.URLError as e:
+            error_detail = f"Could not reach provider: {e.reason}"
+            logger.warning(
+                "SecureWise git integration test failed for integration=%s provider=%s: %s",
+                integration.id,
+                integration.provider,
+                e.reason,
+            )
+        except Exception as e:
+            error_detail = "Unexpected error while testing connection."
+            logger.exception(
+                "SecureWise git integration test raised unexpected error for integration=%s", integration.id
+            )
         finally:
             del token  # always remove token from memory
+
         if success:
             integration.last_used_at = timezone.now()
             integration.status = "active"
             integration.save(update_fields=["last_used_at", "status"])
             return Response({"detail": "Connection successful.", "status": "active"})
-        return Response({"detail": "Connection test failed. Verify token and permissions."}, status=400)
+
+        integration.status = "error"
+        integration.save(update_fields=["status"])
+        return Response(
+            {"detail": error_detail or "Connection test failed. Verify token and permissions."},
+            status=400,
+        )
 
     @action(detail=True, methods=["post"], url_path="list-repositories")
     def list_repositories(self, request, pk=None):
