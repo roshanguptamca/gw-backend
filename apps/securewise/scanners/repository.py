@@ -30,7 +30,7 @@ def validate_public_repo(url: str, timeout: int = 15) -> bool:
             timeout=timeout,
         )
         return result.returncode == 0
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+    except (subprocess.TimeoutExpired, OSError):
         return False
 
 

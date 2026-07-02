@@ -187,7 +187,7 @@ def _git_command(repo_path: Path, *args: str) -> None:
         )
     except subprocess.CalledProcessError as exc:
         raise GitHubActionError("Git failed while preparing the pull request branch.") from exc
-    except (FileNotFoundError, OSError, subprocess.TimeoutExpired) as exc:
+    except (OSError, subprocess.TimeoutExpired) as exc:
         raise GitHubActionError("Git is unavailable or timed out while preparing the pull request branch.") from exc
 
 
