@@ -364,6 +364,61 @@ class TestScanPolicyAPI:
         resp = auth_client.get(f"/api/securewise/scan-policies/{policy.id}/")
         assert resp.status_code == 200
 
+    def test_update_policy(self, auth_client, policy):
+        resp = auth_client.patch(
+            f"/api/securewise/scan-policies/{policy.id}/",
+            {"name": "Renamed Policy", "max_high": 20, "fail_on_severity": "critical"},
+            format="json",
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["name"] == "Renamed Policy"
+        assert data["max_high"] == 20
+        assert data["fail_on_severity"] == "critical"
+        policy.refresh_from_db()
+        assert policy.name == "Renamed Policy"
+        assert SecureWiseAuditLog.objects.filter(event="scan_policy_updated", target_id=str(policy.id)).exists()
+
+    def test_update_policy_cannot_move_organization(self, auth_client, policy, owner):
+        other_org = SecureWiseOrganization.objects.create(name="OtherOrg", slug="otherorg-move", owner=owner)
+        SecureWiseMembership.objects.create(organization=other_org, user=owner, role="owner")
+        resp = auth_client.patch(
+            f"/api/securewise/scan-policies/{policy.id}/",
+            {"organization": str(other_org.id)},
+            format="json",
+        )
+        assert resp.status_code == 400
+        policy.refresh_from_db()
+        assert policy.organization_id != other_org.id
+
+    def test_update_policy_denied_for_non_write_role(self, org, policy, other_user):
+        SecureWiseMembership.objects.create(organization=org, user=other_user, role="auditor")
+        client = APIClient()
+        client.force_authenticate(user=other_user)
+        resp = client.patch(
+            f"/api/securewise/scan-policies/{policy.id}/",
+            {"name": "Hacked"},
+            format="json",
+        )
+        assert resp.status_code == 403
+        policy.refresh_from_db()
+        assert policy.name != "Hacked"
+
+    def test_delete_policy(self, auth_client, policy):
+        policy_id = policy.id
+        resp = auth_client.delete(f"/api/securewise/scan-policies/{policy_id}/")
+        assert resp.status_code == 204
+        assert not SecureWiseScanPolicy.objects.filter(id=policy_id).exists()
+        assert SecureWiseAuditLog.objects.filter(event="scan_policy_deleted", target_id=str(policy_id)).exists()
+
+    def test_delete_policy_denied_for_non_write_role(self, org, policy, other_user):
+        SecureWiseMembership.objects.create(organization=org, user=other_user, role="auditor")
+        client = APIClient()
+        client.force_authenticate(user=other_user)
+        resp = client.delete(f"/api/securewise/scan-policies/{policy.id}/")
+        assert resp.status_code == 403
+        assert SecureWiseScanPolicy.objects.filter(id=policy.id).exists()
+
 
 # ---------------------------------------------------------------------------
 # Scan endpoints

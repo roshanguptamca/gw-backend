@@ -525,6 +525,46 @@ class ScanPolicyViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("You do not have permission to create scan policies.")
         serializer.save(created_by=self.request.user)
 
+    def perform_update(self, serializer):
+        org = serializer.instance.organization
+        m = _membership(self.request.user, org)
+        if m is None or m.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to edit scan policies.")
+        new_org = serializer.validated_data.get("organization")
+        if new_org is not None and new_org.id != org.id:
+            from rest_framework.exceptions import ValidationError
+
+            raise ValidationError({"organization": "Cannot move a policy to a different organization."})
+        instance = serializer.save()
+        _audit(
+            self.request.user,
+            "scan_policy_updated",
+            org=org,
+            target_type="SecureWiseScanPolicy",
+            target_id=instance.id,
+            detail={"name": instance.name},
+            request=self.request,
+        )
+
+    def perform_destroy(self, instance):
+        m = _membership(self.request.user, instance.organization)
+        if m is None or m.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to delete scan policies.")
+        _audit(
+            self.request.user,
+            "scan_policy_deleted",
+            org=instance.organization,
+            target_type="SecureWiseScanPolicy",
+            target_id=instance.id,
+            detail={"name": instance.name},
+            request=self.request,
+        )
+        instance.delete()
+
     @action(detail=True, methods=["post"], url_path="set-default")
     def set_default(self, request, pk=None):
         policy = self.get_object()

@@ -164,6 +164,8 @@ AUDIT_EVENT_CHOICES = [
     ("finding_ticket_failed", "Finding Ticket Failed"),
     ("finding_pr_created", "Finding PR Created"),
     ("finding_pr_failed", "Finding PR Failed"),
+    ("scan_policy_updated", "Scan Policy Updated"),
+    ("scan_policy_deleted", "Scan Policy Deleted"),
 ]
 
 
