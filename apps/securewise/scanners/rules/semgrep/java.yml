@@ -1,0 +1,62 @@
+rules:
+  - id: sw-java-sql-injection-statement
+    languages: [java]
+    severity: ERROR
+    message: >
+      Building a SQL query via string concatenation and executing it with
+      Statement.executeQuery/executeUpdate risks SQL injection. Use
+      PreparedStatement with bound parameters.
+    metadata:
+      cwe: "CWE-89"
+      owasp: "A03:2021 Injection"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: $STMT.executeQuery("..." + $X)
+          - pattern: $STMT.executeUpdate("..." + $X)
+
+  - id: sw-java-xxe-documentbuilderfactory
+    languages: [java]
+    severity: ERROR
+    message: >
+      DocumentBuilderFactory is created without disabling external entity
+      resolution, allowing XXE (XML External Entity) attacks that can read
+      local files or perform SSRF.
+    metadata:
+      cwe: "CWE-611"
+      owasp: "A05:2021 Security Misconfiguration"
+      confidence: LOW
+    patterns:
+      - pattern: DocumentBuilderFactory.newInstance()
+      - pattern-not-inside: |
+          $DBF = DocumentBuilderFactory.newInstance();
+          ...
+          $DBF.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+
+  - id: sw-java-unsafe-deserialization
+    languages: [java]
+    severity: ERROR
+    message: >
+      ObjectInputStream.readObject() on untrusted/network-sourced data can
+      lead to remote code execution via deserialization gadget chains.
+    metadata:
+      cwe: "CWE-502"
+      owasp: "A08:2021 Software and Data Integrity Failures"
+      confidence: LOW
+    patterns:
+      - pattern: $OIS.readObject()
+
+  - id: sw-java-weak-crypto-des
+    languages: [java]
+    severity: WARNING
+    message: >
+      DES/ECB are cryptographically weak. Use AES-256-GCM (or another
+      authenticated, modern cipher) instead.
+    metadata:
+      cwe: "CWE-327"
+      owasp: "A02:2021 Cryptographic Failures"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: Cipher.getInstance("DES")
+          - pattern: Cipher.getInstance("DES/ECB/PKCS5Padding")

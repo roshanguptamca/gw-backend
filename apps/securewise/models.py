@@ -37,9 +37,37 @@ SCAN_STATUS_CHOICES = [
     ("pending", "Pending"),
     ("queued", "Queued"),
     ("running", "Running"),
+    ("cloning", "Cloning Repository"),
+    ("running_sast", "Running SAST"),
+    ("running_sca", "Running SCA"),
+    ("running_secrets", "Running Secret Scan"),
+    ("running_iac", "Running IaC Scan"),
+    ("running_container", "Running Container Scan"),
+    ("running_api", "Running API Scan"),
+    ("running_dast", "Running DAST"),
+    ("normalizing", "Normalizing Results"),
     ("completed", "Completed"),
+    ("completed_with_warnings", "Completed with Warnings"),
     ("failed", "Failed"),
     ("cancelled", "Cancelled"),
+]
+
+ENGINE_CHOICES = [
+    ("sast", "SAST"),
+    ("sca", "SCA"),
+    ("secrets", "Secret Scanning"),
+    ("dast", "DAST"),
+    ("iac", "IaC"),
+    ("container", "Container"),
+    ("api", "API Security"),
+]
+
+ENGINE_STATUS_CHOICES = [
+    ("pending", "Pending"),
+    ("running", "Running"),
+    ("completed", "Completed"),
+    ("skipped", "Skipped"),
+    ("failed", "Failed"),
 ]
 
 SCAN_TYPE_CHOICES = [
@@ -129,6 +157,15 @@ AUDIT_EVENT_CHOICES = [
     ("token_used_for_scan", "Token Used for Scan"),
     ("token_failed", "Token Failed"),
     ("repository_added", "Repository Added"),
+    ("scan_engine_started", "Scan Engine Started"),
+    ("scan_engine_completed", "Scan Engine Completed"),
+    ("finding_created", "Finding Created"),
+    ("finding_ticket_created", "Finding Ticket Created"),
+    ("finding_ticket_failed", "Finding Ticket Failed"),
+    ("finding_pr_created", "Finding PR Created"),
+    ("finding_pr_failed", "Finding PR Failed"),
+    ("scan_policy_updated", "Scan Policy Updated"),
+    ("scan_policy_deleted", "Scan Policy Deleted"),
 ]
 
 
@@ -348,6 +385,22 @@ class SecureWiseScanPolicy(models.Model):
     fail_on_severity = models.CharField(max_length=20, choices=SEVERITY_CHOICES, default="high")
     max_critical = models.IntegerField(default=0)
     max_high = models.IntegerField(default=5)
+    max_medium = models.IntegerField(default=-1, help_text="-1 = unlimited.")
+    fail_on_secrets = models.BooleanField(default=True, help_text="Fail the gate if any open secret finding exists.")
+    fail_on_new_findings_only = models.BooleanField(
+        default=False,
+        help_text="Only evaluate findings first discovered by this scan, ignoring pre-existing recurring issues.",
+    )
+    allow_accepted_risks = models.BooleanField(
+        default=True, help_text="Findings marked 'Accepted Risk' don't count against the gate."
+    )
+    allow_false_positives = models.BooleanField(
+        default=True, help_text="Findings marked 'False Positive' don't count against the gate."
+    )
+    is_default = models.BooleanField(
+        default=False,
+        help_text="Automatically applied to new scans in this organization when no policy is explicitly chosen.",
+    )
     schedule_cron = models.CharField(max_length=100, blank=True, help_text="Cron expression for auto-scheduling.")
     is_active = models.BooleanField(default=True)
     created_by = models.ForeignKey(
@@ -366,6 +419,14 @@ class SecureWiseScanPolicy(models.Model):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        if self.is_default:
+            # Only one default policy per organization — demote any others.
+            SecureWiseScanPolicy.objects.filter(organization=self.organization, is_default=True).exclude(
+                pk=self.pk
+            ).update(is_default=False)
 
 
 # ---------------------------------------------------------------------------
@@ -394,7 +455,7 @@ class SecureWiseScan(models.Model):
     scan_type = models.CharField(max_length=20, choices=SCAN_TYPE_CHOICES, default="full")
     branch = models.CharField(max_length=200, blank=True)
     commit_sha = models.CharField(max_length=64, blank=True)
-    status = models.CharField(max_length=20, choices=SCAN_STATUS_CHOICES, default="pending")
+    status = models.CharField(max_length=30, choices=SCAN_STATUS_CHOICES, default="pending")
     triggered_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -408,6 +469,32 @@ class SecureWiseScan(models.Model):
     scanner_metadata = models.JSONField(default=dict, blank=True)
     # Quality gate result
     quality_gate_passed = models.BooleanField(null=True, blank=True)
+    bypass_quality_gate = models.BooleanField(
+        default=False, help_text="User explicitly opted out of quality gate enforcement for this scan."
+    )
+    bypass_reason = models.TextField(blank=True, help_text="Why the quality gate was bypassed for this scan.")
+
+    # A scan created via the "Retry" action points back at the scan it retried, for audit history.
+    retry_of = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="retries",
+    )
+
+    progress = models.PositiveSmallIntegerField(default=0, help_text="Scan progress percentage (0-100).")
+    selected_engines = models.JSONField(
+        default=list, blank=True, help_text="Resolved list of engines this scan will run/ran, e.g. ['sast','sca']."
+    )
+    target_url = models.URLField(blank=True, help_text="Target URL for DAST scanning.")
+    api_spec_url = models.CharField(
+        max_length=500, blank=True, help_text="Path or URL to an OpenAPI/Swagger spec for API scanning."
+    )
+    docker_image = models.CharField(
+        max_length=300, blank=True, help_text="Docker image reference for container scanning."
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -418,6 +505,30 @@ class SecureWiseScan(models.Model):
         return f"Scan {self.id} [{self.scan_type}] - {self.status}"
 
 
+class SecureWiseScanEngineResult(models.Model):
+    """Per-engine result for a scan (e.g. sast/sca/secrets/dast/iac/container/api)."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    scan = models.ForeignKey(SecureWiseScan, on_delete=models.CASCADE, related_name="engine_results")
+    engine = models.CharField(max_length=20, choices=ENGINE_CHOICES)
+    status = models.CharField(max_length=20, choices=ENGINE_STATUS_CHOICES, default="pending")
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    duration_seconds = models.IntegerField(null=True, blank=True)
+    findings_count = models.IntegerField(default=0)
+    skipped_reason = models.TextField(blank=True)
+    raw_summary = models.JSONField(default=dict, blank=True, help_text="Tool used, files scanned, deps parsed, etc.")
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"{self.engine} [{self.status}] for scan {self.scan_id}"
+
+
 # ---------------------------------------------------------------------------
 # Finding
 # ---------------------------------------------------------------------------
@@ -425,7 +536,23 @@ class SecureWiseScan(models.Model):
 
 class SecureWiseFinding(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # `scan` always points at the MOST RECENT scan that (re-)detected this issue, so
+    # `GET /scans/{id}/findings/` reflects "everything this scan run currently sees".
     scan = models.ForeignKey(SecureWiseScan, on_delete=models.CASCADE, related_name="findings")
+    # `first_seen_scan` never changes after creation — it's when this issue (by fingerprint)
+    # was first discovered for this project. Used for "new vs recurring" reporting and for
+    # policies with fail_on_new_findings_only.
+    first_seen_scan = models.ForeignKey(
+        SecureWiseScan,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="findings_first_seen",
+    )
+    last_seen_at = models.DateTimeField(null=True, blank=True, help_text="When this issue was last re-detected.")
+    occurrence_count = models.PositiveIntegerField(
+        default=1, help_text="Number of scans (across time) that have re-detected this issue."
+    )
     project = models.ForeignKey(SecureWiseProject, on_delete=models.CASCADE, related_name="findings")
     organization = models.ForeignKey(SecureWiseOrganization, on_delete=models.CASCADE, related_name="findings")
 
@@ -447,6 +574,11 @@ class SecureWiseFinding(models.Model):
     recommendation = models.TextField(blank=True)
     bad_code_example = models.TextField(blank=True)
     fixed_code_example = models.TextField(blank=True)
+    code_snippet = models.TextField(blank=True)
+    ticket_url = models.URLField(max_length=500, blank=True)
+    ticket_created_at = models.DateTimeField(null=True, blank=True)
+    pr_url = models.URLField(max_length=500, blank=True)
+    pr_created_at = models.DateTimeField(null=True, blank=True)
     evidence = models.JSONField(default=dict, blank=True)
     fingerprint = models.CharField(max_length=128, blank=True, db_index=True)
 
@@ -474,6 +606,18 @@ class SecureWiseFinding(models.Model):
 
     def __str__(self):
         return f"[{self.severity.upper()}] {self.title}"
+
+    @staticmethod
+    def for_scan_q(scan_id):
+        """
+        Findings "belonging" to a scan run = anything first discovered in it OR
+        still re-detected (last_seen) as of it. This lets a rescan of unchanged
+        code keep showing pre-existing issues in the new scan's findings list,
+        without creating duplicate rows for the same fingerprint.
+        """
+        from django.db.models import Q
+
+        return Q(scan_id=scan_id) | Q(first_seen_scan_id=scan_id)
 
 
 # ---------------------------------------------------------------------------

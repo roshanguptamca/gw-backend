@@ -1,0 +1,58 @@
+rules:
+  - id: sw-go-sql-injection-sprintf
+    languages: [go]
+    severity: ERROR
+    message: >
+      Building a SQL query with fmt.Sprintf and passing it to Query/Exec risks
+      SQL injection. Use parameterized queries ($1, $2, ... placeholders).
+    metadata:
+      cwe: "CWE-89"
+      owasp: "A03:2021 Injection"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: $DB.Query(fmt.Sprintf(...))
+          - pattern: $DB.Exec(fmt.Sprintf(...))
+          - pattern: $DB.QueryRow(fmt.Sprintf(...))
+
+  - id: sw-go-command-injection
+    languages: [go]
+    severity: ERROR
+    message: >
+      exec.Command built from dynamic/untrusted input (e.g. via sh -c) can
+      lead to OS command injection.
+    metadata:
+      cwe: "CWE-78"
+      owasp: "A03:2021 Injection"
+      confidence: MEDIUM
+    patterns:
+      - pattern: exec.Command("sh", "-c", $X)
+
+  - id: sw-go-missing-http-timeout
+    languages: [go]
+    severity: WARNING
+    message: >
+      An http.Client (or the default http package client) is used without an
+      explicit Timeout, which can allow a slow/malicious remote server to hang
+      the request indefinitely (resource exhaustion).
+    metadata:
+      cwe: "CWE-400"
+      owasp: "A05:2021 Security Misconfiguration"
+      confidence: LOW
+    patterns:
+      - pattern: http.Client{}
+      - pattern-not: 'http.Client{Timeout: ...}'
+
+  - id: sw-go-weak-tls-min-version
+    languages: [go]
+    severity: WARNING
+    message: >
+      A tls.Config is constructed without pinning MinVersion, which can allow
+      negotiation down to deprecated/insecure TLS versions.
+    metadata:
+      cwe: "CWE-327"
+      owasp: "A02:2021 Cryptographic Failures"
+      confidence: LOW
+    patterns:
+      - pattern: tls.Config{...}
+      - pattern-not: 'tls.Config{..., MinVersion: ..., ...}'

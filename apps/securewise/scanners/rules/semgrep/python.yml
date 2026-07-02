@@ -1,0 +1,149 @@
+rules:
+  - id: sw-python-sql-injection-string-format
+    languages: [python]
+    severity: ERROR
+    message: >
+      Building a SQL query with string formatting/concatenation and passing it to
+      execute() allows SQL injection. Use parameterized queries instead.
+    metadata:
+      cwe: "CWE-89"
+      owasp: "A03:2021 Injection"
+      confidence: HIGH
+      references:
+        - "https://cwe.mitre.org/data/definitions/89.html"
+    patterns:
+      - pattern-either:
+          - pattern: $CURSOR.execute(f"...")
+          - pattern: $CURSOR.execute("..." % $X)
+          - pattern: $CURSOR.execute("...".format(...))
+          - pattern: $CURSOR.execute("..." + $X)
+          - pattern: $CURSOR.execute("..." + $X + "...")
+          - pattern: $CURSOR.execute("..." + $X + "..." + $Y)
+
+  - id: sw-python-command-injection
+    languages: [python]
+    severity: ERROR
+    message: >
+      Passing untrusted/dynamic input to os.system, os.popen or subprocess with
+      shell=True can lead to OS command injection.
+    metadata:
+      cwe: "CWE-78"
+      owasp: "A03:2021 Injection"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: os.system(...)
+          - pattern: os.popen(...)
+          - pattern: subprocess.$FUNC(..., shell=True, ...)
+          - pattern: subprocess.$FUNC(..., ..., shell=True)
+
+  - id: sw-python-unsafe-pickle-load
+    languages: [python]
+    severity: ERROR
+    message: >
+      pickle.load()/loads() executes arbitrary code embedded in the pickled
+      stream. Never unpickle data from an untrusted or unauthenticated source.
+    metadata:
+      cwe: "CWE-502"
+      owasp: "A08:2021 Software and Data Integrity Failures"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: pickle.load(...)
+          - pattern: pickle.loads(...)
+          - pattern: cPickle.load(...)
+          - pattern: cPickle.loads(...)
+
+  - id: sw-python-unsafe-yaml-load
+    languages: [python]
+    severity: WARNING
+    message: >
+      yaml.load() without an explicit safe Loader can execute arbitrary Python
+      objects. Use yaml.safe_load() instead.
+    metadata:
+      cwe: "CWE-502"
+      owasp: "A08:2021 Software and Data Integrity Failures"
+      confidence: MEDIUM
+    patterns:
+      - pattern: yaml.load($DATA)
+      - pattern-not: yaml.load($DATA, Loader=yaml.SafeLoader)
+
+  - id: sw-python-eval-usage
+    languages: [python]
+    severity: WARNING
+    message: >
+      eval()/exec() on dynamic input can lead to arbitrary code execution.
+    metadata:
+      cwe: "CWE-95"
+      owasp: "A03:2021 Injection"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: eval(...)
+          - pattern: exec(...)
+
+  - id: sw-python-django-debug-true
+    languages: [python]
+    severity: WARNING
+    message: >
+      DEBUG=True must never be enabled in production — it leaks stack traces,
+      settings, and environment details to attackers.
+    metadata:
+      cwe: "CWE-489"
+      owasp: "A05:2021 Security Misconfiguration"
+      confidence: HIGH
+    patterns:
+      - pattern: DEBUG = True
+
+  - id: sw-python-hardcoded-secret-key
+    languages: [python]
+    severity: ERROR
+    message: >
+      A hardcoded SECRET_KEY/password/token in source code can be extracted by
+      anyone with repo access. Load secrets from environment variables or a
+      secrets manager.
+    metadata:
+      cwe: "CWE-798"
+      owasp: "A02:2021 Cryptographic Failures"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: SECRET_KEY = "..."
+          - pattern: PASSWORD = "..."
+          - pattern: API_KEY = "..."
+      - metavariable-regex:
+          metavariable: $X
+          regex: ".{8,}"
+
+  - id: sw-python-weak-crypto-md5-sha1
+    languages: [python]
+    severity: WARNING
+    message: >
+      MD5/SHA1 are not collision-resistant and must not be used for passwords,
+      tokens, or integrity checks. Use bcrypt/argon2 for passwords and
+      SHA-256+ for hashing.
+    metadata:
+      cwe: "CWE-327"
+      owasp: "A02:2021 Cryptographic Failures"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: hashlib.md5(...)
+          - pattern: hashlib.sha1(...)
+
+  - id: sw-python-path-traversal-open
+    languages: [python]
+    severity: WARNING
+    message: >
+      Opening a file path built from user-controlled input without validation
+      can allow path traversal (reading/writing files outside the intended
+      directory).
+    metadata:
+      cwe: "CWE-22"
+      owasp: "A01:2021 Broken Access Control"
+      confidence: LOW
+    patterns:
+      - pattern: open($PATH_EXPR, ...)
+      - pattern-either:
+          - pattern: open(... + request.$ATTR, ...)
+          - pattern: open(f"...{request.$ATTR}...", ...)

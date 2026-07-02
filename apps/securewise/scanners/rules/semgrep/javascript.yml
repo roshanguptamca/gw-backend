@@ -1,0 +1,97 @@
+rules:
+  - id: sw-js-eval-usage
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: >
+      eval() or the Function constructor on dynamic input can lead to
+      arbitrary code execution.
+    metadata:
+      cwe: "CWE-95"
+      owasp: "A03:2021 Injection"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: eval(...)
+          - pattern: new Function(...)
+
+  - id: sw-js-command-injection
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >
+      Passing dynamic/untrusted input to child_process.exec (which spawns a
+      shell) can lead to OS command injection. Prefer execFile/spawn with an
+      argument array.
+    metadata:
+      cwe: "CWE-78"
+      owasp: "A03:2021 Injection"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: child_process.exec(...)
+          - pattern: exec(...)
+      - pattern-not: child_process.execFile(...)
+
+  - id: sw-js-sql-injection-string-concat
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >
+      Building a SQL query via string concatenation/template literals and
+      passing it directly to query() risks SQL injection. Use parameterized
+      queries/prepared statements.
+    metadata:
+      cwe: "CWE-89"
+      owasp: "A03:2021 Injection"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: $DB.query(`...${$X}...`)
+          - pattern: $DB.query("..." + $X)
+
+  - id: sw-js-insecure-jwt-none-alg
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >
+      jwt.verify() called without an explicit algorithms allow-list can accept
+      tokens signed with 'none' or a weak/mismatched algorithm, letting an
+      attacker forge tokens.
+    metadata:
+      cwe: "CWE-347"
+      owasp: "A02:2021 Cryptographic Failures"
+      confidence: LOW
+    patterns:
+      - pattern: jwt.verify($TOKEN, $SECRET)
+      - pattern-not: 'jwt.verify($TOKEN, $SECRET, {algorithms: [...], ...})'
+
+  - id: sw-js-missing-helmet
+    languages: [javascript, typescript]
+    severity: INFO
+    message: >
+      An Express app is created without the 'helmet' middleware, which sets
+      important security headers (HSTS, X-Frame-Options, CSP, etc).
+    metadata:
+      cwe: "CWE-693"
+      owasp: "A05:2021 Security Misconfiguration"
+      confidence: LOW
+    patterns:
+      - pattern: express()
+      - pattern-not-inside: |
+          $APP = express();
+          ...
+          $APP.use(helmet(...));
+
+  - id: sw-js-prototype-pollution-merge
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: >
+      Deep-merging an object built from user input (e.g. req.body) into a
+      target object without checking for '__proto__'/'constructor' keys can
+      lead to prototype pollution.
+    metadata:
+      cwe: "CWE-1321"
+      owasp: "A08:2021 Software and Data Integrity Failures"
+      confidence: LOW
+    patterns:
+      - pattern-either:
+          - pattern: _.merge($TARGET, req.body)
+          - pattern: Object.assign($TARGET, req.body)
+          - pattern: $.extend(true, $TARGET, req.body)

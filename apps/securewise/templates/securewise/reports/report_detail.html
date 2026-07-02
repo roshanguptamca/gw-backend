@@ -1,0 +1,264 @@
+{% extends "securewise/reports/base_report.html" %}
+
+{% block content %}
+<div class="section">
+    <h2>Project Overview</h2>
+    <div class="meta-grid">
+        <div><span class="meta-label">Project</span>{{ project_name|default:"-" }}</div>
+        <div><span class="meta-label">Organization</span>{{ organization_name|default:"-" }}</div>
+        <div><span class="meta-label">Repository</span>{% if repository_name %}{{ repository_name }}{% else %}{{ repository_url|default:"-" }}{% endif %}</div>
+        <div><span class="meta-label">Report Type</span>{{ report_type|default:"security_summary" }}</div>
+    </div>
+</div>
+
+<div class="section">
+    <h2>Scan Information</h2>
+    <div class="meta-grid">
+        <div><span class="meta-label">Scan ID</span>{{ scan_id|default:"-" }}</div>
+        <div><span class="meta-label">Scan Type</span>{{ scan_type|default:"-" }}</div>
+        <div><span class="meta-label">Branch</span>{{ scan_branch|default:"-" }}</div>
+        <div><span class="meta-label">Commit</span>{{ scan_commit_sha|default:"-" }}</div>
+        <div><span class="meta-label">Started</span>{{ scan_started_at|default:"-" }}</div>
+        <div><span class="meta-label">Completed</span>{{ scan_completed_at|default:"-" }}</div>
+    </div>
+</div>
+
+{% if quality_gate_passed is not None %}
+<div class="section">
+    <div class="banner {% if quality_gate_passed %}banner-pass{% else %}banner-fail{% endif %}">
+        Quality Gate: {% if quality_gate_passed %}Passed{% else %}Failed{% endif %}
+    </div>
+</div>
+{% endif %}
+
+{% if risk_posture %}
+<div class="section">
+    <h2>Executive Summary</h2>
+    <p><strong>Risk posture:</strong> {{ risk_posture }}</p>
+    {% if critical_high_count is not None %}<p><strong>Critical + High findings:</strong> {{ critical_high_count }}</p>{% endif %}
+</div>
+{% endif %}
+
+{% if severity_counts %}
+<div class="section">
+    <h2>Severity Counts</h2>
+    <table>
+        <thead>
+            <tr><th>Severity</th><th>Count</th></tr>
+        </thead>
+        <tbody>
+            {% for severity, count in severity_counts.items %}
+            <tr>
+                <td><span class="badge severity-{{ severity }}">{{ severity }}</span></td>
+                <td>{{ count }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if findings %}
+<div class="section">
+    <h2>Findings</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Title</th>
+                <th>Severity</th>
+                <th>Confidence</th>
+                <th>CWE</th>
+                <th>OWASP</th>
+                <th>Location</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for finding in findings %}
+            <tr>
+                <td>{{ finding.title }}</td>
+                <td><span class="badge severity-{{ finding.severity }}">{{ finding.severity }}</span></td>
+                <td>{{ finding.confidence|default:"-" }}</td>
+                <td>{{ finding.cwe_id|default:"-" }}</td>
+                <td>{{ finding.owasp_category|default:"-" }}</td>
+                <td>
+                    {% if finding.file_path %}
+                        {{ finding.file_path }}{% if finding.line_number %}:{{ finding.line_number }}{% endif %}
+                    {% else %}
+                        {{ finding.endpoint|default:"-" }}
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if summary %}
+<div class="section">
+    <h2>Summary Metrics</h2>
+    <table>
+        <thead>
+            <tr><th>Metric</th><th>Value</th></tr>
+        </thead>
+        <tbody>
+            {% for key, value in summary.items %}
+            <tr><td>{{ key }}</td><td>{{ value }}</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if owasp_mapping %}
+<div class="section">
+    <h2>OWASP Mapping</h2>
+    <table>
+        <thead>
+            <tr><th>Category</th><th>Findings</th></tr>
+        </thead>
+        <tbody>
+            {% for category, titles in owasp_mapping.items %}
+            <tr>
+                <td>{{ category }}</td>
+                <td>{{ titles|join:", " }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if owasp_coverage %}
+<div class="section">
+    <h2>OWASP Top 10 Coverage</h2>
+    <table>
+        <thead>
+            <tr><th>Category</th><th>Label</th><th>Count</th></tr>
+        </thead>
+        <tbody>
+            {% for category, item in owasp_coverage.items %}
+            <tr>
+                <td>{{ category }}</td>
+                <td>{{ item.label }}</td>
+                <td>{{ item.count }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if cwe_mapping %}
+<div class="section">
+    <h2>CWE Mapping</h2>
+    <table>
+        <thead>
+            <tr><th>CWE</th><th>Findings</th></tr>
+        </thead>
+        <tbody>
+            {% for cwe, titles in cwe_mapping.items %}
+            <tr>
+                <td>{{ cwe }}</td>
+                <td>{{ titles|join:", " }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if cwe_top25_matches %}
+<div class="section">
+    <h2>CWE Top 25 Matches</h2>
+    <table>
+        <thead>
+            <tr><th>CWE</th><th>Findings</th></tr>
+        </thead>
+        <tbody>
+            {% for cwe, items in cwe_top25_matches.items %}
+            <tr>
+                <td>{{ cwe }}</td>
+                <td>
+                    {% for item in items %}
+                        {{ item.title }}{% if not forloop.last %}, {% endif %}
+                    {% endfor %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if quality_gate_policy %}
+<div class="section">
+    <h2>Quality Gate Policy</h2>
+    <table>
+        <thead>
+            <tr><th>Policy Field</th><th>Value</th></tr>
+        </thead>
+        <tbody>
+            {% for key, value in quality_gate_policy.items %}
+            <tr><td>{{ key }}</td><td>{{ value }}</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if top_findings %}
+<div class="section">
+    <h2>Top Findings</h2>
+    <table>
+        <thead>
+            <tr><th>Title</th><th>Severity</th><th>Recommendation</th></tr>
+        </thead>
+        <tbody>
+            {% for finding in top_findings %}
+            <tr>
+                <td>{{ finding.title }}</td>
+                <td><span class="badge severity-{{ finding.severity }}">{{ finding.severity }}</span></td>
+                <td>{{ finding.recommendation|default:"-" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if remediation_by_file %}
+<div class="section">
+    <h2>Developer Remediation</h2>
+    {% for location, items in remediation_by_file.items %}
+    <p><strong>{{ location }}</strong></p>
+    <table>
+        <thead>
+            <tr><th>Title</th><th>Severity</th><th>Line</th><th>Recommendation</th></tr>
+        </thead>
+        <tbody>
+            {% for item in items %}
+            <tr>
+                <td>{{ item.title }}</td>
+                <td><span class="badge severity-{{ item.severity }}">{{ item.severity }}</span></td>
+                <td>{{ item.line_number|default:"-" }}</td>
+                <td>{{ item.recommendation|default:"-" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if recommended_fixes %}
+<div class="section">
+    <h2>Recommended Fixes</h2>
+    {% for fix in recommended_fixes %}
+    <p><strong>{{ fix.title }}</strong></p>
+    {% if fix.recommendation %}<p>{{ fix.recommendation }}</p>{% endif %}
+    {% if fix.ai_fix_suggestion %}<div class="code">{{ fix.ai_fix_suggestion }}</div>{% endif %}
+    {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

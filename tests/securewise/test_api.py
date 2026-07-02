@@ -5,14 +5,17 @@ Tests all viewsets via the DRF test client to drive views.py coverage.
 
 from __future__ import annotations
 
+import json
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 
 import pytest
 from rest_framework.test import APIClient
 
 from apps.securewise.models import (
+    SecureWiseAuditLog,
     SecureWiseFinding,
     SecureWiseMembership,
     SecureWiseOrganization,
@@ -23,6 +26,7 @@ from apps.securewise.models import (
     SecureWiseScanPolicy,
 )
 from apps.securewise.services.scanner import ScannerRunner
+from apps.securewise.views import AIRecommendationThrottle
 
 User = get_user_model()
 pytestmark = pytest.mark.django_db
@@ -121,16 +125,27 @@ def scan(org, project, policy, owner):
 
 
 @pytest.fixture
-def completed_scan(org, project, policy, owner):
+def completed_scan(org, project, policy, owner, repository):
     s = SecureWiseScan.objects.create(
         organization=org,
         project=project,
         policy=policy,
+        repository=repository,
         scan_type="sast",
         status="pending",
         triggered_by=owner,
     )
-    ScannerRunner().run_scan(str(s.id))
+
+    def _seed_vulnerable_repo(scan, repo_path, allowed_root=None, timeout=120):
+        repo_path.mkdir(parents=True, exist_ok=True)
+        (repo_path / "app.py").write_text(
+            "import pickle\n"
+            'HARDCODED_SECRET_TOKEN = "not_a_real_secret_placeholder_value_123456"\n'
+            "data = pickle.loads(raw_bytes)\n"
+        )
+
+    with patch("apps.securewise.services.scanner.clone_repository", side_effect=_seed_vulnerable_repo):
+        ScannerRunner().run_scan(str(s.id))
     s.refresh_from_db()
     return s
 
@@ -349,6 +364,61 @@ class TestScanPolicyAPI:
         resp = auth_client.get(f"/api/securewise/scan-policies/{policy.id}/")
         assert resp.status_code == 200
 
+    def test_update_policy(self, auth_client, policy):
+        resp = auth_client.patch(
+            f"/api/securewise/scan-policies/{policy.id}/",
+            {"name": "Renamed Policy", "max_high": 20, "fail_on_severity": "critical"},
+            format="json",
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["name"] == "Renamed Policy"
+        assert data["max_high"] == 20
+        assert data["fail_on_severity"] == "critical"
+        policy.refresh_from_db()
+        assert policy.name == "Renamed Policy"
+        assert SecureWiseAuditLog.objects.filter(event="scan_policy_updated", target_id=str(policy.id)).exists()
+
+    def test_update_policy_cannot_move_organization(self, auth_client, policy, owner):
+        other_org = SecureWiseOrganization.objects.create(name="OtherOrg", slug="otherorg-move", owner=owner)
+        SecureWiseMembership.objects.create(organization=other_org, user=owner, role="owner")
+        resp = auth_client.patch(
+            f"/api/securewise/scan-policies/{policy.id}/",
+            {"organization": str(other_org.id)},
+            format="json",
+        )
+        assert resp.status_code == 400
+        policy.refresh_from_db()
+        assert policy.organization_id != other_org.id
+
+    def test_update_policy_denied_for_non_write_role(self, org, policy, other_user):
+        SecureWiseMembership.objects.create(organization=org, user=other_user, role="auditor")
+        client = APIClient()
+        client.force_authenticate(user=other_user)
+        resp = client.patch(
+            f"/api/securewise/scan-policies/{policy.id}/",
+            {"name": "Hacked"},
+            format="json",
+        )
+        assert resp.status_code == 403
+        policy.refresh_from_db()
+        assert policy.name != "Hacked"
+
+    def test_delete_policy(self, auth_client, policy):
+        policy_id = policy.id
+        resp = auth_client.delete(f"/api/securewise/scan-policies/{policy_id}/")
+        assert resp.status_code == 204
+        assert not SecureWiseScanPolicy.objects.filter(id=policy_id).exists()
+        assert SecureWiseAuditLog.objects.filter(event="scan_policy_deleted", target_id=str(policy_id)).exists()
+
+    def test_delete_policy_denied_for_non_write_role(self, org, policy, other_user):
+        SecureWiseMembership.objects.create(organization=org, user=other_user, role="auditor")
+        client = APIClient()
+        client.force_authenticate(user=other_user)
+        resp = client.delete(f"/api/securewise/scan-policies/{policy.id}/")
+        assert resp.status_code == 403
+        assert SecureWiseScanPolicy.objects.filter(id=policy.id).exists()
+
 
 # ---------------------------------------------------------------------------
 # Scan endpoints
@@ -360,7 +430,23 @@ class TestScanAPI:
         resp = auth_client.get("/api/securewise/scans/")
         assert resp.status_code == 200
 
-    def test_create_scan(self, auth_client, org, project, policy):
+    def test_create_scan(self, auth_client, org, project, repository, policy):
+        resp = auth_client.post(
+            "/api/securewise/scans/",
+            {
+                "organization": str(org.id),
+                "project": str(project.id),
+                "repository": str(repository.id),
+                "policy": str(policy.id),
+                "scan_type": "sca",
+            },
+            format="json",
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["status"] == "pending"
+
+    def test_create_source_scan_requires_repository(self, auth_client, org, project, policy):
         resp = auth_client.post(
             "/api/securewise/scans/",
             {
@@ -371,9 +457,8 @@ class TestScanAPI:
             },
             format="json",
         )
-        assert resp.status_code == 201
-        data = resp.json()
-        assert data["status"] == "pending"
+        assert resp.status_code == 400
+        assert "repository" in resp.json()
 
     def test_retrieve_scan(self, auth_client, scan):
         resp = auth_client.get(f"/api/securewise/scans/{scan.id}/")
@@ -478,6 +563,52 @@ class TestFindingAPI:
         resp = auth_client.get("/api/securewise/findings/?status=open")
         assert resp.status_code == 200
 
+    def test_ai_suggestion_endpoint_returns_and_caches(self, auth_client, finding, owner):
+        suggestion = {
+            "explanation": "Validate and sanitize user input before use.",
+            "why_dangerous": "Unsafe deserialization can execute attacker-controlled payloads.",
+            "fixed_code_example": "data = json.loads(raw_bytes.decode())",
+            "framework_guidance": "Prefer safe serializers in Django request handlers.",
+            "confidence": "high",
+        }
+        with patch("apps.securewise.views.generate_ai_fix_suggestion", return_value=suggestion) as mock_generate:
+            resp = auth_client.post(f"/api/securewise/findings/{finding.id}/ai-suggestion/")
+            assert resp.status_code == 200
+            assert resp.json() == {"ai_fix_suggestion": suggestion, "cached": False}
+
+            finding.refresh_from_db()
+            assert json.loads(finding.ai_fix_suggestion) == suggestion
+            assert SecureWiseAuditLog.objects.filter(
+                event="ai_suggestion_generated",
+                target_type="SecureWiseFinding",
+                target_id=str(finding.id),
+            ).exists()
+
+            cached_resp = auth_client.post(f"/api/securewise/findings/{finding.id}/ai-suggestion/")
+            assert cached_resp.status_code == 200
+            assert cached_resp.json() == {"ai_fix_suggestion": suggestion, "cached": True}
+            assert mock_generate.call_count == 1
+
+    def test_ai_suggestion_throttle_returns_429(self, auth_client, finding):
+        cache.clear()
+        suggestion = {
+            "explanation": "Use parameterized queries.",
+            "why_dangerous": "String interpolation can enable injection.",
+            "fixed_code_example": "cursor.execute(query, [value])",
+            "framework_guidance": "Use Django ORM filters or query parameters.",
+            "confidence": "medium",
+        }
+        with (
+            patch.object(AIRecommendationThrottle, "rate", "1/hour"),
+            patch("apps.securewise.views.generate_ai_fix_suggestion", return_value=suggestion),
+        ):
+            first = auth_client.post(f"/api/securewise/findings/{finding.id}/ai-suggestion/")
+            second = auth_client.post(f"/api/securewise/findings/{finding.id}/ai-suggestion/?force=true")
+
+        assert first.status_code == 200
+        assert second.status_code == 429
+        cache.clear()
+
 
 # ---------------------------------------------------------------------------
 # Report endpoints
@@ -514,6 +645,48 @@ class TestReportAPI:
         data = resp.json()
         assert data["format"] == "json"
         assert data["status"] in ("pending", "ready")
+
+    def test_report_html_endpoint(self, auth_client, completed_scan, org, project):
+        create_resp = auth_client.post(
+            "/api/securewise/reports/",
+            {
+                "organization": str(org.id),
+                "project": str(project.id),
+                "scan": str(completed_scan.id),
+                "title": "SecureWise HTML Report",
+                "format": "json",
+            },
+            format="json",
+        )
+        report_id = create_resp.json()["id"]
+
+        resp = auth_client.get(f"/api/securewise/reports/{report_id}/html/")
+        assert resp.status_code == 200
+        assert resp["Content-Type"].startswith("text/html")
+        content = resp.content.decode()
+        assert "SecureWise" in content
+        assert "SecureWise HTML Report" in content
+        assert "Severity Counts" in content
+
+    def test_report_pdf_endpoint(self, auth_client, completed_scan, org, project):
+        create_resp = auth_client.post(
+            "/api/securewise/reports/",
+            {
+                "organization": str(org.id),
+                "project": str(project.id),
+                "scan": str(completed_scan.id),
+                "title": "SecureWise PDF Report",
+                "format": "json",
+            },
+            format="json",
+        )
+        report_id = create_resp.json()["id"]
+
+        resp = auth_client.get(f"/api/securewise/reports/{report_id}/pdf/")
+        assert resp.status_code == 200
+        assert resp["Content-Type"] == "application/pdf"
+        assert resp.content.startswith(b"%PDF")
+        assert len(resp.content) > 500
 
 
 # ---------------------------------------------------------------------------

@@ -1,3 +1,5 @@
+import json
+
 from django.contrib.auth import get_user_model
 from django.utils.text import slugify
 
@@ -14,6 +16,7 @@ from .models import (
     SecureWiseReport,
     SecureWiseRepository,
     SecureWiseScan,
+    SecureWiseScanEngineResult,
     SecureWiseScanPolicy,
 )
 
@@ -274,6 +277,12 @@ class SecureWiseScanPolicySerializer(serializers.ModelSerializer):
             "fail_on_severity",
             "max_critical",
             "max_high",
+            "max_medium",
+            "fail_on_secrets",
+            "fail_on_new_findings_only",
+            "allow_accepted_risks",
+            "allow_false_positives",
+            "is_default",
             "schedule_cron",
             "is_active",
             "created_by",
@@ -305,6 +314,14 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
             "branch",
             "commit_sha",
             "status",
+            "progress",
+            "selected_engines",
+            "target_url",
+            "api_spec_url",
+            "docker_image",
+            "bypass_quality_gate",
+            "bypass_reason",
+            "retry_of",
             "triggered_by",
             "triggered_by_detail",
             "started_at",
@@ -320,6 +337,9 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
         read_only_fields = (
             "id",
             "organization",
+            "progress",
+            "selected_engines",
+            "retry_of",
             "triggered_by",
             "triggered_by_detail",
             "started_at",
@@ -333,6 +353,45 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
             "updated_at",
         )
 
+    def validate(self, attrs):
+        # Auto-derive organization from project.
+        project = attrs.get("project", getattr(self.instance, "project", None))
+        if project and not attrs.get("organization"):
+            attrs["organization"] = project.organization
+
+        scan_type = attrs.get("scan_type", getattr(self.instance, "scan_type", "full"))
+        repository = attrs.get("repository", getattr(self.instance, "repository", None))
+        target_url = attrs.get("target_url", getattr(self.instance, "target_url", ""))
+        api_spec_url = attrs.get("api_spec_url", getattr(self.instance, "api_spec_url", ""))
+
+        # Engines that operate on cloned source code need a repository.
+        source_dependent_types = {"sast", "sca", "secrets", "iac", "container"}
+        if scan_type in source_dependent_types and not repository:
+            raise serializers.ValidationError({"repository": f"A repository is required to run a '{scan_type}' scan."})
+        if scan_type == "full" and not repository and not target_url and not api_spec_url:
+            raise serializers.ValidationError(
+                {
+                    "repository": (
+                        "A full scan needs at least a repository, target URL, or API spec — "
+                        "otherwise there is nothing to scan."
+                    )
+                }
+            )
+        if scan_type == "dast" and not target_url:
+            raise serializers.ValidationError({"target_url": "Target URL is required to run a DAST scan."})
+        if scan_type == "api" and not api_spec_url and not repository:
+            raise serializers.ValidationError(
+                {"api_spec_url": "An OpenAPI spec URL/path or a repository is required to run an API scan."}
+            )
+
+        bypass = attrs.get("bypass_quality_gate", getattr(self.instance, "bypass_quality_gate", False))
+        bypass_reason = attrs.get("bypass_reason", getattr(self.instance, "bypass_reason", ""))
+        if bypass and not bypass_reason.strip():
+            raise serializers.ValidationError(
+                {"bypass_reason": "A reason is required when bypassing the quality gate (for audit purposes)."}
+            )
+        return attrs
+
     def get_finding_counts(self, obj):
         qs = obj.findings.values("severity").order_by()
         counts = {s: 0 for s in ("critical", "high", "medium", "low", "info")}
@@ -341,12 +400,26 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
         counts["total"] = sum(counts.values())
         return counts
 
-    def validate(self, attrs):
-        # Auto-derive organization from project
-        project = attrs.get("project", getattr(self.instance, "project", None))
-        if project and not attrs.get("organization"):
-            attrs["organization"] = project.organization
-        return attrs
+
+class ScanEngineResultSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SecureWiseScanEngineResult
+        fields = (
+            "id",
+            "scan",
+            "engine",
+            "status",
+            "started_at",
+            "completed_at",
+            "duration_seconds",
+            "findings_count",
+            "skipped_reason",
+            "raw_summary",
+            "error_message",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
 
 
 # ---------------------------------------------------------------------------
@@ -356,6 +429,15 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
 
 class SecureWiseFindingSerializer(serializers.ModelSerializer):
     reviewed_by_detail = MinimalUserSerializer(source="reviewed_by", read_only=True)
+    ai_fix_suggestion_parsed = serializers.SerializerMethodField()
+
+    def get_ai_fix_suggestion_parsed(self, obj):
+        if not obj.ai_fix_suggestion:
+            return None
+        try:
+            return json.loads(obj.ai_fix_suggestion)
+        except (TypeError, ValueError):
+            return None
 
     class Meta:
         model = SecureWiseFinding
@@ -380,9 +462,15 @@ class SecureWiseFindingSerializer(serializers.ModelSerializer):
             "recommendation",
             "bad_code_example",
             "fixed_code_example",
+            "code_snippet",
+            "ticket_url",
+            "ticket_created_at",
+            "pr_url",
+            "pr_created_at",
             "evidence",
             "fingerprint",
             "ai_fix_suggestion",
+            "ai_fix_suggestion_parsed",
             "reviewed_by",
             "reviewed_by_detail",
             "reviewed_at",
@@ -395,6 +483,13 @@ class SecureWiseFindingSerializer(serializers.ModelSerializer):
             "scan",
             "project",
             "organization",
+            "code_snippet",
+            "ticket_url",
+            "ticket_created_at",
+            "pr_url",
+            "pr_created_at",
+            "ai_fix_suggestion",
+            "ai_fix_suggestion_parsed",
             "reviewed_by",
             "reviewed_by_detail",
             "reviewed_at",

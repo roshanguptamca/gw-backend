@@ -7,11 +7,14 @@ Users can only access organizations where they are members.
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 
 from django.db.models import Q
+from django.http import HttpResponse
 from django.utils import timezone
+from django.utils.text import slugify
 
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
@@ -34,6 +37,7 @@ from .models import (
 )
 from .permissions import ADMIN_ROLES, WRITE_ROLES, _membership
 from .serializers import (
+    ScanEngineResultSerializer,
     SecureWiseAuditLogSerializer,
     SecureWiseFindingSerializer,
     SecureWiseGitIntegrationSerializer,
@@ -46,7 +50,10 @@ from .serializers import (
     SecureWiseScanPolicySerializer,
     SecureWiseScanSerializer,
 )
-from .services.report import generate_json_report
+from .services.ai_recommendation import generate_ai_fix_suggestion
+from .services.github_actions import GitHubActionError, create_github_issue, create_github_pr
+from .services.report import generate_report
+from .services.report_render import render_report_html, render_report_pdf
 from .services.repository import (
     check_private_access,
     check_public_access,
@@ -222,31 +229,91 @@ class GitIntegrationViewSet(viewsets.ModelViewSet):
         token = integration.get_token()
         if not token:
             return Response({"detail": "No token stored for this integration."}, status=400)
-        # Use a well-known public API endpoint to verify token validity
+        # Use a well-known API endpoint to verify token validity
+        import ssl
         import urllib.error
         import urllib.request
 
+        import certifi
+
+        # Build an explicit SSL context backed by certifi's CA bundle instead of
+        # relying on the OS trust store. This avoids "CERTIFICATE_VERIFY_FAILED:
+        # unable to get local issuer certificate" errors that are common with
+        # python.org / pyenv / some Homebrew Python builds on macOS that don't
+        # have the system CA bundle wired up for the Python `ssl` module.
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
+
         headers = {"Authorization": f"token {token}", "User-Agent": "SecureWise-SASP/1.0"}
-        url = (
-            f"{integration.base_url.rstrip('/')}/api/v3/user"
-            if "github" in integration.provider
-            else integration.base_url
-        )
+        base_url = integration.base_url.rstrip("/")
+        if "github" in integration.provider:
+            # github.com (SaaS) is served from api.github.com, NOT <base>/api/v3.
+            # /api/v3 is only valid for GitHub Enterprise Server installations.
+            if base_url in ("https://github.com", "http://github.com"):
+                url = "https://api.github.com/user"
+            else:
+                url = f"{base_url}/api/v3/user"
+        elif "gitlab" in integration.provider:
+            gitlab_base = "https://gitlab.com" if base_url in ("https://gitlab.com", "http://gitlab.com") else base_url
+            url = f"{gitlab_base}/api/v4/user"
+            headers["Authorization"] = f"Bearer {token}"
+        else:
+            url = base_url
+
         success = False
+        error_detail = ""
         try:
             req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=10, context=ssl_context) as resp:
                 success = resp.status == 200
+        except urllib.error.HTTPError as e:
+            # Surface enough info to debug without ever logging the token itself.
+            if e.code in (401, 403):
+                error_detail = "Authentication failed: token is invalid, expired, or lacks required scopes."
+            elif e.code == 404:
+                error_detail = "API endpoint not found. Check the integration's base URL."
+            else:
+                error_detail = f"Provider returned HTTP {e.code}."
+            logger.warning(
+                "SecureWise git integration test failed for integration=%s provider=%s: HTTP %s",
+                integration.id,
+                integration.provider,
+                e.code,
+            )
+        except urllib.error.URLError as e:
+            if isinstance(e.reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(e.reason):
+                error_detail = (
+                    "SSL certificate verification failed while contacting the provider. "
+                    "This is usually a local Python/OS trust-store issue, not an invalid token. "
+                    "Ensure the 'certifi' package is installed and up to date in this environment."
+                )
+            else:
+                error_detail = f"Could not reach provider: {e.reason}"
+            logger.warning(
+                "SecureWise git integration test failed for integration=%s provider=%s: %s",
+                integration.id,
+                integration.provider,
+                e.reason,
+            )
         except Exception:
-            pass
+            error_detail = "Unexpected error while testing connection."
+            logger.exception(
+                "SecureWise git integration test raised unexpected error for integration=%s", integration.id
+            )
         finally:
             del token  # always remove token from memory
+
         if success:
             integration.last_used_at = timezone.now()
             integration.status = "active"
             integration.save(update_fields=["last_used_at", "status"])
             return Response({"detail": "Connection successful.", "status": "active"})
-        return Response({"detail": "Connection test failed. Verify token and permissions."}, status=400)
+
+        integration.status = "error"
+        integration.save(update_fields=["status"])
+        return Response(
+            {"detail": error_detail or "Connection test failed. Verify token and permissions."},
+            status=400,
+        )
 
     @action(detail=True, methods=["post"], url_path="list-repositories")
     def list_repositories(self, request, pk=None):
@@ -321,6 +388,15 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
 class RepositoryValidateThrottle(UserRateThrottle):
     scope = "sw_repo_validate"
+
+
+class AIRecommendationThrottle(UserRateThrottle):
+    scope = "securewise_ai_suggestion"
+    rate = "20/hour"
+
+
+class GitHubActionThrottle(UserRateThrottle):
+    scope = "securewise_github_action"
 
 
 class RepositoryViewSet(viewsets.ModelViewSet):
@@ -448,6 +524,58 @@ class ScanPolicyViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("You do not have permission to create scan policies.")
         serializer.save(created_by=self.request.user)
 
+    def perform_update(self, serializer):
+        org = serializer.instance.organization
+        m = _membership(self.request.user, org)
+        if m is None or m.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to edit scan policies.")
+        new_org = serializer.validated_data.get("organization")
+        if new_org is not None and new_org.id != org.id:
+            from rest_framework.exceptions import ValidationError
+
+            raise ValidationError({"organization": "Cannot move a policy to a different organization."})
+        instance = serializer.save()
+        _audit(
+            self.request.user,
+            "scan_policy_updated",
+            org=org,
+            target_type="SecureWiseScanPolicy",
+            target_id=instance.id,
+            detail={"name": instance.name},
+            request=self.request,
+        )
+
+    def perform_destroy(self, instance):
+        m = _membership(self.request.user, instance.organization)
+        if m is None or m.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to delete scan policies.")
+        _audit(
+            self.request.user,
+            "scan_policy_deleted",
+            org=instance.organization,
+            target_type="SecureWiseScanPolicy",
+            target_id=instance.id,
+            detail={"name": instance.name},
+            request=self.request,
+        )
+        instance.delete()
+
+    @action(detail=True, methods=["post"], url_path="set-default")
+    def set_default(self, request, pk=None):
+        policy = self.get_object()
+        m = _membership(request.user, policy.organization)
+        if m is None or m.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to change the default policy.")
+        policy.is_default = True
+        policy.save(update_fields=["is_default"])  # save() demotes any other default for this org
+        return Response(self.get_serializer(policy).data)
+
 
 # ---------------------------------------------------------------------------
 # Scan
@@ -482,6 +610,16 @@ class ScanViewSet(viewsets.ModelViewSet):
 
             raise PermissionDenied("You do not have permission to create scans.")
         scan = serializer.save(triggered_by=self.request.user, status="pending")
+        # If the user didn't pick a policy and didn't explicitly bypass the gate,
+        # auto-attach the organization's default policy (if one is configured) so
+        # quality gate evaluation "just works" without extra clicks.
+        if not scan.policy_id and not scan.bypass_quality_gate:
+            default_policy = SecureWiseScanPolicy.objects.filter(
+                organization=org, is_default=True, is_active=True
+            ).first()
+            if default_policy:
+                scan.policy = default_policy
+                scan.save(update_fields=["policy"])
         return scan
 
     def create(self, request, *args, **kwargs):
@@ -512,7 +650,7 @@ class ScanViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
         scan = self.get_object()
-        if scan.status not in ("pending", "queued", "running"):
+        if scan.status not in ("pending", "queued") and not scan.status.startswith("running"):
             return Response(
                 {"detail": f"Cannot cancel a scan with status '{scan.status}'."},
                 status=400,
@@ -520,6 +658,89 @@ class ScanViewSet(viewsets.ModelViewSet):
         scan.status = "cancelled"
         scan.save(update_fields=["status"])
         return Response({"detail": "Scan cancelled.", "status": "cancelled"})
+
+    @action(detail=True, methods=["post"])
+    def retry(self, request, pk=None):
+        """
+        Re-run a scan that failed, was cancelled, or completed with warnings —
+        using the exact same configuration. Clears any partial per-engine
+        results from the previous attempt before re-running, so progress/
+        engine-status reflect only the new attempt. The scan keeps its
+        original id, so its finding history (first_seen/last_seen) carries
+        over cleanly — a retry after a real fix will correctly auto-resolve
+        findings that no longer reproduce.
+        """
+        scan = self.get_object()
+        if scan.status not in ("failed", "cancelled", "completed_with_warnings", "completed"):
+            return Response(
+                {"detail": f"Cannot retry a scan with status '{scan.status}'."},
+                status=400,
+            )
+        scan.engine_results.all().delete()
+        scan.status = "queued"
+        scan.progress = 0
+        scan.error_message = ""
+        scan.started_at = None
+        scan.completed_at = None
+        scan.duration_seconds = None
+        scan.quality_gate_passed = None
+        scan.save(
+            update_fields=[
+                "status",
+                "progress",
+                "error_message",
+                "started_at",
+                "completed_at",
+                "duration_seconds",
+                "quality_gate_passed",
+            ]
+        )
+        SecureWiseAuditLog.objects.create(
+            organization=scan.organization,
+            user=request.user,
+            event="scan_retried",
+            target_type="SecureWiseScan",
+            target_id=str(scan.id),
+            detail={"scan_type": scan.scan_type},
+        )
+        runner = ScannerRunner()
+        t = threading.Thread(target=runner.run_scan, args=(str(scan.id),), daemon=True)
+        t.start()
+        serializer = self.get_serializer(scan)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["get"])
+    def progress(self, request, pk=None):
+        scan = self.get_object()
+        elapsed_seconds = None
+        if scan.started_at:
+            end = scan.completed_at or timezone.now()
+            elapsed_seconds = int((end - scan.started_at).total_seconds())
+        engines = [
+            {
+                "engine": er.engine,
+                "status": er.status,
+                "findings_count": er.findings_count,
+                "skipped_reason": er.skipped_reason,
+            }
+            for er in scan.engine_results.all()
+        ]
+        return Response(
+            {
+                "id": str(scan.id),
+                "status": scan.status,
+                "progress": scan.progress,
+                "elapsed_seconds": elapsed_seconds,
+                "findings_count": scan.findings.count(),
+                "engines": engines,
+            }
+        )
+
+    @action(detail=True, methods=["get"], url_path="engine-results")
+    def engine_results(self, request, pk=None):
+        scan = self.get_object()
+        serializer = ScanEngineResultSerializer(scan.engine_results.all(), many=True)
+        return Response(serializer.data)
 
 
 # ---------------------------------------------------------------------------
@@ -534,7 +755,7 @@ class FindingViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = SecureWiseFinding.objects.filter(organization_id__in=_get_user_org_ids(self.request.user)).select_related(
-            "scan", "project", "reviewed_by"
+            "scan__repository", "project", "reviewed_by", "organization"
         )
         project_id = self.request.query_params.get("project")
         if project_id:
@@ -566,6 +787,117 @@ class FindingViewSet(viewsets.ModelViewSet):
                 detail={"old_status": old_status, "new_status": instance.status},
                 request=self.request,
             )
+
+    @action(detail=True, methods=["post"], url_path="ai-suggestion", throttle_classes=[AIRecommendationThrottle])
+    def ai_suggestion(self, request, pk=None):
+        finding = self.get_object()
+        if _membership(request.user, finding.organization) is None:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You are not a member of this organization.")
+
+        force = request.query_params.get("force", "").strip().lower() in {"1", "true", "yes"}
+        if finding.ai_fix_suggestion and not force:
+            try:
+                cached_value = json.loads(finding.ai_fix_suggestion)
+            except (TypeError, ValueError):
+                cached_value = finding.ai_fix_suggestion
+            return Response({"ai_fix_suggestion": cached_value, "cached": True})
+
+        suggestion = generate_ai_fix_suggestion(finding)
+        if suggestion is None:
+            return Response(
+                {
+                    "ai_fix_suggestion": None,
+                    "engine_unavailable": True,
+                    "detail": "AI recommendation engine is not available right now.",
+                }
+            )
+
+        finding.ai_fix_suggestion = json.dumps(suggestion)
+        finding.save(update_fields=["ai_fix_suggestion", "updated_at"])
+        _audit(
+            request.user,
+            "ai_suggestion_generated",
+            org=finding.organization,
+            target_type="SecureWiseFinding",
+            target_id=finding.id,
+            detail={"finding_id": str(finding.id), "confidence": suggestion["confidence"]},
+            request=request,
+        )
+        return Response({"ai_fix_suggestion": suggestion, "cached": False})
+
+    @action(detail=True, methods=["post"], url_path="create-ticket", throttle_classes=[GitHubActionThrottle])
+    def create_ticket(self, request, pk=None):
+        finding = self.get_object()
+        if _membership(request.user, finding.organization) is None:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You are not a member of this organization.")
+
+        try:
+            ticket_url = create_github_issue(finding)
+        except GitHubActionError as exc:
+            _audit(
+                request.user,
+                "finding_ticket_failed",
+                org=finding.organization,
+                target_type="SecureWiseFinding",
+                target_id=finding.id,
+                detail={"error": str(exc)},
+                request=request,
+            )
+            return Response({"detail": str(exc)}, status=400)
+
+        finding.ticket_url = ticket_url
+        finding.ticket_created_at = timezone.now()
+        finding.save(update_fields=["ticket_url", "ticket_created_at", "updated_at"])
+        _audit(
+            request.user,
+            "finding_ticket_created",
+            org=finding.organization,
+            target_type="SecureWiseFinding",
+            target_id=finding.id,
+            detail={"ticket_url": ticket_url},
+            request=request,
+        )
+        return Response({"ticket_url": ticket_url})
+
+    @action(detail=True, methods=["post"], url_path="create-pr", throttle_classes=[GitHubActionThrottle])
+    def create_pr(self, request, pk=None):
+        finding = self.get_object()
+        if _membership(request.user, finding.organization) is None:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You are not a member of this organization.")
+
+        try:
+            pr_url = create_github_pr(finding)
+        except GitHubActionError as exc:
+            _audit(
+                request.user,
+                "finding_pr_failed",
+                org=finding.organization,
+                target_type="SecureWiseFinding",
+                target_id=finding.id,
+                detail={"error": str(exc)},
+                request=request,
+            )
+            return Response({"detail": str(exc)}, status=400)
+
+        finding.pr_url = pr_url
+        finding.pr_created_at = timezone.now()
+        finding.save(update_fields=["pr_url", "pr_created_at", "updated_at"])
+        _audit(
+            request.user,
+            "finding_pr_created",
+            org=finding.organization,
+            target_type="SecureWiseFinding",
+            target_id=finding.id,
+            detail={"pr_url": pr_url},
+            request=request,
+        )
+        return Response({"pr_url": pr_url})
 
     @action(detail=True, methods=["post"], url_path="accept-risk")
     def accept_risk(self, request, pk=None):
@@ -637,12 +969,13 @@ class ReportViewSet(viewsets.ModelViewSet):
 
         scan = serializer.validated_data.get("scan")
         report = serializer.save(generated_by=self.request.user, status="generating")
+        report_type = self.request.data.get("report_type", "")
 
         # Generate report data synchronously for MVP
         # TODO: Move to background task for large scans
         try:
             if scan:
-                report.report_data = generate_json_report(scan)
+                report.report_data = generate_report(scan, report_type)
                 report.quality_gate_passed = scan.quality_gate_passed
             report.status = "ready"
         except Exception as exc:
@@ -661,6 +994,24 @@ class ReportViewSet(viewsets.ModelViewSet):
             detail={"title": report.title},
             request=self.request,
         )
+
+    @action(detail=True, methods=["get"], url_path="html")
+    def html(self, request, pk=None):
+        report = self.get_object()
+        if report.status != "ready":
+            return Response({"detail": "Report is not ready yet."}, status=400)
+        return HttpResponse(render_report_html(report), content_type="text/html")
+
+    @action(detail=True, methods=["get"], url_path="pdf")
+    def pdf(self, request, pk=None):
+        report = self.get_object()
+        if report.status != "ready":
+            return Response({"detail": "Report is not ready yet."}, status=400)
+        pdf_bytes = render_report_pdf(report)
+        safe_title = slugify(report.title) or "securewise-report"
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="{safe_title}.pdf"'
+        return response
 
 
 # ---------------------------------------------------------------------------
@@ -760,6 +1111,19 @@ class DashboardSummaryView(APIView):
             deduct = min(100, (critical_count * 10) + (high_count * 5))
             security_score = max(0, 100 - deduct)
 
+        # OWASP Top 10 (2021) coverage across open findings
+        from .services.report import _CWE_TOP25, _OWASP_TOP10_LABELS
+
+        owasp_coverage = {code: findings_qs.filter(owasp_category=code).count() for code in _OWASP_TOP10_LABELS}
+        cwe_top25_coverage = findings_qs.filter(cwe_id__in=list(_CWE_TOP25)).count()
+
+        # Quality gate pass/fail counts across recent scans
+        recent_scan_qs = SecureWiseScan.objects.filter(organization_id__in=org_ids, quality_gate_passed__isnull=False)
+        quality_gate_counts = {
+            "passed": recent_scan_qs.filter(quality_gate_passed=True).count(),
+            "failed": recent_scan_qs.filter(quality_gate_passed=False).count(),
+        }
+
         return Response(
             {
                 "total_projects": total_projects,
@@ -770,5 +1134,8 @@ class DashboardSummaryView(APIView):
                 "severity_counts": severity_counts,
                 "recent_scans": recent_scans_data,
                 "top_risky_projects": list(risky_projects),
+                "owasp_top10_coverage": owasp_coverage,
+                "cwe_top25_coverage_count": cwe_top25_coverage,
+                "quality_gate_counts": quality_gate_counts,
             }
         )
