@@ -70,5 +70,5 @@ mypy>=1.8,<2.0
 
 # SecureWise real scan engines
 # semgrep (SAST) — gitleaks and trivy are external binaries, install separately
-# (see docs/securewise_scanner_architecture.md): `brew install gitleaks trivy`.
+# (see README.md "SecureWise" section): `brew install gitleaks trivy`.
 semgrep>=1.150,<2.0
