@@ -43,7 +43,13 @@ def _resolve_safe_dest(dest: Path, allowed_root: Path) -> Path:
     return resolved_dest
 
 
-def safe_clone(clone_url: str, dest: Path, allowed_root: Path | None = None, timeout: int = 120) -> None:
+def safe_clone(
+    clone_url: str,
+    dest: Path,
+    allowed_root: Path | None = None,
+    timeout: int = 120,
+    shallow: bool = True,
+) -> None:
     """
     Clone `clone_url` (which may already contain embedded credentials) into
     `dest`. `dest` must resolve to a path inside `allowed_root` (defaults to
@@ -55,8 +61,12 @@ def safe_clone(clone_url: str, dest: Path, allowed_root: Path | None = None, tim
     allowed_root = allowed_root or dest.parent
     safe_dest = _resolve_safe_dest(dest, allowed_root)
     try:
+        command = ["git", "clone"]
+        if shallow:
+            command.extend(["--depth", "1"])
+        command.extend([clone_url, str(safe_dest)])
         subprocess.run(
-            ["git", "clone", "--depth", "1", clone_url, str(safe_dest)],
+            command,
             capture_output=True,
             timeout=timeout,
             check=True,

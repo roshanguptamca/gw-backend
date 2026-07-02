@@ -160,6 +160,10 @@ AUDIT_EVENT_CHOICES = [
     ("scan_engine_started", "Scan Engine Started"),
     ("scan_engine_completed", "Scan Engine Completed"),
     ("finding_created", "Finding Created"),
+    ("finding_ticket_created", "Finding Ticket Created"),
+    ("finding_ticket_failed", "Finding Ticket Failed"),
+    ("finding_pr_created", "Finding PR Created"),
+    ("finding_pr_failed", "Finding PR Failed"),
 ]
 
 
@@ -567,6 +571,10 @@ class SecureWiseFinding(models.Model):
     bad_code_example = models.TextField(blank=True)
     fixed_code_example = models.TextField(blank=True)
     code_snippet = models.TextField(blank=True)
+    ticket_url = models.URLField(max_length=500, blank=True)
+    ticket_created_at = models.DateTimeField(null=True, blank=True)
+    pr_url = models.URLField(max_length=500, blank=True)
+    pr_created_at = models.DateTimeField(null=True, blank=True)
     evidence = models.JSONField(default=dict, blank=True)
     fingerprint = models.CharField(max_length=128, blank=True, db_index=True)
 

@@ -536,6 +536,7 @@ if not DEBUG:
         "oauth_callback": os.getenv("OAUTH_CALLBACK_RATE", "30/hour"),
         "marketplace_order": os.getenv("MARKETPLACE_ORDER_RATE", "30/hour"),
         "sw_repo_validate": os.getenv("SW_REPO_VALIDATE_RATE", "20/hour"),
+        "securewise_github_action": os.getenv("SECUREWISE_GITHUB_ACTION_RATE", "10/hour"),
     }
 else:
     # In DEBUG/local: disable default anon+user throttles to prevent E2E/test interference.
@@ -552,6 +553,7 @@ else:
         "oauth_callback": "10000/hour",
         "marketplace_order": "10000/hour",
         "sw_repo_validate": "10000/hour",
+        "securewise_github_action": "10000/hour",
     }
 
 # ── Sentry Observability ─────────────────────────────────────

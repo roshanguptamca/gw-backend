@@ -54,6 +54,7 @@ from .serializers import (
 from .services.report import generate_report
 from .services.report_render import render_report_html, render_report_pdf
 from .services.ai_recommendation import generate_ai_fix_suggestion
+from .services.github_actions import GitHubActionError, create_github_issue, create_github_pr
 from .services.repository import (
     check_private_access,
     check_public_access,
@@ -395,6 +396,10 @@ class AIRecommendationThrottle(UserRateThrottle):
     rate = "20/hour"
 
 
+class GitHubActionThrottle(UserRateThrottle):
+    scope = "securewise_github_action"
+
+
 class RepositoryViewSet(viewsets.ModelViewSet):
     serializer_class = SecureWiseRepositorySerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -711,7 +716,7 @@ class FindingViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = SecureWiseFinding.objects.filter(organization_id__in=_get_user_org_ids(self.request.user)).select_related(
-            "scan", "project", "reviewed_by"
+            "scan__repository", "project", "reviewed_by", "organization"
         )
         project_id = self.request.query_params.get("project")
         if project_id:
@@ -782,6 +787,78 @@ class FindingViewSet(viewsets.ModelViewSet):
             request=request,
         )
         return Response({"ai_fix_suggestion": suggestion, "cached": False})
+
+    @action(detail=True, methods=["post"], url_path="create-ticket", throttle_classes=[GitHubActionThrottle])
+    def create_ticket(self, request, pk=None):
+        finding = self.get_object()
+        if _membership(request.user, finding.organization) is None:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You are not a member of this organization.")
+
+        try:
+            ticket_url = create_github_issue(finding)
+        except GitHubActionError as exc:
+            _audit(
+                request.user,
+                "finding_ticket_failed",
+                org=finding.organization,
+                target_type="SecureWiseFinding",
+                target_id=finding.id,
+                detail={"error": str(exc)},
+                request=request,
+            )
+            return Response({"detail": str(exc)}, status=400)
+
+        finding.ticket_url = ticket_url
+        finding.ticket_created_at = timezone.now()
+        finding.save(update_fields=["ticket_url", "ticket_created_at", "updated_at"])
+        _audit(
+            request.user,
+            "finding_ticket_created",
+            org=finding.organization,
+            target_type="SecureWiseFinding",
+            target_id=finding.id,
+            detail={"ticket_url": ticket_url},
+            request=request,
+        )
+        return Response({"ticket_url": ticket_url})
+
+    @action(detail=True, methods=["post"], url_path="create-pr", throttle_classes=[GitHubActionThrottle])
+    def create_pr(self, request, pk=None):
+        finding = self.get_object()
+        if _membership(request.user, finding.organization) is None:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You are not a member of this organization.")
+
+        try:
+            pr_url = create_github_pr(finding)
+        except GitHubActionError as exc:
+            _audit(
+                request.user,
+                "finding_pr_failed",
+                org=finding.organization,
+                target_type="SecureWiseFinding",
+                target_id=finding.id,
+                detail={"error": str(exc)},
+                request=request,
+            )
+            return Response({"detail": str(exc)}, status=400)
+
+        finding.pr_url = pr_url
+        finding.pr_created_at = timezone.now()
+        finding.save(update_fields=["pr_url", "pr_created_at", "updated_at"])
+        _audit(
+            request.user,
+            "finding_pr_created",
+            org=finding.organization,
+            target_type="SecureWiseFinding",
+            target_id=finding.id,
+            detail={"pr_url": pr_url},
+            request=request,
+        )
+        return Response({"pr_url": pr_url})
 
     @action(detail=True, methods=["post"], url_path="accept-risk")
     def accept_risk(self, request, pk=None):
