@@ -12,10 +12,16 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
 # Install system dependencies
+# NOTE: `git` is required by SecureWise's scan engines (they shell out to
+# `git ls-remote` / `git clone` to validate and fetch scan targets). The base
+# python:3.11-slim image does NOT include git — omitting it here causes scans
+# to fail in production with "[Errno 2] No such file or directory: 'git'".
 RUN apt-get update && apt-get install -y \
     build-essential \
     gettext \
     netcat-openbsd \
+    git \
+    ca-certificates \
     libcairo2 \
     libpango-1.0-0 \
     libpangoft2-1.0-0 \

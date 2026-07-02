@@ -13,6 +13,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from apps.securewise.scanners.repository import (
+    GitUnavailableError,
+    _require_git,
     _resolve_safe_dest,
     build_authenticated_url,
     clone_repository,
@@ -51,6 +53,25 @@ class TestValidatePublicRepo:
             validate_public_repo("https://github.com/example/repo")
             called_args = mock_run.call_args[0][0]
             assert called_args[-1].endswith(".git")
+
+    def test_returns_false_when_git_binary_missing(self):
+        # Regression test: previously a missing `git` binary bubbled up as a
+        # raw "[Errno 2] No such file or directory: 'git'" from subprocess.run.
+        with patch("apps.securewise.scanners.repository.shutil.which", return_value=None):
+            with patch("apps.securewise.scanners.repository.subprocess.run") as mock_run:
+                assert validate_public_repo("https://github.com/example/repo") is False
+                mock_run.assert_not_called()
+
+
+class TestRequireGit:
+    def test_raises_git_unavailable_error_when_missing(self):
+        with patch("apps.securewise.scanners.repository.shutil.which", return_value=None):
+            with pytest.raises(GitUnavailableError):
+                _require_git()
+
+    def test_passes_silently_when_git_present(self):
+        with patch("apps.securewise.scanners.repository.shutil.which", return_value="/usr/bin/git"):
+            _require_git()  # should not raise
 
 
 class TestResolveSafeDest:
@@ -101,6 +122,35 @@ class TestSafeClone:
         outside_dest = tmp_path / "escape"
         with pytest.raises(ValueError):
             safe_clone("https://github.com/example/repo.git", outside_dest, allowed_root=allowed_root)
+
+    def test_raises_git_unavailable_error_when_git_binary_missing(self, tmp_path):
+        dest = tmp_path / "repo"
+        with patch("apps.securewise.scanners.repository.shutil.which", return_value=None):
+            with patch("apps.securewise.scanners.repository.subprocess.run") as mock_run:
+                with pytest.raises(GitUnavailableError):
+                    safe_clone("https://github.com/example/repo.git", dest, allowed_root=tmp_path)
+                mock_run.assert_not_called()
+
+    def test_raises_git_unavailable_error_on_toctou_oserror(self, tmp_path):
+        # git was present at _require_git() time but subprocess.run still hit
+        # an OSError (e.g. binary removed mid-scan, permissions changed).
+        dest = tmp_path / "repo"
+        with patch("apps.securewise.scanners.repository.shutil.which", return_value="/usr/bin/git"):
+            with patch(
+                "apps.securewise.scanners.repository.subprocess.run",
+                side_effect=FileNotFoundError("[Errno 2] No such file or directory: 'git'"),
+            ):
+                with pytest.raises(GitUnavailableError):
+                    safe_clone("https://github.com/example/repo.git", dest, allowed_root=tmp_path)
+
+    def test_raises_runtime_error_on_timeout(self, tmp_path):
+        dest = tmp_path / "repo"
+        with patch(
+            "apps.securewise.scanners.repository.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="git clone", timeout=120),
+        ):
+            with pytest.raises(RuntimeError, match="timed out"):
+                safe_clone("https://github.com/example/repo.git", dest, allowed_root=tmp_path)
 
 
 class TestBuildAuthenticatedUrl:
@@ -164,3 +214,18 @@ class TestCloneRepository:
         mock_safe_clone.assert_called_once()
         called_url = mock_safe_clone.call_args[0][0]
         assert called_url == "https://github.com/example/private-repo.git"
+
+    def test_propagates_git_unavailable_error(self, tmp_path):
+        # Regression test: production reported a raw "[Errno 2] No such file
+        # or directory: 'git'" when the git binary wasn't installed. Ensure
+        # clone_repository surfaces our clear GitUnavailableError instead.
+        repo = MagicMock()
+        repo.repository_url = "https://github.com/example/repo"
+        repo.access_mode = "public"
+        repo.integration = None
+        scan = MagicMock(repository=repo)
+        repo_path = tmp_path / "clone"
+
+        with patch("apps.securewise.scanners.repository.shutil.which", return_value=None):
+            with pytest.raises(GitUnavailableError, match="Git is not installed"):
+                clone_repository(scan, repo_path, allowed_root=tmp_path)
