@@ -34,14 +34,8 @@ from apps.securewise.services.repository import (
     normalize_url,
     validate_url_format,
 )
-from apps.securewise.services.scanner import (
-    MockDastScanner,
-    MockSastScanner,
-    MockScaScanner,
-    MockSecretScanner,
-    ScannerRunner,
-    _get_scanners_for_type,
-)
+from apps.securewise.services.scanner import ScannerRunner
+from apps.securewise.scanners.orchestrator import ScannerOrchestrator
 
 User = get_user_model()
 pytestmark = pytest.mark.django_db
@@ -355,71 +349,32 @@ class TestCheckPrivateAccess:
 # ---------------------------------------------------------------------------
 
 
-class TestMockScanners:
-    def test_dast_scanner_returns_findings(self, tmp_path):
-        scanner = MockDastScanner()
-        result = scanner.run(tmp_path, "test-dast-001", {})
-        assert result.success is True
-        assert len(result.findings) >= 2
-        types = {f.scanner_type for f in result.findings}
-        assert "dast" in types
+class TestEngineResolution:
+    """Superseded MockScanner tests — engine resolution now covered in
+    tests/securewise/test_orchestrator.py and test_scanners.py. Kept as a
+    thin smoke test here for backward-compatible coverage of this module."""
 
-    def test_sca_scanner_returns_findings(self, tmp_path):
-        scanner = MockScaScanner()
-        result = scanner.run(tmp_path, "test-sca-001", {})
-        assert result.success is True
-        assert any(f.scanner_type == "sca" for f in result.findings)
+    def test_single_scan_type_resolves_to_itself(self, db):
+        owner = User.objects.create_user(username="engres_owner", email="er@sw.test", password="TestPass123!")
+        org = SecureWiseOrganization.objects.create(name="EngResOrg", slug="engresorg", owner=owner)
+        SecureWiseMembership.objects.create(organization=org, user=owner, role="owner")
+        project = SecureWiseProject.objects.create(organization=org, name="ERP", slug="erp", created_by=owner)
+        scan = SecureWiseScan.objects.create(
+            organization=org, project=project, scan_type="secrets", status="pending", triggered_by=owner
+        )
+        engines = ScannerOrchestrator().resolve_engines(scan)
+        assert engines == ["secrets"]
 
-    def test_secret_scanner_returns_findings(self, tmp_path):
-        scanner = MockSecretScanner()
-        result = scanner.run(tmp_path, "test-sec-001", {})
-        assert result.success is True
-        assert result.findings[0].severity == "critical"
-        assert result.findings[0].cwe_id == "CWE-798"
-
-    def test_sast_finding_has_required_fields(self, tmp_path):
-        scanner = MockSastScanner()
-        result = scanner.run(tmp_path, "x", {})
-        f = result.findings[0]
-        assert f.title
-        assert f.severity in ("critical", "high", "medium", "low", "info")
-        assert f.scanner_type == "sast"
-        assert f.fingerprint
-
-
-class TestGetScannersForType:
-    def test_sast_type(self):
-        scanners = _get_scanners_for_type("sast")
-        assert len(scanners) == 1
-        assert isinstance(scanners[0], MockSastScanner)
-
-    def test_dast_type(self):
-        scanners = _get_scanners_for_type("dast")
-        assert isinstance(scanners[0], MockDastScanner)
-
-    def test_sca_type(self):
-        scanners = _get_scanners_for_type("sca")
-        assert isinstance(scanners[0], MockScaScanner)
-
-    def test_secrets_type(self):
-        scanners = _get_scanners_for_type("secrets")
-        assert isinstance(scanners[0], MockSecretScanner)
-
-    def test_full_type_returns_all_scanners(self):
-        scanners = _get_scanners_for_type("full")
-        assert len(scanners) == 4
-
-    def test_unknown_type_defaults_to_sast(self):
-        scanners = _get_scanners_for_type("unknown_type")
-        assert isinstance(scanners[0], MockSastScanner)
-
-    def test_iac_type(self):
-        scanners = _get_scanners_for_type("iac")
-        assert len(scanners) == 1
-
-    def test_container_type(self):
-        scanners = _get_scanners_for_type("container")
-        assert len(scanners) == 1
+    def test_full_scan_type_resolves_to_base_engines(self, db):
+        owner = User.objects.create_user(username="engres_owner2", email="er2@sw.test", password="TestPass123!")
+        org = SecureWiseOrganization.objects.create(name="EngResOrg2", slug="engresorg2", owner=owner)
+        SecureWiseMembership.objects.create(organization=org, user=owner, role="owner")
+        project = SecureWiseProject.objects.create(organization=org, name="ERP2", slug="erp2", created_by=owner)
+        scan = SecureWiseScan.objects.create(
+            organization=org, project=project, scan_type="full", status="pending", triggered_by=owner
+        )
+        engines = ScannerOrchestrator().resolve_engines(scan)
+        assert engines == ["sast", "sca", "secrets", "iac"]
 
 
 class TestScannerRunnerEdgeCases:
@@ -488,8 +443,11 @@ class TestScannerRunnerEdgeCases:
         )
         ScannerRunner().run_scan(str(scan.id))
         scan.refresh_from_db()
-        assert scan.status == "completed"
-        from apps.securewise.models import SecureWiseFinding
+        assert scan.status in ("completed", "completed_with_warnings")
+        assert scan.selected_engines == ["sast", "sca", "secrets", "iac"]
 
-        # Full scan = 4 mock scanners → many findings
-        assert SecureWiseFinding.objects.filter(scan=scan).count() > 4
+        from apps.securewise.models import SecureWiseScanEngineResult
+
+        engine_results = SecureWiseScanEngineResult.objects.filter(scan=scan)
+        assert engine_results.count() == 4
+        assert set(engine_results.values_list("engine", flat=True)) == {"sast", "sca", "secrets", "iac"}

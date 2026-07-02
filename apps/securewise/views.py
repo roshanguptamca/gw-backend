@@ -30,6 +30,7 @@ from .models import (
     SecureWiseReport,
     SecureWiseRepository,
     SecureWiseScan,
+    SecureWiseScanEngineResult,
     SecureWiseScanPolicy,
 )
 from .permissions import ADMIN_ROLES, WRITE_ROLES, _membership
@@ -45,8 +46,9 @@ from .serializers import (
     SecureWiseRepositorySerializer,
     SecureWiseScanPolicySerializer,
     SecureWiseScanSerializer,
+    ScanEngineResultSerializer,
 )
-from .services.report import generate_json_report
+from .services.report import generate_report
 from .services.repository import (
     check_private_access,
     check_public_access,
@@ -512,7 +514,7 @@ class ScanViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
         scan = self.get_object()
-        if scan.status not in ("pending", "queued", "running"):
+        if scan.status not in ("pending", "queued") and not scan.status.startswith("running"):
             return Response(
                 {"detail": f"Cannot cancel a scan with status '{scan.status}'."},
                 status=400,
@@ -520,6 +522,39 @@ class ScanViewSet(viewsets.ModelViewSet):
         scan.status = "cancelled"
         scan.save(update_fields=["status"])
         return Response({"detail": "Scan cancelled.", "status": "cancelled"})
+
+    @action(detail=True, methods=["get"])
+    def progress(self, request, pk=None):
+        scan = self.get_object()
+        elapsed_seconds = None
+        if scan.started_at:
+            end = scan.completed_at or timezone.now()
+            elapsed_seconds = int((end - scan.started_at).total_seconds())
+        engines = [
+            {
+                "engine": er.engine,
+                "status": er.status,
+                "findings_count": er.findings_count,
+                "skipped_reason": er.skipped_reason,
+            }
+            for er in scan.engine_results.all()
+        ]
+        return Response(
+            {
+                "id": str(scan.id),
+                "status": scan.status,
+                "progress": scan.progress,
+                "elapsed_seconds": elapsed_seconds,
+                "findings_count": scan.findings.count(),
+                "engines": engines,
+            }
+        )
+
+    @action(detail=True, methods=["get"], url_path="engine-results")
+    def engine_results(self, request, pk=None):
+        scan = self.get_object()
+        serializer = ScanEngineResultSerializer(scan.engine_results.all(), many=True)
+        return Response(serializer.data)
 
 
 # ---------------------------------------------------------------------------
@@ -637,12 +672,13 @@ class ReportViewSet(viewsets.ModelViewSet):
 
         scan = serializer.validated_data.get("scan")
         report = serializer.save(generated_by=self.request.user, status="generating")
+        report_type = self.request.data.get("report_type", "")
 
         # Generate report data synchronously for MVP
         # TODO: Move to background task for large scans
         try:
             if scan:
-                report.report_data = generate_json_report(scan)
+                report.report_data = generate_report(scan, report_type)
                 report.quality_gate_passed = scan.quality_gate_passed
             report.status = "ready"
         except Exception as exc:
@@ -760,6 +796,23 @@ class DashboardSummaryView(APIView):
             deduct = min(100, (critical_count * 10) + (high_count * 5))
             security_score = max(0, 100 - deduct)
 
+        # OWASP Top 10 (2021) coverage across open findings
+        from .services.report import _CWE_TOP25, _OWASP_TOP10_LABELS
+
+        owasp_coverage = {
+            code: findings_qs.filter(owasp_category=code).count() for code in _OWASP_TOP10_LABELS
+        }
+        cwe_top25_coverage = findings_qs.filter(cwe_id__in=list(_CWE_TOP25)).count()
+
+        # Quality gate pass/fail counts across recent scans
+        recent_scan_qs = SecureWiseScan.objects.filter(
+            organization_id__in=org_ids, quality_gate_passed__isnull=False
+        )
+        quality_gate_counts = {
+            "passed": recent_scan_qs.filter(quality_gate_passed=True).count(),
+            "failed": recent_scan_qs.filter(quality_gate_passed=False).count(),
+        }
+
         return Response(
             {
                 "total_projects": total_projects,
@@ -770,5 +823,8 @@ class DashboardSummaryView(APIView):
                 "severity_counts": severity_counts,
                 "recent_scans": recent_scans_data,
                 "top_risky_projects": list(risky_projects),
+                "owasp_top10_coverage": owasp_coverage,
+                "cwe_top25_coverage_count": cwe_top25_coverage,
+                "quality_gate_counts": quality_gate_counts,
             }
         )

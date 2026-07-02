@@ -121,16 +121,27 @@ def scan(org, project, policy, owner):
 
 
 @pytest.fixture
-def completed_scan(org, project, policy, owner):
+def completed_scan(org, project, policy, owner, repository):
     s = SecureWiseScan.objects.create(
         organization=org,
         project=project,
         policy=policy,
+        repository=repository,
         scan_type="sast",
         status="pending",
         triggered_by=owner,
     )
-    ScannerRunner().run_scan(str(s.id))
+
+    def _seed_vulnerable_repo(scan, repo_path, allowed_root=None, timeout=120):
+        repo_path.mkdir(parents=True, exist_ok=True)
+        (repo_path / "app.py").write_text(
+            "import pickle\n"
+            'HARDCODED_SECRET_TOKEN = "not_a_real_secret_placeholder_value_123456"\n'
+            "data = pickle.loads(raw_bytes)\n"
+        )
+
+    with patch("apps.securewise.services.scanner.clone_repository", side_effect=_seed_vulnerable_repo):
+        ScannerRunner().run_scan(str(s.id))
     s.refresh_from_db()
     return s
 

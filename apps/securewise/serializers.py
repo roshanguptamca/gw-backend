@@ -14,6 +14,7 @@ from .models import (
     SecureWiseReport,
     SecureWiseRepository,
     SecureWiseScan,
+    SecureWiseScanEngineResult,
     SecureWiseScanPolicy,
 )
 
@@ -305,6 +306,11 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
             "branch",
             "commit_sha",
             "status",
+            "progress",
+            "selected_engines",
+            "target_url",
+            "api_spec_url",
+            "docker_image",
             "triggered_by",
             "triggered_by_detail",
             "started_at",
@@ -320,6 +326,8 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
         read_only_fields = (
             "id",
             "organization",
+            "progress",
+            "selected_engines",
             "triggered_by",
             "triggered_by_detail",
             "started_at",
@@ -347,6 +355,27 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
         if project and not attrs.get("organization"):
             attrs["organization"] = project.organization
         return attrs
+
+
+class ScanEngineResultSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SecureWiseScanEngineResult
+        fields = (
+            "id",
+            "scan",
+            "engine",
+            "status",
+            "started_at",
+            "completed_at",
+            "duration_seconds",
+            "findings_count",
+            "skipped_reason",
+            "raw_summary",
+            "error_message",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
 
 
 # ---------------------------------------------------------------------------

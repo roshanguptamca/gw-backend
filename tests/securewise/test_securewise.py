@@ -7,6 +7,7 @@ Covers: models, permissions, org isolation, project CRUD,
 from django.contrib.auth import get_user_model
 
 import pytest
+from unittest.mock import patch
 
 from apps.securewise.models import (
     SecureWiseAuditLog,
@@ -21,7 +22,8 @@ from apps.securewise.models import (
     SecureWiseScanPolicy,
 )
 from apps.securewise.services.report import generate_json_report
-from apps.securewise.services.scanner import MockSastScanner, ScannerRunner
+from apps.securewise.services.scanner import ScannerRunner
+from apps.securewise.scanners.sast import SastScanner
 
 User = get_user_model()
 
@@ -88,12 +90,12 @@ def policy(org, project, owner):
 
 
 @pytest.fixture
-def scan(org, project, policy, owner):
-    # No repository attached — mock scanner doesn't need an actual clone
+def scan(org, project, policy, owner, repository):
     return SecureWiseScan.objects.create(
         organization=org,
         project=project,
         policy=policy,
+        repository=repository,
         scan_type="sast",
         status="pending",
         triggered_by=owner,
@@ -185,9 +187,21 @@ class TestOrgIsolation:
 # ---------------------------------------------------------------------------
 
 
-class TestMockScanner:
-    def test_mock_sast_returns_findings(self, tmp_path):
-        scanner = MockSastScanner()
+def _seed_vulnerable_repo(scan, repo_path, allowed_root=None, timeout=120):
+    """Stand-in for a real git clone — writes a small vulnerable file so the
+    real SAST fallback engine has something concrete to detect."""
+    repo_path.mkdir(parents=True, exist_ok=True)
+    (repo_path / "app.py").write_text(
+        "import pickle\n"
+        'HARDCODED_SECRET_TOKEN = "not_a_real_secret_placeholder_value_123456"\n'
+        "data = pickle.loads(raw_bytes)\n"
+    )
+
+
+class TestScanEngine:
+    def test_sast_fallback_returns_findings(self, tmp_path):
+        (tmp_path / "app.py").write_text("import pickle\ndata = pickle.loads(raw)\n")
+        scanner = SastScanner()
         result = scanner.run(tmp_path, "test-scan-001", {})
         assert result.success is True
         assert len(result.findings) > 0
@@ -195,30 +209,34 @@ class TestMockScanner:
         assert "critical" in severities or "high" in severities
 
     def test_scan_runner_completes(self, scan):
-        runner = ScannerRunner()
-        runner.run_scan(str(scan.id))
+        with patch("apps.securewise.services.scanner.clone_repository", side_effect=_seed_vulnerable_repo):
+            runner = ScannerRunner()
+            runner.run_scan(str(scan.id))
 
         scan.refresh_from_db()
-        assert scan.status == "completed"
+        assert scan.status in ("completed", "completed_with_warnings")
         assert scan.completed_at is not None
         assert scan.duration_seconds is not None
 
     def test_scan_runner_creates_findings(self, scan):
-        runner = ScannerRunner()
-        runner.run_scan(str(scan.id))
+        with patch("apps.securewise.services.scanner.clone_repository", side_effect=_seed_vulnerable_repo):
+            runner = ScannerRunner()
+            runner.run_scan(str(scan.id))
         findings = SecureWiseFinding.objects.filter(scan=scan)
         assert findings.count() > 0
 
     def test_quality_gate_fails_with_critical(self, scan):
-        runner = ScannerRunner()
-        runner.run_scan(str(scan.id))
+        with patch("apps.securewise.services.scanner.clone_repository", side_effect=_seed_vulnerable_repo):
+            runner = ScannerRunner()
+            runner.run_scan(str(scan.id))
         scan.refresh_from_db()
-        # Policy has max_critical=0, mock SAST produces critical findings
+        # Policy has max_critical=0, seeded file has a critical pickle.loads finding
         assert scan.quality_gate_passed is False
 
     def test_audit_log_created_for_scan(self, scan):
-        runner = ScannerRunner()
-        runner.run_scan(str(scan.id))
+        with patch("apps.securewise.services.scanner.clone_repository", side_effect=_seed_vulnerable_repo):
+            runner = ScannerRunner()
+            runner.run_scan(str(scan.id))
         logs = SecureWiseAuditLog.objects.filter(target_type="SecureWiseScan", target_id=str(scan.id))
         assert logs.filter(event="scan_started").exists()
         # Completed or failed — either is logged
@@ -273,8 +291,9 @@ class TestFindingCreation:
 class TestReportGeneration:
     def test_generate_json_report(self, scan, project, org):
         # First run scanner to populate findings
-        runner = ScannerRunner()
-        runner.run_scan(str(scan.id))
+        with patch("apps.securewise.services.scanner.clone_repository", side_effect=_seed_vulnerable_repo):
+            runner = ScannerRunner()
+            runner.run_scan(str(scan.id))
         scan.refresh_from_db()
 
         report_data = generate_json_report(scan)
@@ -289,8 +308,9 @@ class TestReportGeneration:
         assert "quality_gate" in report_data
 
     def test_report_model_created(self, scan, project, org, owner):
-        runner = ScannerRunner()
-        runner.run_scan(str(scan.id))
+        with patch("apps.securewise.services.scanner.clone_repository", side_effect=_seed_vulnerable_repo):
+            runner = ScannerRunner()
+            runner.run_scan(str(scan.id))
         scan.refresh_from_db()
 
         report = SecureWiseReport.objects.create(

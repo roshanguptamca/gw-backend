@@ -37,9 +37,37 @@ SCAN_STATUS_CHOICES = [
     ("pending", "Pending"),
     ("queued", "Queued"),
     ("running", "Running"),
+    ("cloning", "Cloning Repository"),
+    ("running_sast", "Running SAST"),
+    ("running_sca", "Running SCA"),
+    ("running_secrets", "Running Secret Scan"),
+    ("running_iac", "Running IaC Scan"),
+    ("running_container", "Running Container Scan"),
+    ("running_api", "Running API Scan"),
+    ("running_dast", "Running DAST"),
+    ("normalizing", "Normalizing Results"),
     ("completed", "Completed"),
+    ("completed_with_warnings", "Completed with Warnings"),
     ("failed", "Failed"),
     ("cancelled", "Cancelled"),
+]
+
+ENGINE_CHOICES = [
+    ("sast", "SAST"),
+    ("sca", "SCA"),
+    ("secrets", "Secret Scanning"),
+    ("dast", "DAST"),
+    ("iac", "IaC"),
+    ("container", "Container"),
+    ("api", "API Security"),
+]
+
+ENGINE_STATUS_CHOICES = [
+    ("pending", "Pending"),
+    ("running", "Running"),
+    ("completed", "Completed"),
+    ("skipped", "Skipped"),
+    ("failed", "Failed"),
 ]
 
 SCAN_TYPE_CHOICES = [
@@ -129,6 +157,9 @@ AUDIT_EVENT_CHOICES = [
     ("token_used_for_scan", "Token Used for Scan"),
     ("token_failed", "Token Failed"),
     ("repository_added", "Repository Added"),
+    ("scan_engine_started", "Scan Engine Started"),
+    ("scan_engine_completed", "Scan Engine Completed"),
+    ("finding_created", "Finding Created"),
 ]
 
 
@@ -394,7 +425,7 @@ class SecureWiseScan(models.Model):
     scan_type = models.CharField(max_length=20, choices=SCAN_TYPE_CHOICES, default="full")
     branch = models.CharField(max_length=200, blank=True)
     commit_sha = models.CharField(max_length=64, blank=True)
-    status = models.CharField(max_length=20, choices=SCAN_STATUS_CHOICES, default="pending")
+    status = models.CharField(max_length=30, choices=SCAN_STATUS_CHOICES, default="pending")
     triggered_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -408,6 +439,17 @@ class SecureWiseScan(models.Model):
     scanner_metadata = models.JSONField(default=dict, blank=True)
     # Quality gate result
     quality_gate_passed = models.BooleanField(null=True, blank=True)
+
+    progress = models.PositiveSmallIntegerField(default=0, help_text="Scan progress percentage (0-100).")
+    selected_engines = models.JSONField(
+        default=list, blank=True, help_text="Resolved list of engines this scan will run/ran, e.g. ['sast','sca']."
+    )
+    target_url = models.URLField(blank=True, help_text="Target URL for DAST scanning.")
+    api_spec_url = models.CharField(
+        max_length=500, blank=True, help_text="Path or URL to an OpenAPI/Swagger spec for API scanning."
+    )
+    docker_image = models.CharField(max_length=300, blank=True, help_text="Docker image reference for container scanning.")
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -416,6 +458,30 @@ class SecureWiseScan(models.Model):
 
     def __str__(self):
         return f"Scan {self.id} [{self.scan_type}] - {self.status}"
+
+
+class SecureWiseScanEngineResult(models.Model):
+    """Per-engine result for a scan (e.g. sast/sca/secrets/dast/iac/container/api)."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    scan = models.ForeignKey(SecureWiseScan, on_delete=models.CASCADE, related_name="engine_results")
+    engine = models.CharField(max_length=20, choices=ENGINE_CHOICES)
+    status = models.CharField(max_length=20, choices=ENGINE_STATUS_CHOICES, default="pending")
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    duration_seconds = models.IntegerField(null=True, blank=True)
+    findings_count = models.IntegerField(default=0)
+    skipped_reason = models.TextField(blank=True)
+    raw_summary = models.JSONField(default=dict, blank=True, help_text="Tool used, files scanned, deps parsed, etc.")
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"{self.engine} [{self.status}] for scan {self.scan_id}"
 
 
 # ---------------------------------------------------------------------------

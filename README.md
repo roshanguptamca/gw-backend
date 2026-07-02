@@ -446,6 +446,113 @@ make test-parallel  # parallel with pytest-xdist
 
 ---
 
+## SecureWise (Security Application Scanning Platform)
+
+SecureWise (`apps/securewise/`) is a multi-tenant security scanning platform: organizations
+connect git repositories (public or private, via encrypted `SecureWiseGitIntegration` tokens),
+configure scan policies/quality gates, and run scans that produce `SecureWiseFinding` records
+with CWE/OWASP mapping and actionable remediation guidance.
+
+### Scanner architecture
+
+Each scan resolves to a list of **engines** (`apps/securewise/scanners/orchestrator.py`,
+`ScannerOrchestrator.resolve_engines`). For a single-type scan (`sast`, `sca`, `secrets`,
+`iac`, `container`, `api`, `dast`) only that engine runs. For `scan_type="full"`, the engines
+`sast`, `sca`, `secrets`, `iac` always run, and `container` / `api` / `dast` are added only
+when there is something real to scan (a `docker_image`/Dockerfile, an OpenAPI/Swagger spec,
+or a `target_url`, respectively).
+
+Every engine implements `BaseScanner` (`apps/securewise/scanners/base.py`) and, where a real
+security tool is available on `PATH` (checked via `shutil.which`), shells out to it and parses
+its native output (`apps/securewise/scanners/parsers/`). When the real tool is **not**
+installed, a lightweight but genuinely functional fallback engine performs an equivalent
+static check directly in Python. Every engine records which mode it used in
+`SecureWiseScanEngineResult.raw_summary["tool"]` / `raw_tool`, so reports are always honest
+about fidelity.
+
+| Engine     | Real tool         | Available in this environment? | Fallback engine when tool is absent |
+|------------|--------------------|:---:|--------------------------------------|
+| `secrets`  | gitleaks           | ✅ Yes | regex fallback (AWS keys, private key blocks, Slack/JWT tokens) |
+| `sast`     | semgrep            | ❌ No  | regex/heuristic rules (eval/exec, unsafe pickle/yaml, shell=True, hardcoded secrets, DEBUG=True, weak hashing in auth code) |
+| `sca`      | trivy              | ❌ No  | lockfile parser (requirements.txt, package.json, go.mod, Gemfile.lock, …) + curated known-CVE list |
+| `iac`      | trivy              | ❌ No  | Dockerfile / Kubernetes YAML / Terraform / Helm static checks |
+| `container`| trivy (image scan) | ❌ No  | skipped unless a `docker_image` is configured (optional best-effort `docker build` + `trivy image` if both binaries exist) |
+| `api`      | n/a (spec parsing) | — | always uses built-in OpenAPI/Swagger parser (json/yaml) |
+| `dast`     | OWASP ZAP          | ❌ No  | passive `requests`-based header/cookie/CORS/disclosure checks only — **no active/destructive scanning** |
+
+Install the real tools to upgrade fidelity:
+
+```bash
+brew install semgrep
+brew install gitleaks   # already installed in this environment
+brew install trivy
+docker pull zaproxy/zap-stable   # ZAP via Docker; zap-baseline.py path is auto-detected if present
+```
+
+Findings are enriched via two shared modules:
+- `apps/securewise/scanners/cwe_mapping.py` — canonical issue-key → CWE + OWASP Top 10 (2021,
+  the current published edition) mapping.
+- `apps/securewise/scanners/recommendation.py` — `RecommendationEngine` providing
+  what/why/where/how-to-fix guidance, bad/fixed code examples, and references, with
+  language-specific templates (Python/Django, Java/Spring, JavaScript/Node, Go) and a
+  generic fallback.
+
+### Full-scan engine selection
+
+For `scan_type="full"`, `ScannerOrchestrator.resolve_engines()` always includes
+`sast, sca, secrets, iac`, and conditionally adds:
+- `container` — if `scan.docker_image` is set, or a `Dockerfile` exists in the repo
+- `api` — if `scan.api_spec_url` is set, or an `openapi.json`/`openapi.yaml`/`swagger.json` is found
+- `dast` — if `scan.target_url` is set
+
+The resolved list is persisted to `scan.selected_engines` before execution. Progress
+(`scan.progress`, 0–100) and status (`scan.status`, e.g. `running_sast`, `normalizing`,
+`completed`) update as each engine finishes; per-engine results are stored in
+`SecureWiseScanEngineResult` (status, timing, findings count, `raw_summary`, `skipped_reason`).
+
+### Running a scan locally
+
+```bash
+python manage.py migrate
+python manage.py seed_securewise_demo   # idempotent demo org/project/repo/scan/findings
+python manage.py runserver
+```
+
+Then use the API (see `apps/securewise/urls.py`), e.g.:
+
+```bash
+POST /api/securewise/repositories/validate/     # validate a public/private repo URL
+POST /api/securewise/scans/                     # create a scan
+POST /api/securewise/scans/{id}/start/          # kick off the background thread
+GET  /api/securewise/scans/{id}/progress/       # poll status/progress/per-engine summary
+GET  /api/securewise/scans/{id}/engine-results/ # detailed per-engine results
+GET  /api/securewise/dashboard/summary/         # org-wide security posture
+```
+
+### ⚠️ DAST authorization warning
+
+`DastScanner` only ever runs **passive** checks (response headers, cookies, CORS, informational
+`robots.txt`/`sitemap.xml` requests) — it never sends destructive payloads, performs auth
+bypass attempts, or fuzzes inputs. Nonetheless, **only run DAST scans against targets you own
+or are explicitly authorized to test.** Scanning third-party systems without authorization may
+be illegal in your jurisdiction.
+
+### Known limitations
+
+- No live OSV.dev / vulnerability-database network lookups by default (SCA relies on a
+  curated known-vulnerable-version list plus a full dependency inventory in `raw_summary`);
+  an optional best-effort OSV query could be added later behind a short timeout.
+- Container and API scanning require explicit configuration (`docker_image` / `api_spec_url`,
+  or discoverable Dockerfile/spec files) — they cannot infer a target on their own.
+- ZAP is not installed in this environment, so DAST is passive-only; installing ZAP
+  (`docker pull zaproxy/zap-stable`) does not currently wire up active scanning automatically —
+  it is detected but not invoked by default.
+- semgrep/trivy are not installed here, so SAST/SCA/IaC/Container run their lightweight
+  fallback engines; installing the real tools automatically upgrades fidelity with no code
+  changes required (detected via `shutil.which`).
+
+---
+
 ## License
 
 MIT License

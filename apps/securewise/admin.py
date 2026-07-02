@@ -11,8 +11,17 @@ from .models import (
     SecureWiseReport,
     SecureWiseRepository,
     SecureWiseScan,
+    SecureWiseScanEngineResult,
     SecureWiseScanPolicy,
 )
+
+
+class ScanEngineResultInline(admin.TabularInline):
+    model = SecureWiseScanEngineResult
+    extra = 0
+    readonly_fields = ("id", "engine", "status", "findings_count", "skipped_reason", "duration_seconds", "created_at")
+    can_delete = False
+    show_change_link = True
 
 
 @admin.register(SecureWiseOrganization)
@@ -67,10 +76,19 @@ class ScanPolicyAdmin(admin.ModelAdmin):
 
 @admin.register(SecureWiseScan)
 class ScanAdmin(admin.ModelAdmin):
-    list_display = ("id", "project", "scan_type", "status", "triggered_by", "started_at", "completed_at")
+    list_display = ("id", "project", "scan_type", "status", "progress", "triggered_by", "started_at", "completed_at")
     list_filter = ("scan_type", "status")
     search_fields = ("project__name",)
     readonly_fields = ("id", "started_at", "completed_at", "duration_seconds", "created_at", "updated_at")
+    inlines = [ScanEngineResultInline]
+
+
+@admin.register(SecureWiseScanEngineResult)
+class ScanEngineResultAdmin(admin.ModelAdmin):
+    list_display = ("scan", "engine", "status", "findings_count", "duration_seconds", "created_at")
+    list_filter = ("engine", "status")
+    search_fields = ("scan__id",)
+    readonly_fields = ("id", "created_at", "updated_at")
 
 
 @admin.register(SecureWiseFinding)
