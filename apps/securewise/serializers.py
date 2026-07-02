@@ -1,7 +1,7 @@
+import json
+
 from django.contrib.auth import get_user_model
 from django.utils.text import slugify
-
-import json
 
 from rest_framework import serializers
 
@@ -354,6 +354,11 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
         )
 
     def validate(self, attrs):
+        # Auto-derive organization from project.
+        project = attrs.get("project", getattr(self.instance, "project", None))
+        if project and not attrs.get("organization"):
+            attrs["organization"] = project.organization
+
         scan_type = attrs.get("scan_type", getattr(self.instance, "scan_type", "full"))
         repository = attrs.get("repository", getattr(self.instance, "repository", None))
         target_url = attrs.get("target_url", getattr(self.instance, "target_url", ""))
@@ -362,9 +367,7 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
         # Engines that operate on cloned source code need a repository.
         source_dependent_types = {"sast", "sca", "secrets", "iac", "container"}
         if scan_type in source_dependent_types and not repository:
-            raise serializers.ValidationError(
-                {"repository": f"A repository is required to run a '{scan_type}' scan."}
-            )
+            raise serializers.ValidationError({"repository": f"A repository is required to run a '{scan_type}' scan."})
         if scan_type == "full" and not repository and not target_url and not api_spec_url:
             raise serializers.ValidationError(
                 {
@@ -396,13 +399,6 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
             counts[row["severity"]] = counts.get(row["severity"], 0) + 1
         counts["total"] = sum(counts.values())
         return counts
-
-    def validate(self, attrs):
-        # Auto-derive organization from project
-        project = attrs.get("project", getattr(self.instance, "project", None))
-        if project and not attrs.get("organization"):
-            attrs["organization"] = project.organization
-        return attrs
 
 
 class ScanEngineResultSerializer(serializers.ModelSerializer):

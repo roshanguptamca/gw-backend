@@ -430,7 +430,23 @@ class TestScanAPI:
         resp = auth_client.get("/api/securewise/scans/")
         assert resp.status_code == 200
 
-    def test_create_scan(self, auth_client, org, project, policy):
+    def test_create_scan(self, auth_client, org, project, repository, policy):
+        resp = auth_client.post(
+            "/api/securewise/scans/",
+            {
+                "organization": str(org.id),
+                "project": str(project.id),
+                "repository": str(repository.id),
+                "policy": str(policy.id),
+                "scan_type": "sca",
+            },
+            format="json",
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["status"] == "pending"
+
+    def test_create_source_scan_requires_repository(self, auth_client, org, project, policy):
         resp = auth_client.post(
             "/api/securewise/scans/",
             {
@@ -441,9 +457,8 @@ class TestScanAPI:
             },
             format="json",
         )
-        assert resp.status_code == 201
-        data = resp.json()
-        assert data["status"] == "pending"
+        assert resp.status_code == 400
+        assert "repository" in resp.json()
 
     def test_retrieve_scan(self, auth_client, scan):
         resp = auth_client.get(f"/api/securewise/scans/{scan.id}/")
@@ -583,8 +598,9 @@ class TestFindingAPI:
             "framework_guidance": "Use Django ORM filters or query parameters.",
             "confidence": "medium",
         }
-        with patch.object(AIRecommendationThrottle, "rate", "1/hour"), patch(
-            "apps.securewise.views.generate_ai_fix_suggestion", return_value=suggestion
+        with (
+            patch.object(AIRecommendationThrottle, "rate", "1/hour"),
+            patch("apps.securewise.views.generate_ai_fix_suggestion", return_value=suggestion),
         ):
             first = auth_client.post(f"/api/securewise/findings/{finding.id}/ai-suggestion/")
             second = auth_client.post(f"/api/securewise/findings/{finding.id}/ai-suggestion/?force=true")
