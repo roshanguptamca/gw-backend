@@ -188,12 +188,150 @@ class TestIacScannerFallback:
         assert result.status == "skipped"
         assert result.skipped_reason == "no IaC files found"
 
+    def test_fallback_flags_add_instead_of_copy(self, tmp_path):
+        (tmp_path / "Dockerfile").write_text("FROM python:3.12\nUSER appuser\nADD app.tar.gz /app\n")
+        with patch("apps.securewise.scanners.iac.shutil.which", return_value=None):
+            result = IacScanner().run(tmp_path, "scan-6b", {})
+        assert any("ADD" in f.title for f in result.findings)
+
+    def test_fallback_flags_unpinned_base_image(self, tmp_path):
+        (tmp_path / "Dockerfile").write_text("FROM python\nUSER appuser\n")
+        with patch("apps.securewise.scanners.iac.shutil.which", return_value=None):
+            result = IacScanner().run(tmp_path, "scan-6c", {})
+        assert any("Unpinned base image" in f.title for f in result.findings)
+
+    def test_fallback_flags_k8s_privileged_and_hostnetwork_and_missing_limits(self, tmp_path):
+        (tmp_path / "deployment.yaml").write_text(
+            "apiVersion: v1\nkind: Pod\nspec:\n  hostNetwork: true\n  containers:\n"
+            "  - name: app\n    securityContext:\n      privileged: true\n"
+        )
+        with patch("apps.securewise.scanners.iac.shutil.which", return_value=None):
+            result = IacScanner().run(tmp_path, "scan-6d", {})
+        titles = " ".join(f.title for f in result.findings)
+        assert "hostNetwork" in titles
+        assert "resource limits" in titles
+
+    def test_fallback_flags_terraform_public_ingress_and_public_read_acl(self, tmp_path):
+        (tmp_path / "main.tf").write_text(
+            'resource "aws_security_group" "ingress" {\n  cidr_blocks = ["0.0.0.0/0"]\n}\n'
+            'resource "aws_s3_bucket" "b" {\n  acl = "public-read"\n}\n'
+        )
+        with patch("apps.securewise.scanners.iac.shutil.which", return_value=None):
+            result = IacScanner().run(tmp_path, "scan-6e", {})
+        titles = " ".join(f.title for f in result.findings)
+        assert "public-read" in titles
+
+    def test_fallback_flags_helm_privileged_container(self, tmp_path):
+        (tmp_path / "values.yaml").write_text("apiVersion: v2\nsecurityContext:\n  privileged: true\n")
+        with patch("apps.securewise.scanners.iac.shutil.which", return_value=None):
+            result = IacScanner().run(tmp_path, "scan-6f", {})
+        assert len(result.findings) >= 1
+
+    def test_trivy_path_used_when_available(self, tmp_path):
+        (tmp_path / "Dockerfile").write_text("FROM python:3.12\n")
+        fake_output = json.dumps({"Results": []}).encode()
+        with patch("apps.securewise.scanners.iac.shutil.which", return_value="/usr/bin/trivy"):
+            with patch("apps.securewise.scanners.iac.subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(stdout=fake_output)
+                result = IacScanner().run(tmp_path, "scan-6g", {})
+        assert result.metadata["raw_tool"] == "trivy"
+
+    def test_trivy_failure_falls_back(self, tmp_path):
+        (tmp_path / "Dockerfile").write_text("FROM python:3.12\nUSER app\n")
+        with patch("apps.securewise.scanners.iac.shutil.which", return_value="/usr/bin/trivy"):
+            with patch("apps.securewise.scanners.iac.subprocess.run", side_effect=RuntimeError("boom")):
+                result = IacScanner().run(tmp_path, "scan-6h", {})
+        assert result.metadata["raw_tool"] == "fallback-iac-checks"
+
 
 class TestContainerScanner:
     def test_skipped_when_no_image_configured(self, tmp_path):
         result = ContainerScanner().run(tmp_path, "scan-8", {})
         assert result.status == "skipped"
         assert "no docker image" in result.skipped_reason
+
+    def test_skipped_when_image_configured_but_trivy_missing(self, tmp_path):
+        with patch("apps.securewise.scanners.container.shutil.which", return_value=None):
+            result = ContainerScanner().run(tmp_path, "scan-8b", {"docker_image": "myapp:latest"})
+        assert result.status == "skipped"
+        assert "trivy not installed" in result.skipped_reason
+
+    def test_scans_image_when_trivy_available(self, tmp_path):
+        fake_output = json.dumps({"Results": []}).encode()
+        with patch("apps.securewise.scanners.container.shutil.which", return_value="/usr/bin/trivy"):
+            with patch("apps.securewise.scanners.container.subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(stdout=fake_output)
+                result = ContainerScanner().run(tmp_path, "scan-8c", {"docker_image": "myapp:latest"})
+        assert result.success is True
+        assert result.metadata["raw_tool"] == "trivy"
+
+    def test_scan_image_handles_exception(self, tmp_path):
+        with patch("apps.securewise.scanners.container.shutil.which", return_value="/usr/bin/trivy"):
+            with patch("apps.securewise.scanners.container.subprocess.run", side_effect=RuntimeError("boom")):
+                result = ContainerScanner().run(tmp_path, "scan-8d", {"docker_image": "myapp:latest"})
+        assert result.success is False
+        assert result.status == "failed"
+
+    def test_skipped_when_dockerfile_present_but_no_image_and_no_tools(self, tmp_path):
+        (tmp_path / "Dockerfile").write_text("FROM python:3.12\n")
+        with patch("apps.securewise.scanners.container.shutil.which", return_value=None):
+            result = ContainerScanner().run(tmp_path, "scan-8e", {})
+        assert result.status == "skipped"
+        assert "Dockerfile present" in result.skipped_reason
+
+    def test_build_and_scan_when_dockerfile_and_tools_available(self, tmp_path):
+        (tmp_path / "Dockerfile").write_text("FROM python:3.12\n")
+        fake_output = json.dumps({"Results": []}).encode()
+
+        def fake_which(name):
+            return f"/usr/bin/{name}"
+
+        with patch("apps.securewise.scanners.container.shutil.which", side_effect=fake_which):
+            with patch("apps.securewise.scanners.container.subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(returncode=0, stdout=fake_output)
+                result = ContainerScanner().run(tmp_path, "scan-8f", {})
+        assert result.success is True
+        assert result.metadata["raw_tool"] == "trivy"
+
+    def test_build_and_scan_handles_build_failure(self, tmp_path):
+        (tmp_path / "Dockerfile").write_text("FROM python:3.12\n")
+
+        def fake_which(name):
+            return f"/usr/bin/{name}"
+
+        def fake_run(command, **kwargs):
+            if command[:2] == ["docker", "build"]:
+                return MagicMock(returncode=1)
+            return MagicMock(returncode=0)
+
+        with patch("apps.securewise.scanners.container.shutil.which", side_effect=fake_which):
+            with patch("apps.securewise.scanners.container.subprocess.run", side_effect=fake_run):
+                result = ContainerScanner().run(tmp_path, "scan-8g", {})
+        assert result.status == "skipped"
+        assert "docker build failed" in result.skipped_reason
+
+    def test_build_and_scan_handles_exception(self, tmp_path):
+        (tmp_path / "Dockerfile").write_text("FROM python:3.12\n")
+
+        def fake_which(name):
+            return f"/usr/bin/{name}"
+
+        def fake_run(command, **kwargs):
+            if command[:2] == ["docker", "build"]:
+                raise RuntimeError("docker daemon not running")
+            return MagicMock(returncode=0)
+
+        with patch("apps.securewise.scanners.container.shutil.which", side_effect=fake_which):
+            with patch("apps.securewise.scanners.container.subprocess.run", side_effect=fake_run):
+                result = ContainerScanner().run(tmp_path, "scan-8h", {})
+        assert result.status == "skipped"
+        assert "docker build/scan unavailable" in result.skipped_reason
+
+    def test_is_available_reflects_trivy_presence(self):
+        with patch("apps.securewise.scanners.container.shutil.which", return_value=None):
+            assert ContainerScanner().is_available() is False
+        with patch("apps.securewise.scanners.container.shutil.which", return_value="/usr/bin/trivy"):
+            assert ContainerScanner().is_available() is True
 
 
 class TestApiScanner:
