@@ -473,21 +473,31 @@ about fidelity.
 | Engine     | Real tool         | Available in this environment? | Fallback engine when tool is absent |
 |------------|--------------------|:---:|--------------------------------------|
 | `secrets`  | gitleaks           | ✅ Yes | regex fallback (AWS keys, private key blocks, Slack/JWT tokens) |
-| `sast`     | semgrep            | ❌ No  | regex/heuristic rules (eval/exec, unsafe pickle/yaml, shell=True, hardcoded secrets, DEBUG=True, weak hashing in auth code) |
-| `sca`      | trivy              | ❌ No  | lockfile parser (requirements.txt, package.json, go.mod, Gemfile.lock, …) + curated known-CVE list |
-| `iac`      | trivy              | ❌ No  | Dockerfile / Kubernetes YAML / Terraform / Helm static checks |
-| `container`| trivy (image scan) | ❌ No  | skipped unless a `docker_image` is configured (optional best-effort `docker build` + `trivy image` if both binaries exist) |
+| `sast`     | semgrep            | ✅ Yes | regex/heuristic rules (eval/exec, unsafe pickle/yaml, shell=True, hardcoded secrets, DEBUG=True, weak hashing in auth code) |
+| `sca`      | trivy              | ✅ Yes | lockfile parser (requirements.txt, package.json, go.mod, Gemfile.lock, …) + curated known-CVE list |
+| `iac`      | trivy              | ✅ Yes | Dockerfile / Kubernetes YAML / Terraform / Helm static checks |
+| `container`| trivy (image scan) | ✅ Yes | skipped unless a `docker_image` is configured (optional best-effort `docker build` + `trivy image` if both binaries exist) |
 | `api`      | n/a (spec parsing) | — | always uses built-in OpenAPI/Swagger parser (json/yaml) |
 | `dast`     | OWASP ZAP          | ❌ No  | passive `requests`-based header/cookie/CORS/disclosure checks only — **no active/destructive scanning** |
 
-Install the real tools to upgrade fidelity:
+Install the real tools to upgrade fidelity (all except ZAP are already installed in this environment):
 
 ```bash
-brew install semgrep
 brew install gitleaks   # already installed in this environment
-brew install trivy
+brew install trivy      # already installed in this environment
+pip install semgrep     # already installed in the project venv
 docker pull zaproxy/zap-stable   # ZAP via Docker; zap-baseline.py path is auto-detected if present
 ```
+
+**SAST determinism note:** `semgrep` is run with a curated, offline rule pack bundled at
+`apps/securewise/scanners/rules/semgrep/` instead of `--config=auto`, which depends on a live
+call to the Semgrep registry and made scans slow (60–140s) and non-deterministic across
+environments/network conditions. The bundled rules cover the most common vulnerability classes
+per language (SQLi, command injection, unsafe deserialization, weak crypto, XXE, prototype
+pollution, insecure JWT, missing HTTP timeouts, weak TLS, etc.) and map straight into
+`cwe_mapping.py`/`recommendation.py`. Set `SECUREWISE_SEMGREP_CONFIG` (e.g. to `auto` or
+`p/security-audit`) to opt into Semgrep's full hosted registry instead, if you have network
+access and accept the added latency/non-determinism.
 
 Findings are enriched via two shared modules:
 - `apps/securewise/scanners/cwe_mapping.py` — canonical issue-key → CWE + OWASP Top 10 (2021,
@@ -501,18 +511,66 @@ While the cloned repository still exists on disk, `ScannerOrchestrator.run()` al
 small numbered `code_snippet` window (3 lines before, the flagged line, 2 after) for findings
 with a real `file_path` + `line_number`. The snippet is path-traversal checked before reading,
 stored on `SecureWiseFinding.code_snippet`, and omitted for binary, missing, or non-file-backed
-findings such as API/DAST endpoint issues.
+findings such as API/DAST endpoint issues. The frontend finding detail page renders this in a
+"Vulnerable Code" panel whenever it's present.
 
 SecureWise can optionally generate **AI fix suggestions** per finding via
 `POST /api/securewise/findings/{id}/ai-suggestion/`. This endpoint:
 - uses the shared `apps.ai_services.providers` abstraction (`AI_PROVIDER` must be configured),
-- caches the generated suggestion on the finding unless `?force=true` is supplied,
-- returns `engine_unavailable: true` instead of failing if no provider is available, and
-- is rate-limited per user to control cost/abuse.
+- sends the AI model **only** the finding's title/CWE/OWASP/severity/file/line/code snippet,
+  explicitly framed in the system prompt as **untrusted data, never instructions** — a finding
+  whose code/description contains prompt-injection text ("ignore previous instructions…") is
+  still just treated as literal code content, and the response is constrained to a strict fixed
+  JSON schema (`explanation`, `why_dangerous`, `fixed_code_example`, `framework_guidance`,
+  `confidence`) that's validated before being stored or returned,
+- caches the generated suggestion on the finding unless `?force=true` is supplied (so repeat
+  views don't burn AI calls/cost),
+- returns `engine_unavailable: true` instead of failing if no provider is configured, and
+- is rate-limited per user (`AIRecommendationThrottle`) to control cost/abuse.
 
 Reports can still be created as JSON data, and each ready report can now also be rendered as:
-- `GET /api/securewise/reports/{id}/html/` — branded inline HTML report
-- `GET /api/securewise/reports/{id}/pdf/` — branded PDF download rendered with WeasyPrint
+- `GET /api/securewise/reports/{id}/html/` — branded inline HTML report (SecureWise header/
+  footer, severity color badges, CWE/OWASP tables)
+- `GET /api/securewise/reports/{id}/pdf/` — branded PDF download rendered with WeasyPrint (same
+  branding, with page numbers), served with a `Content-Disposition: attachment` download header
+
+### Rescans, deduplication, and quality gates
+
+Rescanning the same repository is a normal, expected workflow (drift detection, verifying a fix
+landed) — it must never just pile up duplicate rows for the same issue:
+
+- `SecureWiseFinding` is deduplicated per **(project, fingerprint)**. Re-detecting the same issue
+  updates the existing row (`last_seen_at`, `occurrence_count`) instead of inserting a duplicate.
+- A finding previously marked **Fixed** that reappears in a later scan is automatically reopened
+  (with an audit log entry), since the underlying issue clearly wasn't actually resolved.
+- A finding whose engine ran successfully but which is no longer detected is **auto-resolved**
+  (`status="fixed"`, with a `review_note` explaining why) — the same behavior you'd expect from
+  SonarQube/Snyk/Semgrep when code that used to trigger a rule stops triggering it.
+- `first_seen_scan` (never changes) vs `scan` (always the most recent scan that (re-)detected the
+  issue) let you distinguish "brand new in this run" from "still open, seen again."
+
+**Quality gates** are policy-driven and fully optional/flexible:
+- `SecureWiseScanPolicy` supports `fail_on_severity`, `max_critical`, `max_high`, `max_medium`
+  (`-1` = unlimited), `fail_on_secrets`, `fail_on_new_findings_only` (evaluate only newly
+  discovered findings, ignoring long-standing recurring ones), `allow_accepted_risks` and
+  `allow_false_positives` (exempt those statuses from the gate).
+- Exactly one policy per organization can be marked `is_default` (`POST
+  /api/securewise/scan-policies/{id}/set-default/`); new scans that don't explicitly choose a
+  policy automatically get the org's default applied.
+- If a scan has **no policy attached at all**, `quality_gate_passed` is `null` ("not evaluated")
+  — never silently rendered as a green "PASSED", which would be misleading.
+- Users can explicitly **bypass** the gate for a single scan by setting
+  `bypass_quality_gate=true` plus a required `bypass_reason` (audited), instead of the gate being
+  silently skipped with no trace.
+
+### Retrying a scan
+
+`POST /api/securewise/scans/{id}/retry/` re-runs a scan that is `failed`, `cancelled`,
+`completed_with_warnings`, or `completed`, using its exact original configuration. It clears any
+stale per-engine results from the previous attempt first, so progress/engine-status reflect only
+the new attempt. Because the scan keeps its original id, finding history (`first_seen_scan`,
+`occurrence_count`) carries over correctly — retrying after a real code fix will correctly
+auto-resolve findings that no longer reproduce.
 
 ### Full-scan engine selection
 
@@ -541,14 +599,76 @@ Then use the API (see `apps/securewise/urls.py`), e.g.:
 POST /api/securewise/repositories/validate/     # validate a public/private repo URL
 POST /api/securewise/scans/                     # create a scan
 POST /api/securewise/scans/{id}/start/          # kick off the background thread
+POST /api/securewise/scans/{id}/retry/          # re-run a failed/cancelled/completed scan
+POST /api/securewise/scans/{id}/cancel/         # cancel a running scan
 GET  /api/securewise/scans/{id}/progress/       # poll status/progress/per-engine summary
 GET  /api/securewise/scans/{id}/engine-results/ # detailed per-engine results
-POST /api/securewise/findings/{id}/ai-suggestion/ # cached AI remediation advice
+GET  /api/securewise/scans/{id}/findings/       # findings this scan run currently reports
+POST /api/securewise/findings/{id}/accept-risk/       # accept a finding's risk
+POST /api/securewise/findings/{id}/mark-false-positive/ # mark a finding as false positive
+POST /api/securewise/findings/{id}/ai-suggestion/       # cached AI remediation advice
 POST /api/securewise/findings/{id}/ai-suggestion/?force=true # refresh cached AI advice
+POST /api/securewise/scan-policies/{id}/set-default/    # make a policy the org default
 GET  /api/securewise/reports/{id}/html/         # branded HTML report
 GET  /api/securewise/reports/{id}/pdf/          # branded PDF report download
 GET  /api/securewise/dashboard/summary/         # org-wide security posture
 ```
+
+### Step-by-step: using SecureWise from the UI
+
+This is the intended end-to-end flow for a new user, from the frontend (`securewise-frontend`,
+`npm run dev`, default `http://localhost:5174`) against this backend (`http://localhost:8000`).
+Login/auth for SecureWise is handled entirely by this same GuideWisey backend — there is no
+separate SecureWise account system.
+
+1. **Sign in.** Log in as you normally would; SecureWise reuses your existing session/auth.
+2. **Create or select an Organization and Project** (Organizations / Projects pages). A project
+   is the unit findings/scans/reports are grouped under.
+3. **Connect a repository:**
+   - *Public repo:* Repositories → Add Repository → paste the URL (e.g.
+     `https://github.com/roshanguptamca/gw-backend`) → **Validate** (runs `git ls-remote` against
+     it, no credentials needed) → Save.
+   - *Private repo:* Settings/Integrations → add a Git Integration (GitHub or GitLab, personal
+     access token) → **Test Connection** (verifies the token against the provider's API without
+     ever logging it) → once connected, add the repository the same way; SecureWise will clone
+     it using the encrypted, saved token and always deletes the local clone after each scan.
+4. **Start a scan** (Run Scan page / "New Scan" on a project):
+   - Pick a **scan type**: `sast`, `sca`, `secrets`, `dast`, `iac`, `container`, `api`, or
+     **Full Scan** (runs everything that has something to scan — see "Full-scan engine
+     selection" above).
+   - Select the **Repository** (required for source-based scan types).
+   - Fill in extra fields only if relevant: **Target URL** (DAST), **OpenAPI spec URL/path**
+     (API scan), **Docker image** (container scan).
+   - Optionally pick a **Quality Gate Policy** — if your organization has a default policy
+     configured, it's preselected automatically; you can change it or leave it unset. If you
+     genuinely need to skip gate enforcement for this one run, check **"Bypass quality gate"**
+     and give a reason (this is logged to the audit trail, not silent).
+   - Click **Start Scan**.
+5. **Watch progress.** The scan detail page polls `/scans/{id}/progress/` and shows the current
+   engine (`running_sast`, `running_secrets`, …), elapsed time, findings found so far, and which
+   engines were skipped (with a reason, e.g. "no Dockerfile/docker_image configured").
+   If a scan fails or is cancelled, a **Retry** button re-runs it with the same configuration.
+6. **Review findings.** Once complete, the Findings page/tab lists every issue with severity,
+   confidence, CWE, OWASP category, file/line (or endpoint), and — when available — the actual
+   **vulnerable code snippet**. Open a finding for the full detail:
+   - a rule-based **recommendation** (what's wrong / why it's dangerous / how to fix / bad vs.
+     fixed code examples) is always present,
+   - click **"✨ Get AI Fix Suggestion"** for an LLM-generated explanation and fix tailored to
+     that exact snippet (requires `AI_PROVIDER` configured server-side; shows a clear "not
+     configured" notice otherwise, never a raw error),
+   - use the status actions to **Mark Fixed**, **Accept Risk**, or **Mark False Positive** — these
+     are respected by the quality gate (per policy settings) and won't reappear as "new" if the
+     issue is later re-detected while marked Accepted Risk / False Positive; a finding marked
+     Fixed that reappears in a later scan is automatically reopened.
+7. **Re-scan anytime** (e.g. after pushing a fix). Rescans update existing findings instead of
+   creating duplicates: unchanged issues get a bumped "last seen" count, resolved issues are
+   auto-marked Fixed, and recurring "Fixed" issues are automatically reopened.
+8. **Generate a report** (Reports page): choose a report type (OWASP Top 10, CWE Top 25, Security
+   Summary, Executive Summary, Developer Remediation, Quality Gate) and format. Every ready report
+   can be **viewed inline as branded HTML** or **downloaded as a branded PDF** (SecureWise header/
+   footer, severity color badges, generated timestamp) — no separate export tooling needed.
+9. **Check the dashboard** for an org-wide rollup: security score, findings by severity/scanner
+   type, OWASP/CWE Top 25 coverage, quality gate pass/fail counts, and recent scan activity.
 
 ### ⚠️ DAST authorization warning
 
@@ -568,9 +688,19 @@ be illegal in your jurisdiction.
 - ZAP is not installed in this environment, so DAST is passive-only; installing ZAP
   (`docker pull zaproxy/zap-stable`) does not currently wire up active scanning automatically —
   it is detected but not invoked by default.
-- semgrep/trivy are not installed here, so SAST/SCA/IaC/Container run their lightweight
-  fallback engines; installing the real tools automatically upgrades fidelity with no code
-  changes required (detected via `shutil.which`).
+- The bundled offline semgrep rule pack (`apps/securewise/scanners/rules/semgrep/`) is a curated,
+  high-precision starter set (SQLi, command injection, unsafe deserialization, weak crypto, XXE,
+  etc. across Python/JS/Java/Go) — it is intentionally not a full copy of Semgrep's registry, so
+  it will not catch everything a full `--config=auto`/`p/security-audit` run would. Expand the
+  rule pack over time, or set `SECUREWISE_SEMGREP_CONFIG` if you want the full registry and
+  accept the network dependency + slower runtime.
+- AI fix suggestions require `AI_PROVIDER` to be configured; without it, the endpoint returns
+  `engine_unavailable: true` rather than an error, and the UI shows a clear "not configured"
+  notice instead of hiding the button.
+- Scans currently run in a background Python thread (`ScannerRunner`) rather than a real task
+  queue (Celery/Dramatiq) — acceptable for local/dev use, but a production deployment under load
+  should swap this for a proper worker queue (the `ScannerRunner`/orchestrator interfaces are
+  already decoupled from HTTP request handling, so this is a drop-in change).
 
 ---
 
