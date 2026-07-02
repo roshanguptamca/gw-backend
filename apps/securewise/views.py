@@ -225,8 +225,18 @@ class GitIntegrationViewSet(viewsets.ModelViewSet):
         if not token:
             return Response({"detail": "No token stored for this integration."}, status=400)
         # Use a well-known API endpoint to verify token validity
+        import ssl
         import urllib.error
         import urllib.request
+
+        import certifi
+
+        # Build an explicit SSL context backed by certifi's CA bundle instead of
+        # relying on the OS trust store. This avoids "CERTIFICATE_VERIFY_FAILED:
+        # unable to get local issuer certificate" errors that are common with
+        # python.org / pyenv / some Homebrew Python builds on macOS that don't
+        # have the system CA bundle wired up for the Python `ssl` module.
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
 
         headers = {"Authorization": f"token {token}", "User-Agent": "SecureWise-SASP/1.0"}
         base_url = integration.base_url.rstrip("/")
@@ -248,7 +258,7 @@ class GitIntegrationViewSet(viewsets.ModelViewSet):
         error_detail = ""
         try:
             req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=10, context=ssl_context) as resp:
                 success = resp.status == 200
         except urllib.error.HTTPError as e:
             # Surface enough info to debug without ever logging the token itself.
@@ -265,7 +275,14 @@ class GitIntegrationViewSet(viewsets.ModelViewSet):
                 e.code,
             )
         except urllib.error.URLError as e:
-            error_detail = f"Could not reach provider: {e.reason}"
+            if isinstance(e.reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(e.reason):
+                error_detail = (
+                    "SSL certificate verification failed while contacting the provider. "
+                    "This is usually a local Python/OS trust-store issue, not an invalid token. "
+                    "Ensure the 'certifi' package is installed and up to date in this environment."
+                )
+            else:
+                error_detail = f"Could not reach provider: {e.reason}"
             logger.warning(
                 "SecureWise git integration test failed for integration=%s provider=%s: %s",
                 integration.id,
