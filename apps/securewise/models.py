@@ -379,6 +379,22 @@ class SecureWiseScanPolicy(models.Model):
     fail_on_severity = models.CharField(max_length=20, choices=SEVERITY_CHOICES, default="high")
     max_critical = models.IntegerField(default=0)
     max_high = models.IntegerField(default=5)
+    max_medium = models.IntegerField(default=-1, help_text="-1 = unlimited.")
+    fail_on_secrets = models.BooleanField(default=True, help_text="Fail the gate if any open secret finding exists.")
+    fail_on_new_findings_only = models.BooleanField(
+        default=False,
+        help_text="Only evaluate findings first discovered by this scan, ignoring pre-existing recurring issues.",
+    )
+    allow_accepted_risks = models.BooleanField(
+        default=True, help_text="Findings marked 'Accepted Risk' don't count against the gate."
+    )
+    allow_false_positives = models.BooleanField(
+        default=True, help_text="Findings marked 'False Positive' don't count against the gate."
+    )
+    is_default = models.BooleanField(
+        default=False,
+        help_text="Automatically applied to new scans in this organization when no policy is explicitly chosen.",
+    )
     schedule_cron = models.CharField(max_length=100, blank=True, help_text="Cron expression for auto-scheduling.")
     is_active = models.BooleanField(default=True)
     created_by = models.ForeignKey(
@@ -397,6 +413,14 @@ class SecureWiseScanPolicy(models.Model):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        if self.is_default:
+            # Only one default policy per organization — demote any others.
+            SecureWiseScanPolicy.objects.filter(organization=self.organization, is_default=True).exclude(
+                pk=self.pk
+            ).update(is_default=False)
 
 
 # ---------------------------------------------------------------------------
@@ -439,6 +463,19 @@ class SecureWiseScan(models.Model):
     scanner_metadata = models.JSONField(default=dict, blank=True)
     # Quality gate result
     quality_gate_passed = models.BooleanField(null=True, blank=True)
+    bypass_quality_gate = models.BooleanField(
+        default=False, help_text="User explicitly opted out of quality gate enforcement for this scan."
+    )
+    bypass_reason = models.TextField(blank=True, help_text="Why the quality gate was bypassed for this scan.")
+
+    # A scan created via the "Retry" action points back at the scan it retried, for audit history.
+    retry_of = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="retries",
+    )
 
     progress = models.PositiveSmallIntegerField(default=0, help_text="Scan progress percentage (0-100).")
     selected_engines = models.JSONField(
@@ -491,7 +528,23 @@ class SecureWiseScanEngineResult(models.Model):
 
 class SecureWiseFinding(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # `scan` always points at the MOST RECENT scan that (re-)detected this issue, so
+    # `GET /scans/{id}/findings/` reflects "everything this scan run currently sees".
     scan = models.ForeignKey(SecureWiseScan, on_delete=models.CASCADE, related_name="findings")
+    # `first_seen_scan` never changes after creation — it's when this issue (by fingerprint)
+    # was first discovered for this project. Used for "new vs recurring" reporting and for
+    # policies with fail_on_new_findings_only.
+    first_seen_scan = models.ForeignKey(
+        SecureWiseScan,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="findings_first_seen",
+    )
+    last_seen_at = models.DateTimeField(null=True, blank=True, help_text="When this issue was last re-detected.")
+    occurrence_count = models.PositiveIntegerField(
+        default=1, help_text="Number of scans (across time) that have re-detected this issue."
+    )
     project = models.ForeignKey(SecureWiseProject, on_delete=models.CASCADE, related_name="findings")
     organization = models.ForeignKey(SecureWiseOrganization, on_delete=models.CASCADE, related_name="findings")
 
@@ -540,6 +593,18 @@ class SecureWiseFinding(models.Model):
 
     def __str__(self):
         return f"[{self.severity.upper()}] {self.title}"
+
+    @staticmethod
+    def for_scan_q(scan_id):
+        """
+        Findings "belonging" to a scan run = anything first discovered in it OR
+        still re-detected (last_seen) as of it. This lets a rescan of unchanged
+        code keep showing pre-existing issues in the new scan's findings list,
+        without creating duplicate rows for the same fingerprint.
+        """
+        from django.db.models import Q
+
+        return Q(scan_id=scan_id) | Q(first_seen_scan_id=scan_id)
 
 
 # ---------------------------------------------------------------------------

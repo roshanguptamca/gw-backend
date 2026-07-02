@@ -510,6 +510,18 @@ class ScanPolicyViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("You do not have permission to create scan policies.")
         serializer.save(created_by=self.request.user)
 
+    @action(detail=True, methods=["post"], url_path="set-default")
+    def set_default(self, request, pk=None):
+        policy = self.get_object()
+        m = _membership(request.user, policy.organization)
+        if m is None or m.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to change the default policy.")
+        policy.is_default = True
+        policy.save(update_fields=["is_default"])  # save() demotes any other default for this org
+        return Response(self.get_serializer(policy).data)
+
 
 # ---------------------------------------------------------------------------
 # Scan
@@ -544,6 +556,16 @@ class ScanViewSet(viewsets.ModelViewSet):
 
             raise PermissionDenied("You do not have permission to create scans.")
         scan = serializer.save(triggered_by=self.request.user, status="pending")
+        # If the user didn't pick a policy and didn't explicitly bypass the gate,
+        # auto-attach the organization's default policy (if one is configured) so
+        # quality gate evaluation "just works" without extra clicks.
+        if not scan.policy_id and not scan.bypass_quality_gate:
+            default_policy = SecureWiseScanPolicy.objects.filter(
+                organization=org, is_default=True, is_active=True
+            ).first()
+            if default_policy:
+                scan.policy = default_policy
+                scan.save(update_fields=["policy"])
         return scan
 
     def create(self, request, *args, **kwargs):
@@ -582,6 +604,56 @@ class ScanViewSet(viewsets.ModelViewSet):
         scan.status = "cancelled"
         scan.save(update_fields=["status"])
         return Response({"detail": "Scan cancelled.", "status": "cancelled"})
+
+    @action(detail=True, methods=["post"])
+    def retry(self, request, pk=None):
+        """
+        Re-run a scan that failed, was cancelled, or completed with warnings —
+        using the exact same configuration. Clears any partial per-engine
+        results from the previous attempt before re-running, so progress/
+        engine-status reflect only the new attempt. The scan keeps its
+        original id, so its finding history (first_seen/last_seen) carries
+        over cleanly — a retry after a real fix will correctly auto-resolve
+        findings that no longer reproduce.
+        """
+        scan = self.get_object()
+        if scan.status not in ("failed", "cancelled", "completed_with_warnings", "completed"):
+            return Response(
+                {"detail": f"Cannot retry a scan with status '{scan.status}'."},
+                status=400,
+            )
+        scan.engine_results.all().delete()
+        scan.status = "queued"
+        scan.progress = 0
+        scan.error_message = ""
+        scan.started_at = None
+        scan.completed_at = None
+        scan.duration_seconds = None
+        scan.quality_gate_passed = None
+        scan.save(
+            update_fields=[
+                "status",
+                "progress",
+                "error_message",
+                "started_at",
+                "completed_at",
+                "duration_seconds",
+                "quality_gate_passed",
+            ]
+        )
+        SecureWiseAuditLog.objects.create(
+            organization=scan.organization,
+            user=request.user,
+            event="scan_retried",
+            target_type="SecureWiseScan",
+            target_id=str(scan.id),
+            detail={"scan_type": scan.scan_type},
+        )
+        runner = ScannerRunner()
+        t = threading.Thread(target=runner.run_scan, args=(str(scan.id),), daemon=True)
+        t.start()
+        serializer = self.get_serializer(scan)
+        return Response(serializer.data)
 
     @action(detail=True, methods=["get"])
     def progress(self, request, pk=None):

@@ -275,6 +275,12 @@ class SecureWiseScanPolicySerializer(serializers.ModelSerializer):
             "fail_on_severity",
             "max_critical",
             "max_high",
+            "max_medium",
+            "fail_on_secrets",
+            "fail_on_new_findings_only",
+            "allow_accepted_risks",
+            "allow_false_positives",
+            "is_default",
             "schedule_cron",
             "is_active",
             "created_by",
@@ -311,6 +317,9 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
             "target_url",
             "api_spec_url",
             "docker_image",
+            "bypass_quality_gate",
+            "bypass_reason",
+            "retry_of",
             "triggered_by",
             "triggered_by_detail",
             "started_at",
@@ -328,6 +337,7 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
             "organization",
             "progress",
             "selected_engines",
+            "retry_of",
             "triggered_by",
             "triggered_by_detail",
             "started_at",
@@ -367,6 +377,13 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
         if scan_type == "api" and not api_spec_url and not repository:
             raise serializers.ValidationError(
                 {"api_spec_url": "An OpenAPI spec URL/path or a repository is required to run an API scan."}
+            )
+
+        bypass = attrs.get("bypass_quality_gate", getattr(self.instance, "bypass_quality_gate", False))
+        bypass_reason = attrs.get("bypass_reason", getattr(self.instance, "bypass_reason", ""))
+        if bypass and not bypass_reason.strip():
+            raise serializers.ValidationError(
+                {"bypass_reason": "A reason is required when bypassing the quality gate (for audit purposes)."}
             )
         return attrs
 

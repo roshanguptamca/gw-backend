@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -17,6 +18,12 @@ from .parsers.semgrep_parser import parse_semgrep_json
 from .recommendation import RecommendationEngine
 
 logger = logging.getLogger(__name__)
+
+# Bundled, curated rule pack — deterministic and works fully offline (no call
+# to the Semgrep registry). Set SECUREWISE_SEMGREP_CONFIG to point at
+# `auto`/`p/security-audit`/a custom path if you want to opt into semgrep's
+# hosted registry instead (requires network + optionally a login token).
+_BUNDLED_RULES_DIR = Path(__file__).parent / "rules" / "semgrep"
 
 _SKIP_DIRS = {".git", "node_modules", "venv", ".venv", "dist", "build", "__pycache__", ".tox", "site-packages"}
 _SCAN_EXTENSIONS = {".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".go"}
@@ -86,11 +93,12 @@ class SastScanner(BaseScanner):
 
     # ------------------------------------------------------------------
     def _run_semgrep(self, repo_path: Path, scan_id: str) -> ScannerResult:
+        config = os.environ.get("SECUREWISE_SEMGREP_CONFIG", str(_BUNDLED_RULES_DIR))
         try:
             proc = subprocess.run(
-                ["semgrep", "--config=auto", "--json", "--timeout", "60", str(repo_path)],
+                ["semgrep", f"--config={config}", "--json", "--timeout", "60", "--metrics=off", str(repo_path)],
                 capture_output=True,
-                timeout=180,
+                timeout=120,
             )
             data = json.loads(proc.stdout or b"{}")
             findings = parse_semgrep_json(data, scan_id)
@@ -99,7 +107,11 @@ class SastScanner(BaseScanner):
             return ScannerResult(
                 success=True,
                 findings=findings,
-                metadata={"raw_tool": "semgrep", "files_scanned": len(data.get("paths", {}).get("scanned", []))},
+                metadata={
+                    "raw_tool": "semgrep",
+                    "semgrep_config": config,
+                    "files_scanned": len(data.get("paths", {}).get("scanned", [])),
+                },
             )
         except Exception as exc:  # pragma: no cover - defensive
             logger.exception("semgrep run failed, falling back")
