@@ -13,8 +13,9 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import urlparse
 
-import certifi
 from django.conf import settings
+
+import certifi
 
 from apps.securewise.scanners.repository import _resolve_safe_dest, build_authenticated_url, safe_clone
 

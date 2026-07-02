@@ -10,7 +10,7 @@ whitenoise==6.11.0
 
 # Google Gemini (PIN THIS)
 google-genai>=0.3.0,<0.4.0
-pydantic>=2.6,<2.9
+pydantic>=2.11,<2.14
 
 # DB
 psycopg2-binary>=2.9,<3.0
@@ -64,11 +64,11 @@ drf-spectacular[sidecar]>=0.27,<0.28
 
 # Code Quality
 black==25.1.0
-flake8>=7.0,<8.0
-isort>=5.13,<6.0
+flake8==7.3.0
+isort==5.13.2
 mypy>=1.8,<2.0
 
 # SecureWise real scan engines
 # semgrep (SAST) — gitleaks and trivy are external binaries, install separately
 # (see README.md "SecureWise" section): `brew install gitleaks trivy`.
-semgrep>=1.150,<2.0
+semgrep==1.168.0

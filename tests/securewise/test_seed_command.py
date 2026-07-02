@@ -6,12 +6,7 @@ from django.core.management import call_command
 
 import pytest
 
-from apps.securewise.models import (
-    SecureWiseFinding,
-    SecureWiseOrganization,
-    SecureWiseScan,
-    SecureWiseScanEngineResult,
-)
+from apps.securewise.models import SecureWiseFinding, SecureWiseOrganization, SecureWiseScan, SecureWiseScanEngineResult
 
 pytestmark = pytest.mark.django_db
 

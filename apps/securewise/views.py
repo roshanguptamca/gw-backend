@@ -11,10 +11,10 @@ import json
 import logging
 import threading
 
-from django.http import HttpResponse
 from django.db.models import Q
-from django.utils.text import slugify
+from django.http import HttpResponse
 from django.utils import timezone
+from django.utils.text import slugify
 
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
@@ -33,11 +33,11 @@ from .models import (
     SecureWiseReport,
     SecureWiseRepository,
     SecureWiseScan,
-    SecureWiseScanEngineResult,
     SecureWiseScanPolicy,
 )
 from .permissions import ADMIN_ROLES, WRITE_ROLES, _membership
 from .serializers import (
+    ScanEngineResultSerializer,
     SecureWiseAuditLogSerializer,
     SecureWiseFindingSerializer,
     SecureWiseGitIntegrationSerializer,
@@ -49,12 +49,11 @@ from .serializers import (
     SecureWiseRepositorySerializer,
     SecureWiseScanPolicySerializer,
     SecureWiseScanSerializer,
-    ScanEngineResultSerializer,
 )
-from .services.report import generate_report
-from .services.report_render import render_report_html, render_report_pdf
 from .services.ai_recommendation import generate_ai_fix_suggestion
 from .services.github_actions import GitHubActionError, create_github_issue, create_github_pr
+from .services.report import generate_report
+from .services.report_render import render_report_html, render_report_pdf
 from .services.repository import (
     check_private_access,
     check_public_access,
@@ -295,7 +294,7 @@ class GitIntegrationViewSet(viewsets.ModelViewSet):
                 integration.provider,
                 e.reason,
             )
-        except Exception as e:
+        except Exception:
             error_detail = "Unexpected error while testing connection."
             logger.exception(
                 "SecureWise git integration test raised unexpected error for integration=%s", integration.id
@@ -1115,15 +1114,11 @@ class DashboardSummaryView(APIView):
         # OWASP Top 10 (2021) coverage across open findings
         from .services.report import _CWE_TOP25, _OWASP_TOP10_LABELS
 
-        owasp_coverage = {
-            code: findings_qs.filter(owasp_category=code).count() for code in _OWASP_TOP10_LABELS
-        }
+        owasp_coverage = {code: findings_qs.filter(owasp_category=code).count() for code in _OWASP_TOP10_LABELS}
         cwe_top25_coverage = findings_qs.filter(cwe_id__in=list(_CWE_TOP25)).count()
 
         # Quality gate pass/fail counts across recent scans
-        recent_scan_qs = SecureWiseScan.objects.filter(
-            organization_id__in=org_ids, quality_gate_passed__isnull=False
-        )
+        recent_scan_qs = SecureWiseScan.objects.filter(organization_id__in=org_ids, quality_gate_passed__isnull=False)
         quality_gate_counts = {
             "passed": recent_scan_qs.filter(quality_gate_passed=True).count(),
             "failed": recent_scan_qs.filter(quality_gate_passed=False).count(),

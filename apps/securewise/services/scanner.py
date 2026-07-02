@@ -29,7 +29,7 @@ class ScannerRunner:
         """Entry point called by the view after saving the scan."""
         from django.utils import timezone
 
-        from apps.securewise.models import SecureWiseAuditLog, SecureWiseFinding, SecureWiseScan
+        from apps.securewise.models import SecureWiseAuditLog, SecureWiseScan
 
         try:
             scan = SecureWiseScan.objects.select_related(
@@ -184,12 +184,6 @@ class ScannerRunner:
         new_finding_ids: set = set()
 
         fingerprints = [f.fingerprint for f in findings if f.fingerprint]
-        existing_by_fp = {
-            fp: obj
-            for fp, obj in SecureWiseFinding.objects.filter(
-                project=scan.project, fingerprint__in=fingerprints
-            ).values_list("fingerprint", "id")
-        }
         # Re-query full objects only for the ones we need to update.
         existing_objs = {
             obj.fingerprint: obj
@@ -212,9 +206,8 @@ class ScannerRunner:
                 existing.code_snippet = f.code_snippet
                 if existing.status == "fixed":
                     existing.status = "open"
-                    existing.review_note = (
-                        f"Automatically reopened: recurred in scan {scan.id}."
-                        + (f" {existing.review_note}" if existing.review_note else "")
+                    existing.review_note = f"Automatically reopened: recurred in scan {scan.id}." + (
+                        f" {existing.review_note}" if existing.review_note else ""
                     )
                     reopened_count += 1
                 else:
@@ -289,9 +282,7 @@ class ScannerRunner:
         from apps.securewise.models import SecureWiseFinding
 
         detected_fingerprints = {f.fingerprint for f in findings if f.fingerprint}
-        completed_engines = list(
-            scan.engine_results.filter(status="completed").values_list("engine", flat=True)
-        )
+        completed_engines = list(scan.engine_results.filter(status="completed").values_list("engine", flat=True))
         if not completed_engines:
             return 0
 

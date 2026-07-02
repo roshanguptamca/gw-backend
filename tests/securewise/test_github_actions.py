@@ -9,10 +9,11 @@ from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
 
-import pytest
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+
+import pytest
 from rest_framework.test import APIClient
 
 from apps.securewise.models import (
@@ -25,11 +26,7 @@ from apps.securewise.models import (
     SecureWiseRepository,
     SecureWiseScan,
 )
-from apps.securewise.services.github_actions import (
-    GitHubActionError,
-    create_github_issue,
-    create_github_pr,
-)
+from apps.securewise.services.github_actions import GitHubActionError, create_github_issue, create_github_pr
 from apps.securewise.views import GitHubActionThrottle
 
 User = get_user_model()
@@ -95,7 +92,9 @@ def other_client(other_user):
 
 @pytest.fixture
 def org(owner):
-    organization = SecureWiseOrganization.objects.create(name="GitHub Org", slug=f"gh-org-{uuid4().hex[:6]}", owner=owner)
+    organization = SecureWiseOrganization.objects.create(
+        name="GitHub Org", slug=f"gh-org-{uuid4().hex[:6]}", owner=owner
+    )
     SecureWiseMembership.objects.create(organization=organization, user=owner, role="owner")
     return organization
 
@@ -189,9 +188,7 @@ def local_remote_repo():
         _run(["git", "config", "user.email", "tests@guidewisey.local"], cwd=seed_repo)
         _run(["git", "config", "user.name", "SecureWise Tests"], cwd=seed_repo)
         (seed_repo / "app.py").write_text(
-            "import json\n"
-            "import pickle\n"
-            "data = pickle.loads(raw_bytes)\n",
+            "import json\n" "import pickle\n" "data = pickle.loads(raw_bytes)\n",
             encoding="utf-8",
         )
         _run(["git", "add", "app.py"], cwd=seed_repo)
@@ -390,7 +387,9 @@ class TestFindingGitHubActionViews:
     def test_create_pr_failure(self, auth_client, finding):
         with patch(
             "apps.securewise.views.create_github_pr",
-            side_effect=GitHubActionError("Could not locate the exact vulnerable code in the current version of the file."),
+            side_effect=GitHubActionError(
+                "Could not locate the exact vulnerable code in the current version of the file."
+            ),
         ):
             response = auth_client.post(f"/api/securewise/findings/{finding.id}/create-pr/")
 
@@ -408,9 +407,12 @@ class TestFindingGitHubActionViews:
 
     def test_github_action_throttle_returns_429(self, auth_client, finding):
         cache.clear()
-        with patch.object(GitHubActionThrottle, "rate", "1/hour", create=True), patch(
-            "apps.securewise.views.create_github_issue",
-            return_value="https://github.com/example/securewise-repo/issues/22",
+        with (
+            patch.object(GitHubActionThrottle, "rate", "1/hour", create=True),
+            patch(
+                "apps.securewise.views.create_github_issue",
+                return_value="https://github.com/example/securewise-repo/issues/22",
+            ),
         ):
             first = auth_client.post(f"/api/securewise/findings/{finding.id}/create-ticket/")
             second = auth_client.post(f"/api/securewise/findings/{finding.id}/create-ticket/")

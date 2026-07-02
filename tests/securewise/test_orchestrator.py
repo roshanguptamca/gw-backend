@@ -95,9 +95,7 @@ class TestResolveEngines:
         owner, org, project = org_project
         (tmp_path / "Dockerfile").write_text("FROM python:3.12\n")
         (tmp_path / "openapi.yaml").write_text("openapi: 3.0.0\n")
-        scan = _make_scan(
-            org, project, owner, scan_type="full", target_url="https://example.test"
-        )
+        scan = _make_scan(org, project, owner, scan_type="full", target_url="https://example.test")
         engines = ScannerOrchestrator().resolve_engines(scan, tmp_path)
         assert set(engines) == {"sast", "sca", "secrets", "iac", "container", "api", "dast"}
 
@@ -131,18 +129,42 @@ class TestOrchestratorRun:
         scan = _make_scan(org, project, owner, scan_type="full")
 
         dup_finding_1 = ScannerFinding(
-            title="dup", description="d", severity="high", confidence="low",
-            scanner_type="sast", fingerprint="shared-fp",
+            title="dup",
+            description="d",
+            severity="high",
+            confidence="low",
+            scanner_type="sast",
+            fingerprint="shared-fp",
         )
         dup_finding_2 = ScannerFinding(
-            title="dup", description="d", severity="high", confidence="high",
-            scanner_type="sca", fingerprint="shared-fp",
+            title="dup",
+            description="d",
+            severity="high",
+            confidence="high",
+            scanner_type="sca",
+            fingerprint="shared-fp",
         )
 
-        with patch("apps.securewise.scanners.sast.SastScanner.run", return_value=ScannerResult(success=True, findings=[dup_finding_1], metadata={})), \
-             patch("apps.securewise.scanners.sca.ScaScanner.run", return_value=ScannerResult(success=True, findings=[dup_finding_2], metadata={})), \
-             patch("apps.securewise.scanners.secrets.SecretsScanner.run", return_value=ScannerResult(success=True, findings=[], metadata={})), \
-             patch("apps.securewise.scanners.iac.IacScanner.run", return_value=ScannerResult(success=True, findings=[], status="skipped", skipped_reason="no IaC files found", metadata={})):
+        with (
+            patch(
+                "apps.securewise.scanners.sast.SastScanner.run",
+                return_value=ScannerResult(success=True, findings=[dup_finding_1], metadata={}),
+            ),
+            patch(
+                "apps.securewise.scanners.sca.ScaScanner.run",
+                return_value=ScannerResult(success=True, findings=[dup_finding_2], metadata={}),
+            ),
+            patch(
+                "apps.securewise.scanners.secrets.SecretsScanner.run",
+                return_value=ScannerResult(success=True, findings=[], metadata={}),
+            ),
+            patch(
+                "apps.securewise.scanners.iac.IacScanner.run",
+                return_value=ScannerResult(
+                    success=True, findings=[], status="skipped", skipped_reason="no IaC files found", metadata={}
+                ),
+            ),
+        ):
             findings, engine_meta, any_failed = ScannerOrchestrator().run(scan, tmp_path)
 
         assert len(findings) == 1
@@ -171,11 +193,30 @@ class TestOrchestratorRun:
             fingerprint="dast-fp",
         )
 
-        with patch("apps.securewise.scanners.sast.SastScanner.run", return_value=ScannerResult(success=True, findings=[sast_finding], metadata={})), \
-             patch("apps.securewise.scanners.sca.ScaScanner.run", return_value=ScannerResult(success=True, findings=[], metadata={})), \
-             patch("apps.securewise.scanners.secrets.SecretsScanner.run", return_value=ScannerResult(success=True, findings=[], metadata={})), \
-             patch("apps.securewise.scanners.iac.IacScanner.run", return_value=ScannerResult(success=True, findings=[], status="skipped", skipped_reason="no IaC files found", metadata={})), \
-             patch("apps.securewise.scanners.dast.DastScanner.run", return_value=ScannerResult(success=True, findings=[dast_finding], metadata={})):
+        with (
+            patch(
+                "apps.securewise.scanners.sast.SastScanner.run",
+                return_value=ScannerResult(success=True, findings=[sast_finding], metadata={}),
+            ),
+            patch(
+                "apps.securewise.scanners.sca.ScaScanner.run",
+                return_value=ScannerResult(success=True, findings=[], metadata={}),
+            ),
+            patch(
+                "apps.securewise.scanners.secrets.SecretsScanner.run",
+                return_value=ScannerResult(success=True, findings=[], metadata={}),
+            ),
+            patch(
+                "apps.securewise.scanners.iac.IacScanner.run",
+                return_value=ScannerResult(
+                    success=True, findings=[], status="skipped", skipped_reason="no IaC files found", metadata={}
+                ),
+            ),
+            patch(
+                "apps.securewise.scanners.dast.DastScanner.run",
+                return_value=ScannerResult(success=True, findings=[dast_finding], metadata={}),
+            ),
+        ):
             findings, engine_meta, any_failed = ScannerOrchestrator().run(scan, tmp_path)
 
         sast_result = next(f for f in findings if f.scanner_type == "sast")

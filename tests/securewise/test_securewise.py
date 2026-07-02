@@ -4,10 +4,11 @@ Covers: models, permissions, org isolation, project CRUD,
         scan creation, mock scan execution, findings, report generation.
 """
 
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
 
 import pytest
-from unittest.mock import patch
 
 from apps.securewise.models import (
     SecureWiseAuditLog,
@@ -21,9 +22,9 @@ from apps.securewise.models import (
     SecureWiseScan,
     SecureWiseScanPolicy,
 )
+from apps.securewise.scanners.sast import SastScanner
 from apps.securewise.services.report import generate_json_report
 from apps.securewise.services.scanner import ScannerRunner
-from apps.securewise.scanners.sast import SastScanner
 
 User = get_user_model()
 
@@ -226,12 +227,15 @@ class TestScanEngine:
         assert findings.count() > 0
 
     def test_scan_runner_captures_code_snippet(self, scan):
-        with patch("apps.securewise.services.scanner.clone_repository", side_effect=_seed_vulnerable_repo), patch(
-            "apps.securewise.scanners.sast.shutil.which", return_value=None
+        with (
+            patch("apps.securewise.services.scanner.clone_repository", side_effect=_seed_vulnerable_repo),
+            patch("apps.securewise.scanners.sast.shutil.which", return_value=None),
         ):
             ScannerRunner().run_scan(str(scan.id))
 
-        finding = SecureWiseFinding.objects.filter(scan=scan, file_path="app.py", code_snippet__contains="pickle.loads").first()
+        finding = SecureWiseFinding.objects.filter(
+            scan=scan, file_path="app.py", code_snippet__contains="pickle.loads"
+        ).first()
         assert finding is not None
         assert finding.code_snippet
         assert "pickle.loads(raw_bytes)" in finding.code_snippet

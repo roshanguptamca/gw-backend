@@ -37,10 +37,31 @@ _OWASP_TOP10_LABELS = {
 
 # A representative slice of the CWE Top 25 Most Dangerous Software Weaknesses.
 _CWE_TOP25 = {
-    "CWE-79", "CWE-787", "CWE-89", "CWE-352", "CWE-22", "CWE-125", "CWE-78",
-    "CWE-416", "CWE-862", "CWE-434", "CWE-94", "CWE-20", "CWE-77", "CWE-287",
-    "CWE-269", "CWE-502", "CWE-798", "CWE-918", "CWE-611", "CWE-476",
-    "CWE-327", "CWE-190", "CWE-400", "CWE-306", "CWE-863",
+    "CWE-79",
+    "CWE-787",
+    "CWE-89",
+    "CWE-352",
+    "CWE-22",
+    "CWE-125",
+    "CWE-78",
+    "CWE-416",
+    "CWE-862",
+    "CWE-434",
+    "CWE-94",
+    "CWE-20",
+    "CWE-77",
+    "CWE-287",
+    "CWE-269",
+    "CWE-502",
+    "CWE-798",
+    "CWE-918",
+    "CWE-611",
+    "CWE-476",
+    "CWE-327",
+    "CWE-190",
+    "CWE-400",
+    "CWE-306",
+    "CWE-863",
 }
 
 
@@ -136,8 +157,7 @@ def build_owasp_top10_report(scan) -> dict:
                 {"id": str(f.id), "title": f.title, "severity": f.severity, "file_path": f.file_path}
             )
     coverage = {
-        code: {"label": label, "count": len(by_category.get(code, []))}
-        for code, label in _OWASP_TOP10_LABELS.items()
+        code: {"label": label, "count": len(by_category.get(code, []))} for code, label in _OWASP_TOP10_LABELS.items()
     }
     return {
         "report_type": "owasp_top10",
@@ -233,14 +253,16 @@ def build_quality_gate_report(scan) -> dict:
         "generated_at": timezone.now().isoformat(),
         "scan_id": str(scan.id),
         "quality_gate_passed": scan.quality_gate_passed,
-        "policy": {
-            "name": policy.name,
-            "fail_on_severity": policy.fail_on_severity,
-            "max_critical": policy.max_critical,
-            "max_high": policy.max_high,
-        }
-        if policy
-        else None,
+        "policy": (
+            {
+                "name": policy.name,
+                "fail_on_severity": policy.fail_on_severity,
+                "max_critical": policy.max_critical,
+                "max_high": policy.max_high,
+            }
+            if policy
+            else None
+        ),
         "severity_counts": dict(severity_counts),
     }
 

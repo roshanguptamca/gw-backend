@@ -166,10 +166,16 @@ class SastScanner(BaseScanner):
 
         return findings
 
-    def _build_finding(self, issue_key: str, rel_path: str, line_number: int, language: str, lines: list[str]) -> ScannerFinding:
+    def _build_finding(
+        self, issue_key: str, rel_path: str, line_number: int, language: str, lines: list[str]
+    ) -> ScannerFinding:
         rec = RecommendationEngine.get_recommendation(issue_key, language)
         code_line = lines[line_number - 1].strip() if 0 < line_number <= len(lines) else ""
-        severity = "critical" if issue_key in ("eval_usage", "unsafe_pickle", "sql_injection", "command_injection", "hardcoded_secrets") else "medium"
+        severity = (
+            "critical"
+            if issue_key in ("eval_usage", "unsafe_pickle", "sql_injection", "command_injection", "hardcoded_secrets")
+            else "medium"
+        )
         finding = ScannerFinding(
             title=rec["what"],
             description=rec["why"],

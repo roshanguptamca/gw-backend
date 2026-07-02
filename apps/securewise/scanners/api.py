@@ -91,7 +91,11 @@ class ApiScanner(BaseScanner):
         return ScannerResult(
             success=True,
             findings=findings,
-            metadata={"raw_tool": "openapi-static-checks", "spec_file": str(spec_path), "paths_scanned": len(spec.get("paths", {}) or {})},
+            metadata={
+                "raw_tool": "openapi-static-checks",
+                "spec_file": str(spec_path),
+                "paths_scanned": len(spec.get("paths", {}) or {}),
+            },
         )
 
     def _analyze_spec(self, spec: dict, spec_path: Path) -> list[ScannerFinding]:

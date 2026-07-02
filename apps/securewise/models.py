@@ -491,7 +491,9 @@ class SecureWiseScan(models.Model):
     api_spec_url = models.CharField(
         max_length=500, blank=True, help_text="Path or URL to an OpenAPI/Swagger spec for API scanning."
     )
-    docker_image = models.CharField(max_length=300, blank=True, help_text="Docker image reference for container scanning.")
+    docker_image = models.CharField(
+        max_length=300, blank=True, help_text="Docker image reference for container scanning."
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

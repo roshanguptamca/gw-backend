@@ -31,6 +31,7 @@ _KNOWN_VULNS = {
 
 def _version_lt(a: str, b: str) -> bool:
     """Best-effort version comparison for dotted numeric versions."""
+
     def parts(v: str):
         return [int(x) for x in re.findall(r"\d+", v)]
 
@@ -181,4 +182,11 @@ class ScaScanner(BaseScanner):
         ):
             fpath = repo_path / fname
             if fpath.exists():
-                inventory.append({"name": f"<parsed from {fname}>", "version": "", "source": fname, "note": "recorded, not individually parsed"})
+                inventory.append(
+                    {
+                        "name": f"<parsed from {fname}>",
+                        "version": "",
+                        "source": fname,
+                        "note": "recorded, not individually parsed",
+                    }
+                )

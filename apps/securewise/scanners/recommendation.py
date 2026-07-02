@@ -123,8 +123,7 @@ _TEMPLATES: dict[tuple[str, str], dict] = {
         "how_to_fix": "Use PreparedStatement with bind parameters, or parameterized JPQL/Criteria API.",
         "bad_code_example": 'stmt.executeQuery("SELECT * FROM users WHERE id=" + id);',
         "fixed_code_example": (
-            'PreparedStatement ps = conn.prepareStatement("SELECT * FROM users WHERE id=?");\n'
-            "ps.setString(1, id);"
+            'PreparedStatement ps = conn.prepareStatement("SELECT * FROM users WHERE id=?");\n' "ps.setString(1, id);"
         ),
         "auto_fix_possible": False,
         "references": ["https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html"],
@@ -140,7 +139,9 @@ _TEMPLATES: dict[tuple[str, str], dict] = {
             'dbf.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);'
         ),
         "auto_fix_possible": True,
-        "references": ["https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html"],
+        "references": [
+            "https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html"
+        ],
     },
     ("java", "unsafe_deserialization"): {
         "what": "ObjectInputStream.readObject() is used on data from an untrusted source.",
@@ -157,10 +158,10 @@ _TEMPLATES: dict[tuple[str, str], dict] = {
         "why": "Any authenticated (or anonymous) caller may invoke privileged functionality.",
         "where": "Spring MVC/REST controllers.",
         "how_to_fix": "Add @PreAuthorize/@Secured annotations or explicit checks matching the required role.",
-        "bad_code_example": "@PostMapping(\"/admin/users/{id}/delete\")\npublic void delete(@PathVariable id) { ... }",
+        "bad_code_example": '@PostMapping("/admin/users/{id}/delete")\npublic void delete(@PathVariable id) { ... }',
         "fixed_code_example": (
             "@PreAuthorize(\"hasRole('ADMIN')\")\n"
-            "@PostMapping(\"/admin/users/{id}/delete\")\n"
+            '@PostMapping("/admin/users/{id}/delete")\n'
             "public void delete(@PathVariable id) { ... }"
         ),
         "auto_fix_possible": False,
@@ -185,7 +186,9 @@ _TEMPLATES: dict[tuple[str, str], dict] = {
         "bad_code_example": "element.innerHTML = userInput;",
         "fixed_code_example": "element.textContent = userInput; // or DOMPurify.sanitize(userInput)",
         "auto_fix_possible": False,
-        "references": ["https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html"],
+        "references": [
+            "https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html"
+        ],
     },
     ("javascript", "eval_usage"): {
         "what": "eval() or new Function() is used, potentially with user-influenced input.",
@@ -204,8 +207,7 @@ _TEMPLATES: dict[tuple[str, str], dict] = {
         "how_to_fix": "Reject/skip __proto__, constructor and prototype keys during merges; use Object.create(null).",
         "bad_code_example": "merge(target, JSON.parse(userInput));",
         "fixed_code_example": (
-            "if (['__proto__', 'constructor', 'prototype'].includes(key)) continue;\n"
-            "merge(target, safeInput);"
+            "if (['__proto__', 'constructor', 'prototype'].includes(key)) continue;\n" "merge(target, safeInput);"
         ),
         "auto_fix_possible": False,
         "references": ["https://portswigger.net/web-security/prototype-pollution"],
@@ -254,7 +256,7 @@ _TEMPLATES: dict[tuple[str, str], dict] = {
     ("go", "command_injection"): {
         "what": "os/exec.Command is invoked through a shell with unsanitized user input.",
         "why": "Attackers can inject shell metacharacters to execute arbitrary commands.",
-        "where": "exec.Command(\"sh\", \"-c\", userInput) style calls.",
+        "where": 'exec.Command("sh", "-c", userInput) style calls.',
         "how_to_fix": "Call the target binary directly with an argument slice; avoid invoking a shell.",
         "bad_code_example": 'exec.Command("sh", "-c", "ping " + host)',
         "fixed_code_example": 'exec.Command("ping", host)',
@@ -266,10 +268,10 @@ _TEMPLATES: dict[tuple[str, str], dict] = {
         "why": "Attackers may read arbitrary files outside the intended directory.",
         "where": "File-serving handlers.",
         "how_to_fix": "Use filepath.Clean plus a containment check against the allowed base directory.",
-        "bad_code_example": "http.ServeFile(w, r, filepath.Join(base, r.URL.Query().Get(\"file\")))",
+        "bad_code_example": 'http.ServeFile(w, r, filepath.Join(base, r.URL.Query().Get("file")))',
         "fixed_code_example": (
-            "p := filepath.Clean(filepath.Join(base, r.URL.Query().Get(\"file\")))\n"
-            "if !strings.HasPrefix(p, base) { http.Error(w, \"forbidden\", 403); return }"
+            'p := filepath.Clean(filepath.Join(base, r.URL.Query().Get("file")))\n'
+            'if !strings.HasPrefix(p, base) { http.Error(w, "forbidden", 403); return }'
         ),
         "auto_fix_possible": False,
         "references": ["https://owasp.org/www-community/attacks/Path_Traversal"],
@@ -357,7 +359,9 @@ _TEMPLATES: dict[tuple[str, str], dict] = {
         "bad_code_example": "Access-Control-Allow-Origin: *\nAccess-Control-Allow-Credentials: true",
         "fixed_code_example": "Access-Control-Allow-Origin: https://app.example.com\nAccess-Control-Allow-Credentials: true",
         "auto_fix_possible": False,
-        "references": ["https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html"],
+        "references": [
+            "https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html"
+        ],
     },
 }
 

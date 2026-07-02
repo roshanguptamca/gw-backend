@@ -33,7 +33,9 @@ def _build_report_context(report) -> dict:
         "severity_counts": severity_counts,
         "findings": findings,
         "report_type": report_data.get("report_type", "security_summary"),
-        "quality_gate_passed": report_data.get("quality_gate", {}).get("passed", report_data.get("quality_gate_passed")),
+        "quality_gate_passed": report_data.get("quality_gate", {}).get(
+            "passed", report_data.get("quality_gate_passed")
+        ),
         "owasp_mapping": report_data.get("owasp_mapping", {}),
         "cwe_mapping": report_data.get("cwe_mapping", {}),
         "owasp_coverage": report_data.get("coverage", {}),
