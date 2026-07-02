@@ -341,6 +341,35 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
             "updated_at",
         )
 
+    def validate(self, attrs):
+        scan_type = attrs.get("scan_type", getattr(self.instance, "scan_type", "full"))
+        repository = attrs.get("repository", getattr(self.instance, "repository", None))
+        target_url = attrs.get("target_url", getattr(self.instance, "target_url", ""))
+        api_spec_url = attrs.get("api_spec_url", getattr(self.instance, "api_spec_url", ""))
+
+        # Engines that operate on cloned source code need a repository.
+        source_dependent_types = {"sast", "sca", "secrets", "iac", "container"}
+        if scan_type in source_dependent_types and not repository:
+            raise serializers.ValidationError(
+                {"repository": f"A repository is required to run a '{scan_type}' scan."}
+            )
+        if scan_type == "full" and not repository and not target_url and not api_spec_url:
+            raise serializers.ValidationError(
+                {
+                    "repository": (
+                        "A full scan needs at least a repository, target URL, or API spec — "
+                        "otherwise there is nothing to scan."
+                    )
+                }
+            )
+        if scan_type == "dast" and not target_url:
+            raise serializers.ValidationError({"target_url": "Target URL is required to run a DAST scan."})
+        if scan_type == "api" and not api_spec_url and not repository:
+            raise serializers.ValidationError(
+                {"api_spec_url": "An OpenAPI spec URL/path or a repository is required to run an API scan."}
+            )
+        return attrs
+
     def get_finding_counts(self, obj):
         qs = obj.findings.values("severity").order_by()
         counts = {s: 0 for s in ("critical", "high", "medium", "low", "info")}
