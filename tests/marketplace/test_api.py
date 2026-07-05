@@ -157,6 +157,34 @@ class MarketplaceAPITests(TestCase):
         self.assertEqual(good.status_code, status.HTTP_200_OK)
         self.assertEqual(good.data["status"], "accepted")
 
+    def test_public_shop_slug_lookup_and_products_action(self):
+        detail = self.client.get(f"/api/marketplace/shops/{self.shop.slug}/")
+        products = self.client.get(f"/api/marketplace/shops/{self.shop.slug}/products/")
+
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail.data["slug"], self.shop.slug)
+        self.assertEqual(products.status_code, status.HTTP_200_OK)
+        self.assertEqual([item["id"] for item in products.data], [self.product.id])
+
+    def test_session_cart_add_update_and_remove(self):
+        added = self.client.post(
+            "/api/marketplace/cart/items/",
+            {"product_id": self.product.id, "quantity": 2},
+            format="json",
+        )
+        self.assertEqual(added.status_code, status.HTTP_200_OK)
+        self.assertEqual(added.data["items"][0]["quantity"], 2)
+
+        updated = self.client.patch(
+            f"/api/marketplace/cart/items/{self.product.id}/",
+            {"quantity": 3},
+            format="json",
+        )
+        self.assertEqual(updated.data["items"][0]["quantity"], 3)
+
+        removed = self.client.delete(f"/api/marketplace/cart/items/{self.product.id}/")
+        self.assertEqual(removed.data["items"], [])
+
 
 class BuyerOrderAPITests(TestCase):
     def setUp(self):
