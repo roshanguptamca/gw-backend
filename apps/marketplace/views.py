@@ -208,6 +208,34 @@ class OrderCreateView(APIView):
         return Response(OrderSerializer(order, context={"request": request}).data, status=status.HTTP_201_CREATED)
 
 
+class MarketplaceOrderDetailView(APIView):
+    """Return an order only to its buyer, owning seller, or a superuser.
+
+    Guest order details are intentionally returned by the create response only;
+    exposing sequential database IDs as a public lookup would leak customer data.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, order_id):
+        order = (
+            Order.objects.filter(pk=order_id).select_related("shop", "shop__owner").prefetch_related("items").first()
+        )
+        if not order:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        user = request.user
+        can_view = bool(
+            user
+            and user.is_authenticated
+            and (user.is_superuser or order.customer_id == user.id or order.shop.owner_id == user.id)
+        )
+        if not can_view:
+            return Response(
+                {"detail": "Authentication credentials were not provided."}, status=status.HTTP_403_FORBIDDEN
+            )
+        return Response(OrderSerializer(order, context={"request": request}).data)
+
+
 class CustomerOrderViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = OrderSerializer
     permission_classes = [IsAuthenticated]

@@ -11,6 +11,7 @@ from .views import (
     MarketplaceCartItemCreateView,
     MarketplaceCartItemView,
     MarketplaceCartView,
+    MarketplaceOrderDetailView,
     MarketplaceSearchView,
     OrderCreateView,
     PublicCategoryListView,
@@ -51,6 +52,17 @@ router.register("admin/products", AdminProductViewSet, basename="admin-product")
 
 urlpatterns = [
     path("orders/", OrderCreateView.as_view(), name="marketplace-order-create"),
+    path("marketplace/orders/", OrderCreateView.as_view(), name="marketplace-order-request-create"),
+    path(
+        "marketplace/orders/<int:order_id>/",
+        MarketplaceOrderDetailView.as_view(),
+        name="marketplace-order-request-detail",
+    ),
+    path(
+        "marketplace/seller/orders/",
+        SellerOrderViewSet.as_view({"get": "list"}),
+        name="marketplace-seller-order-list",
+    ),
     path("marketplace/search/", MarketplaceSearchView.as_view(), name="marketplace-search"),
     path("marketplace/categories/", PublicCategoryListView.as_view(), name="marketplace-categories"),
     path("marketplace/cart/", MarketplaceCartView.as_view(), name="marketplace-cart"),

@@ -185,6 +185,55 @@ class MarketplaceAPITests(TestCase):
         removed = self.client.delete(f"/api/marketplace/cart/items/{self.product.id}/")
         self.assertEqual(removed.data["items"], [])
 
+    def test_marketplace_order_request_alias_links_authenticated_buyer(self):
+        buyer = User.objects.create_user(
+            username="checkout-buyer@example.com",
+            email="checkout-buyer@example.com",
+            password="buyerpass123",
+        )
+        self.client.force_authenticate(buyer)
+        response = self.client.post(
+            "/api/marketplace/orders/",
+            {
+                "shop_id": self.shop.id,
+                "customer_name": "Checkout Buyer",
+                "customer_email": buyer.email,
+                "customer_phone": "+31612345678",
+                "delivery_address": "",
+                "order_type": "pickup",
+                "payment_method": "cash",
+                "customer_note": "Please call on arrival.",
+                "items": [{"product_id": self.product.id, "quantity": 1}],
+                "terms_accepted": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["customer"], buyer.id)
+        detail = self.client.get(f"/api/marketplace/orders/{response.data['id']}/")
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail.data["order_number"], response.data["order_number"])
+
+    def test_marketplace_order_detail_and_seller_alias_are_protected(self):
+        order = Order.objects.create(
+            shop=self.shop,
+            order_number="GWALIAS001",
+            customer_name="Guest",
+            customer_phone="+31612345678",
+            subtotal=Decimal("4.99"),
+            total=Decimal("4.99"),
+        )
+        detail = self.client.get(f"/api/marketplace/orders/{order.id}/")
+        seller_list = self.client.get("/api/marketplace/seller/orders/")
+        self.assertEqual(detail.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(seller_list.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.client.force_authenticate(self.seller_user)
+        seller_list = self.client.get("/api/marketplace/seller/orders/")
+        self.assertEqual(seller_list.status_code, status.HTTP_200_OK)
+        self.assertEqual([item["id"] for item in seller_list.data], [order.id])
+
 
 class BuyerOrderAPITests(TestCase):
     def setUp(self):
