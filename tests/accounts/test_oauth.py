@@ -231,6 +231,38 @@ class OAuthAccountTests(TestCase):
 
         self.assertEqual(context.exception.code, "email_already_exists")
 
+    def test_linkedin_without_email_verified_flag_still_succeeds(self):
+        # LinkedIn frequently omits email_verified entirely; only the email address
+        # should be required for LinkedIn, unlike other providers.
+        profile = self.profile(provider_user_id="linkedin-1", email="linkedin-user@example.com", email_verified=False)
+
+        user, created, _complete = connect_social_account("linkedin", profile)
+
+        self.assertTrue(created)
+        self.assertEqual(user.email, "linkedin-user@example.com")
+        self.assertTrue(UserAuthProvider.objects.filter(user=user, provider="linkedin").exists())
+        self.assertTrue(UserProfile.objects.get(user=user).email_confirmed)
+
+    def test_missing_email_is_rejected_for_any_provider(self):
+        for provider in ("google", "linkedin"):
+            with self.subTest(provider=provider):
+                profile = self.profile(
+                    provider_user_id=f"{provider}-no-email",
+                    email="",
+                    email_verified=True,
+                )
+                with self.assertRaises(OAuthError) as context:
+                    connect_social_account(provider, profile)
+                self.assertEqual(context.exception.code, "provider_account_not_verified")
+
+    def test_google_unverified_email_is_rejected(self):
+        profile = self.profile(provider_user_id="google-unverified", email="unverified@example.com", email_verified=False)
+
+        with self.assertRaises(OAuthError) as context:
+            connect_social_account("google", profile)
+
+        self.assertEqual(context.exception.code, "provider_account_not_verified")
+
     def test_provider_identity_cannot_link_to_second_user(self):
         first = User.objects.create_user("first", "first@example.com", "password")
         second = User.objects.create_user("second", "second@example.com", "password")
@@ -463,3 +495,108 @@ class OAuthAccountTests(TestCase):
 
         self.assertEqual(profile.provider_user_id, "linkedin-456")
         self.assertEqual(profile.email, "fallback@example.com")
+
+    @patch("apps.accounts.oauth._exchange_code")
+    @patch("apps.accounts.oauth._validated_oidc_claims")
+    @patch("apps.accounts.oauth.requests.get")
+    def test_google_email_verified_true_boolean_succeeds(self, get, validated_claims, exchange_code):
+        response = Mock()
+        response.json.return_value = {
+            "sub": "google-1",
+            "email": "verified@example.com",
+            "given_name": "Verified",
+            "family_name": "User",
+        }
+        get.return_value = response
+        exchange_code.return_value = (
+            {"userinfo_endpoint": "https://openidconnect.googleapis.com/v1/userinfo"},
+            {"access_token": "access-token", "id_token": "id-token"},
+        )
+        validated_claims.return_value = {
+            "sub": "google-1",
+            "email": "verified@example.com",
+            "email_verified": True,
+        }
+
+        profile = fetch_social_profile(OAuthTransaction(provider="google"), "code")
+
+        self.assertTrue(profile.email_verified)
+        self.assertEqual(profile.email, "verified@example.com")
+
+    @patch("apps.accounts.oauth._exchange_code")
+    @patch("apps.accounts.oauth._validated_oidc_claims")
+    @patch("apps.accounts.oauth.requests.get")
+    def test_google_email_verified_string_true_succeeds(self, get, validated_claims, exchange_code):
+        # Some Google responses (e.g. userinfo fallback) return email_verified as the
+        # string "true"/"True" rather than a JSON boolean; this must still be accepted.
+        response = Mock()
+        response.json.return_value = {
+            "sub": "google-2",
+            "email": "verified-string@example.com",
+            "email_verified": "True",
+        }
+        get.return_value = response
+        exchange_code.return_value = (
+            {"userinfo_endpoint": "https://openidconnect.googleapis.com/v1/userinfo"},
+            {"access_token": "access-token", "id_token": "id-token"},
+        )
+        validated_claims.return_value = {
+            "sub": "google-2",
+            "email": "verified-string@example.com",
+        }
+
+        profile = fetch_social_profile(OAuthTransaction(provider="google"), "code")
+
+        self.assertTrue(profile.email_verified)
+
+    @patch("apps.accounts.oauth._exchange_code")
+    @patch("apps.accounts.oauth._validated_oidc_claims")
+    @patch("apps.accounts.oauth.requests.get")
+    def test_google_email_verified_false_from_id_token_is_not_overridden_by_userinfo(
+        self, get, validated_claims, exchange_code
+    ):
+        # The validated ID token says email_verified=False; a userinfo response that
+        # omits/claims otherwise must not override that authoritative signal.
+        response = Mock()
+        response.json.return_value = {
+            "sub": "google-3",
+            "email": "unverified@example.com",
+            "given_name": "Unverified",
+        }
+        get.return_value = response
+        exchange_code.return_value = (
+            {"userinfo_endpoint": "https://openidconnect.googleapis.com/v1/userinfo"},
+            {"access_token": "access-token", "id_token": "id-token"},
+        )
+        validated_claims.return_value = {
+            "sub": "google-3",
+            "email": "unverified@example.com",
+            "email_verified": False,
+        }
+
+        profile = fetch_social_profile(OAuthTransaction(provider="google"), "code")
+
+        self.assertFalse(profile.email_verified)
+
+    @patch("apps.accounts.oauth._exchange_code")
+    @patch("apps.accounts.oauth._validated_oidc_claims")
+    @patch("apps.accounts.oauth.requests.get")
+    def test_google_profile_fetch_does_not_log_tokens(self, get, validated_claims, exchange_code):
+        response = Mock()
+        response.json.return_value = {"sub": "google-4", "email": "safe@example.com", "email_verified": True}
+        get.return_value = response
+        exchange_code.return_value = (
+            {"userinfo_endpoint": "https://openidconnect.googleapis.com/v1/userinfo"},
+            {"access_token": "super-secret-access-token", "id_token": "super-secret-id-token"},
+        )
+        validated_claims.return_value = {"sub": "google-4", "email": "safe@example.com", "email_verified": True}
+
+        with self.assertLogs("apps.accounts.oauth", level="INFO") as captured:
+            fetch_social_profile(OAuthTransaction(provider="google"), "code")
+
+        log_output = "\n".join(captured.output)
+        self.assertIn("provider=google", log_output)
+        self.assertIn("email=safe@example.com", log_output)
+        self.assertIn("email_verified=True", log_output)
+        self.assertNotIn("super-secret-access-token", log_output)
+        self.assertNotIn("super-secret-id-token", log_output)
