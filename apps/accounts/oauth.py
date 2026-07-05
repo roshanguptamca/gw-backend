@@ -2,7 +2,9 @@ import base64
 import hashlib
 import logging
 import secrets
-from dataclasses import dataclass
+import ssl
+from dataclasses import dataclass, replace
+from functools import lru_cache
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -10,6 +12,7 @@ from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+import certifi
 import jwt
 import requests
 
@@ -224,12 +227,25 @@ def _exchange_code(oauth_transaction, code):
     return config, payload
 
 
+@lru_cache(maxsize=None)
+def _jwks_client(jwks_uri):
+    # Build an explicit SSL context from certifi's CA bundle instead of relying on
+    # PyJWKClient's default (the interpreter's own trust store). On some local/dev
+    # setups (notably python.org installs on macOS that skip "Install Certificates
+    # .command", or minimal containers) that default store is missing root CAs,
+    # which makes fetching the provider's JWKS fail with
+    # "CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate" even
+    # though the certificate itself is valid.
+    ssl_context = ssl.create_default_context(cafile=certifi.where())
+    return jwt.PyJWKClient(jwks_uri, ssl_context=ssl_context)
+
+
 def _validated_oidc_claims(config, token_payload, oauth_transaction):
     id_token = token_payload.get("id_token")
     if not id_token:
         raise OAuthError("provider_account_not_verified")
     try:
-        signing_key = jwt.PyJWKClient(config["jwks_uri"]).get_signing_key_from_jwt(id_token)
+        signing_key = _jwks_client(config["jwks_uri"]).get_signing_key_from_jwt(id_token)
         claims = jwt.decode(
             id_token,
             signing_key.key,
@@ -246,10 +262,40 @@ def _validated_oidc_claims(config, token_payload, oauth_transaction):
     return claims
 
 
+def _normalize_email_verified(raw):
+    """Normalize a provider's email_verified claim to a bool.
+
+    Accepts the boolean True as well as the strings "true"/"True" (some providers,
+    notably Google, have been observed to return this claim as a string rather than
+    a JSON boolean depending on the endpoint). Anything else (False, None, missing,
+    other strings) normalizes to False.
+    """
+    return raw is True or str(raw).lower() == "true"
+
+
+def _log_provider_profile(provider, claims, email_verified_raw, email_verified):
+    """Log non-sensitive details about a fetched provider profile.
+
+    Only the provider name, email, email_verified (raw + normalized) and the set of
+    available claim keys are logged. Tokens (access_token, id_token, refresh_token,
+    etc.) must never be logged, so this only ever reads from `claims`, which holds
+    userinfo/ID-token claims, never the raw token response.
+    """
+    logger.info(
+        "OAuth profile received provider=%s email=%s email_verified_raw=%r email_verified=%s claim_keys=%s",
+        provider,
+        claims.get("email", ""),
+        email_verified_raw,
+        email_verified,
+        sorted(claims.keys()),
+    )
+
+
 def fetch_social_profile(oauth_transaction, code):
     config, token_payload = _exchange_code(oauth_transaction, code)
     provider = oauth_transaction.provider
     access_token = token_payload["access_token"]
+    id_token_email_verified_raw = None
     try:
         if provider == "facebook":
             response = requests.get(
@@ -261,10 +307,12 @@ def fetch_social_profile(oauth_transaction, code):
             response.raise_for_status()
             claims = response.json()
             picture = claims.get("picture", {}).get("data", {}).get("url", "")
+            email_verified = bool(claims.get("email"))
+            _log_provider_profile(provider, claims, claims.get("email_verified"), email_verified)
             return SocialProfile(
                 provider_user_id=str(claims.get("id", "")),
                 email=claims.get("email", ""),
-                email_verified=bool(claims.get("email")),
+                email_verified=email_verified,
                 first_name=claims.get("first_name", ""),
                 last_name=claims.get("last_name", ""),
                 display_name=claims.get("name", ""),
@@ -278,22 +326,36 @@ def fetch_social_profile(oauth_transaction, code):
                     claims = _validated_oidc_claims(config, token_payload, oauth_transaction)
                 except OAuthError as exc:
                     logger.warning("LinkedIn ID token validation failed; falling back to userinfo: %s", exc.code)
+            id_token_email_verified_raw = claims.get("email_verified")
             response = requests.get(
                 config["userinfo_endpoint"],
                 headers={"Authorization": f"Bearer {access_token}"},
                 timeout=10,
             )
             response.raise_for_status()
-            claims.update(response.json())
+            userinfo_claims = response.json()
+            claims.update(userinfo_claims)
+            # LinkedIn frequently omits email_verified entirely from userinfo; don't
+            # let that clobber a value already present on a verified ID token.
+            if id_token_email_verified_raw is not None:
+                claims["email_verified"] = id_token_email_verified_raw
         else:
+            # Google / generic OIDC providers: the validated ID token is the
+            # authoritative source for email_verified. The userinfo endpoint fills in
+            # profile fields (name, picture, locale, ...) but must not silently
+            # override a verified ID token's email_verified claim.
             claims = _validated_oidc_claims(config, token_payload, oauth_transaction)
+            id_token_email_verified_raw = claims.get("email_verified")
             response = requests.get(
                 config["userinfo_endpoint"],
                 headers={"Authorization": f"Bearer {access_token}"},
                 timeout=10,
             )
             response.raise_for_status()
-            claims.update(response.json())
+            userinfo_claims = response.json()
+            claims.update(userinfo_claims)
+            if id_token_email_verified_raw is not None:
+                claims["email_verified"] = id_token_email_verified_raw
     except (requests.RequestException, ValueError) as exc:
         logger.warning("OAuth profile fetch failed for %s: %s", provider, exc)
         raise OAuthError("provider_unavailable") from exc
@@ -301,10 +363,13 @@ def fetch_social_profile(oauth_transaction, code):
     locale = claims.get("locale", "")
     if isinstance(locale, dict):
         locale = locale.get("language", "")
+    email_verified_raw = claims.get("email_verified")
+    email_verified = _normalize_email_verified(email_verified_raw)
+    _log_provider_profile(provider, claims, email_verified_raw, email_verified)
     return SocialProfile(
         provider_user_id=str(claims.get("sub", "")),
         email=claims.get("email", ""),
-        email_verified=claims.get("email_verified") is True,
+        email_verified=email_verified,
         first_name=claims.get("given_name", ""),
         last_name=claims.get("family_name", ""),
         display_name=claims.get("name", ""),
@@ -368,8 +433,20 @@ def _update_local_profile(user, social_profile):
 def connect_social_account(provider, social_profile, link_user=None):
     if not social_profile.provider_user_id:
         raise OAuthError("provider_account_not_verified")
-    if not social_profile.email or not social_profile.email_verified:
+    if not social_profile.email:
         raise OAuthError("provider_account_not_verified")
+    # LinkedIn frequently omits the email_verified claim entirely, so only require
+    # an email address from it. Other providers (Google, Facebook, generic OIDC)
+    # must additionally confirm the email address is verified.
+    if provider != "linkedin" and not social_profile.email_verified:
+        raise OAuthError("provider_account_not_verified")
+
+    # Once we've decided to trust a LinkedIn login on the basis of it having an
+    # email address (LinkedIn frequently omits email_verified), treat that email as
+    # verified for local bookkeeping (UserAuthProvider.email_verified,
+    # UserProfile.email_confirmed) rather than persisting a misleading `False`.
+    if provider == "linkedin" and not social_profile.email_verified:
+        social_profile = replace(social_profile, email_verified=True)
 
     existing = (
         UserAuthProvider.objects.select_related("user")
