@@ -5,8 +5,8 @@ from django.test import Client, SimpleTestCase, TestCase, override_settings
 
 class MarketplaceSubdomainSettingsTests(SimpleTestCase):
     def test_marketplace_origins_and_shared_cookie_domains_are_configured(self):
-        self.assertIn("https://market.guidewisey.com", settings.CORS_ALLOWED_ORIGINS)
-        self.assertIn("https://market.guidewisey.com", settings.CSRF_TRUSTED_ORIGINS)
+        self.assertIn("https://marketplace.guidewisey.com", settings.CORS_ALLOWED_ORIGINS)
+        self.assertIn("https://marketplace.guidewisey.com", settings.CSRF_TRUSTED_ORIGINS)
         self.assertIn("https://*.shop.guidewisey.com", settings.CSRF_TRUSTED_ORIGINS)
         self.assertTrue(
             any("shop" in pattern and "guidewisey" in pattern for pattern in settings.CORS_ALLOWED_ORIGIN_REGEXES)
@@ -21,7 +21,7 @@ class MarketplaceSubdomainSettingsTests(SimpleTestCase):
 @override_settings(
     ALLOWED_HOSTS=["api.guidewisey.com", "testserver"],
     CSRF_TRUSTED_ORIGINS=[
-        "https://market.guidewisey.com",
+        "https://marketplace.guidewisey.com",
         "https://*.shop.guidewisey.com",
     ],
 )
@@ -45,7 +45,7 @@ class MarketplaceLogoutCsrfTests(TestCase):
 
     def test_logout_from_marketplace_and_shop_origins(self):
         for origin in (
-            "https://market.guidewisey.com",
+            "https://marketplace.guidewisey.com",
             "https://rishikitchen.shop.guidewisey.com",
         ):
             response = self.client.post(

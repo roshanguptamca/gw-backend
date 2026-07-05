@@ -164,7 +164,7 @@ CORS_ALLOWED_ORIGINS = [
     "https://gw-frontend-7kjrbapg8-roshans-projects-8dfa7f93.vercel.app",
     # SecureWise portal
     "https://securewise.guidewisey.com",
-    "https://market.guidewisey.com",
+    "https://marketplace.guidewisey.com",
 ] + _env_list("EXTRA_CORS_ORIGINS")
 
 CORS_ALLOWED_ORIGIN_REGEXES = [
@@ -198,7 +198,7 @@ CSRF_TRUSTED_ORIGINS = list(
     dict.fromkeys(
         _env_list(
             "CSRF_TRUSTED_ORIGINS",
-            "https://api.guidewisey.com,https://guidewisey.com,https://www.guidewisey.com,https://securewise.guidewisey.com,https://market.guidewisey.com,https://*.shop.guidewisey.com",
+            "https://api.guidewisey.com,https://guidewisey.com,https://www.guidewisey.com,https://securewise.guidewisey.com,https://marketplace.guidewisey.com,https://*.shop.guidewisey.com",
         )
     )
 )

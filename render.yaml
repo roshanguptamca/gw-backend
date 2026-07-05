@@ -31,9 +31,9 @@ services:
       - key: ALLOWED_HOSTS
         value: api.guidewisey.com,guidewisey.com,www.guidewisey.com,gw-backend-eq2n.onrender.com,localhost,127.0.0.1
       - key: CSRF_TRUSTED_ORIGINS
-        value: https://api.guidewisey.com,https://guidewisey.com,https://www.guidewisey.com,https://market.guidewisey.com,https://*.shop.guidewisey.com,https://securewise.guidewisey.com
+        value: https://api.guidewisey.com,https://guidewisey.com,https://www.guidewisey.com,https://marketplace.guidewisey.com,https://*.shop.guidewisey.com,https://securewise.guidewisey.com
       - key: CORS_ALLOWED_ORIGINS
-        value: https://guidewisey.com,https://www.guidewisey.com,https://market.guidewisey.com,https://gw-frontend.onrender.com,https://securewise.guidewisey.com
+        value: https://guidewisey.com,https://www.guidewisey.com,https://marketplace.guidewisey.com,https://gw-frontend.onrender.com,https://securewise.guidewisey.com
       - key: EXTRA_CORS_ORIGIN_REGEXES
         value: ^https://[a-z0-9-]+\.shop\.guidewisey\.com$
       - key: FILE_STORAGE_BACKEND
