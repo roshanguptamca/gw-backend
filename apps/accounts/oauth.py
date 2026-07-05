@@ -281,6 +281,42 @@ def _validated_oidc_claims(config, token_payload, oauth_transaction):
     return claims
 
 
+GOOGLE_TOKENINFO_ENDPOINT = "https://oauth2.googleapis.com/tokeninfo"
+GOOGLE_ISSUERS = {"https://accounts.google.com", "accounts.google.com"}
+
+
+def _google_tokeninfo_claims(id_token, config, oauth_transaction):
+    """Validate a Google ID token via Google's tokeninfo endpoint.
+
+    Used as a fallback when locally validating the ID token against Google's JWKS
+    (fetched from www.googleapis.com/oauth2/v3/certs) fails. In production this
+    specific endpoint/domain has been observed to return "403 Forbidden" for some
+    hosting network paths even though other googleapis.com endpoints used earlier
+    in the same flow (oauth2.googleapis.com/token, openidconnect.googleapis.com)
+    succeed — i.e. it is not a credentials or code problem, but a network path
+    issue specific to that one domain.
+
+    tokeninfo performs the signature, expiry, and audience validation on Google's
+    side and returns the decoded claims directly, so no local JWKS fetch is
+    required. It is a documented alternative verification method (see
+    https://developers.google.com/identity/sign-in/web/backend-auth).
+    """
+    try:
+        response = requests.get(GOOGLE_TOKENINFO_ENDPOINT, params={"id_token": id_token}, timeout=10)
+        response.raise_for_status()
+        claims = response.json()
+    except (requests.RequestException, ValueError) as exc:
+        logger.warning("Google tokeninfo validation failed: %s", exc)
+        raise OAuthError("provider_account_not_verified") from exc
+    if claims.get("aud") != config["client_id"]:
+        raise OAuthError("provider_account_not_verified")
+    if claims.get("iss") not in GOOGLE_ISSUERS:
+        raise OAuthError("provider_account_not_verified")
+    if oauth_transaction.nonce and not secrets.compare_digest(claims.get("nonce", ""), oauth_transaction.nonce):
+        raise OAuthError("invalid_or_expired")
+    return claims
+
+
 def _normalize_email_verified(raw):
     """Normalize a provider's email_verified claim to a bool.
 
@@ -363,7 +399,17 @@ def fetch_social_profile(oauth_transaction, code):
             # authoritative source for email_verified. The userinfo endpoint fills in
             # profile fields (name, picture, locale, ...) but must not silently
             # override a verified ID token's email_verified claim.
-            claims = _validated_oidc_claims(config, token_payload, oauth_transaction)
+            try:
+                claims = _validated_oidc_claims(config, token_payload, oauth_transaction)
+            except OAuthError as exc:
+                if provider == "google" and token_payload.get("id_token"):
+                    logger.warning(
+                        "Google JWKS-based ID token validation failed; falling back to " "tokeninfo endpoint: %s",
+                        exc.code,
+                    )
+                    claims = _google_tokeninfo_claims(token_payload["id_token"], config, oauth_transaction)
+                else:
+                    raise
             id_token_email_verified_raw = claims.get("email_verified")
             response = requests.get(
                 config["userinfo_endpoint"],
