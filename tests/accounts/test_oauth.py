@@ -256,7 +256,9 @@ class OAuthAccountTests(TestCase):
                 self.assertEqual(context.exception.code, "provider_account_not_verified")
 
     def test_google_unverified_email_is_rejected(self):
-        profile = self.profile(provider_user_id="google-unverified", email="unverified@example.com", email_verified=False)
+        profile = self.profile(
+            provider_user_id="google-unverified", email="unverified@example.com", email_verified=False
+        )
 
         with self.assertRaises(OAuthError) as context:
             connect_social_account("google", profile)

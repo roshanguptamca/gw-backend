@@ -2,7 +2,9 @@ import base64
 import hashlib
 import logging
 import secrets
+import ssl
 from dataclasses import dataclass, replace
+from functools import lru_cache
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -10,6 +12,7 @@ from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+import certifi
 import jwt
 import requests
 
@@ -224,12 +227,25 @@ def _exchange_code(oauth_transaction, code):
     return config, payload
 
 
+@lru_cache(maxsize=None)
+def _jwks_client(jwks_uri):
+    # Build an explicit SSL context from certifi's CA bundle instead of relying on
+    # PyJWKClient's default (the interpreter's own trust store). On some local/dev
+    # setups (notably python.org installs on macOS that skip "Install Certificates
+    # .command", or minimal containers) that default store is missing root CAs,
+    # which makes fetching the provider's JWKS fail with
+    # "CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate" even
+    # though the certificate itself is valid.
+    ssl_context = ssl.create_default_context(cafile=certifi.where())
+    return jwt.PyJWKClient(jwks_uri, ssl_context=ssl_context)
+
+
 def _validated_oidc_claims(config, token_payload, oauth_transaction):
     id_token = token_payload.get("id_token")
     if not id_token:
         raise OAuthError("provider_account_not_verified")
     try:
-        signing_key = jwt.PyJWKClient(config["jwks_uri"]).get_signing_key_from_jwt(id_token)
+        signing_key = _jwks_client(config["jwks_uri"]).get_signing_key_from_jwt(id_token)
         claims = jwt.decode(
             id_token,
             signing_key.key,
