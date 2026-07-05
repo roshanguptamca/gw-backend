@@ -422,6 +422,33 @@ class PublicCategoryListView(APIView):
         return Response(PublicCategorySerializer(categories, many=True).data)
 
 
+class MarketplaceMeView(APIView):
+    """Lightweight auth/session check for the marketplace frontend.
+
+    Unlike ``MeView``/``SellerMeView`` this never requires authentication and
+    never returns 401/403 for anonymous users - it simply reports the
+    session state so the marketplace SPA can decide what to render.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        user = request.user
+        is_authenticated = bool(user and user.is_authenticated)
+        seller_profile = getattr(user, "seller_profile", None) if is_authenticated else None
+        shop_slug = None
+        if seller_profile is not None:
+            shop = getattr(seller_profile, "shop", None)
+            shop_slug = getattr(shop, "slug", None)
+        return Response(
+            {
+                "is_authenticated": is_authenticated,
+                "is_seller": seller_profile is not None,
+                "shop_slug": shop_slug,
+            }
+        )
+
+
 class SellerMeView(APIView):
     permission_classes = [IsSeller]
 

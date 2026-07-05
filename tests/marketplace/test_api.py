@@ -483,6 +483,60 @@ class MarketplaceSearchAPITests(TestCase):
         self.assertIn("Books", names)
 
 
+class MarketplaceMeAPITests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = User.objects.create_superuser(
+            username="admin-me@example.com",
+            email="admin-me@example.com",
+            password="AdminPass123!",
+        )
+        self.seller_user, self.seller_profile, self.shop = create_seller_with_shop(
+            email="me-seller@example.com",
+            password="SellerPass123!",
+            first_name="Me",
+            last_name="Seller",
+            business_name="Me Seller Shop",
+            created_by=self.admin,
+        )
+        self.buyer = User.objects.create_user(
+            username="me-buyer@example.com",
+            email="me-buyer@example.com",
+            password="BuyerPass123!",
+        )
+
+    def test_anonymous_user_is_not_authenticated(self):
+        response = self.client.get("/api/marketplace/me/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data,
+            {"is_authenticated": False, "is_seller": False, "shop_slug": None},
+        )
+
+    def test_authenticated_buyer_is_not_a_seller(self):
+        self.client.force_authenticate(user=self.buyer)
+
+        response = self.client.get("/api/marketplace/me/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data,
+            {"is_authenticated": True, "is_seller": False, "shop_slug": None},
+        )
+
+    def test_authenticated_seller_returns_shop_slug(self):
+        self.client.force_authenticate(user=self.seller_user)
+
+        response = self.client.get("/api/marketplace/me/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data,
+            {"is_authenticated": True, "is_seller": True, "shop_slug": self.shop.slug},
+        )
+
+
 class GuestOrderLinkingTests(TestCase):
     def setUp(self):
         self.client = APIClient()
