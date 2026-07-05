@@ -635,3 +635,94 @@ class OAuthAccountTests(TestCase):
         self.assertIn("email_verified=True", log_output)
         self.assertNotIn("super-secret-access-token", log_output)
         self.assertNotIn("super-secret-id-token", log_output)
+
+    @override_settings(GOOGLE_CLIENT_ID="google-client", GOOGLE_CLIENT_SECRET="google-secret")
+    @patch("apps.accounts.oauth._exchange_code")
+    @patch("apps.accounts.oauth._jwks_client")
+    @patch("apps.accounts.oauth.requests.get")
+    def test_google_falls_back_to_tokeninfo_when_jwks_fetch_is_blocked(self, get, jwks_client, exchange_code):
+        # Regression test: in production, fetching Google's JWKS from
+        # www.googleapis.com/oauth2/v3/certs has been observed to fail with
+        # "403 Forbidden" even though every other googleapis.com call in this flow
+        # (token exchange, userinfo) succeeds. When that happens for Google
+        # specifically, fall back to validating the ID token via Google's
+        # tokeninfo endpoint (oauth2.googleapis.com) instead of failing the login.
+        from jwt.exceptions import PyJWKClientConnectionError
+
+        jwks_client.return_value.get_signing_key_from_jwt.side_effect = PyJWKClientConnectionError(
+            'Fail to fetch data from the url, err: "403 Client Error: Forbidden for url: '
+            'https://www.googleapis.com/oauth2/v3/certs"'
+        )
+
+        def fake_get(url, *args, **kwargs):
+            response = Mock()
+            response.raise_for_status.return_value = None
+            if url == "https://oauth2.googleapis.com/tokeninfo":
+                response.json.return_value = {
+                    "aud": "google-client",
+                    "iss": "https://accounts.google.com",
+                    "sub": "google-tokeninfo-1",
+                    "email": "tokeninfo@example.com",
+                    "email_verified": "true",
+                    "given_name": "Token",
+                    "family_name": "Info",
+                }
+            else:
+                response.json.return_value = {
+                    "sub": "google-tokeninfo-1",
+                    "email": "tokeninfo@example.com",
+                    "given_name": "Token",
+                    "family_name": "Info",
+                }
+            return response
+
+        get.side_effect = fake_get
+        exchange_code.return_value = (
+            {
+                "userinfo_endpoint": "https://openidconnect.googleapis.com/v1/userinfo",
+                "jwks_uri": "https://www.googleapis.com/oauth2/v3/certs",
+                "client_id": "google-client",
+                "issuer": "https://accounts.google.com",
+            },
+            {"access_token": "access-token", "id_token": "id-token"},
+        )
+
+        profile = fetch_social_profile(OAuthTransaction(provider="google"), "code")
+
+        self.assertEqual(profile.provider_user_id, "google-tokeninfo-1")
+        self.assertEqual(profile.email, "tokeninfo@example.com")
+        self.assertTrue(profile.email_verified)
+
+    @override_settings(GOOGLE_CLIENT_ID="google-client", GOOGLE_CLIENT_SECRET="google-secret")
+    @patch("apps.accounts.oauth._exchange_code")
+    @patch("apps.accounts.oauth._jwks_client")
+    @patch("apps.accounts.oauth.requests.get")
+    def test_google_tokeninfo_fallback_rejects_audience_mismatch(self, get, jwks_client, exchange_code):
+        from jwt.exceptions import PyJWKClientConnectionError
+
+        jwks_client.return_value.get_signing_key_from_jwt.side_effect = PyJWKClientConnectionError("blocked")
+
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "aud": "some-other-client",
+            "iss": "https://accounts.google.com",
+            "sub": "google-2",
+            "email": "mismatched@example.com",
+            "email_verified": "true",
+        }
+        get.return_value = response
+        exchange_code.return_value = (
+            {
+                "userinfo_endpoint": "https://openidconnect.googleapis.com/v1/userinfo",
+                "jwks_uri": "https://www.googleapis.com/oauth2/v3/certs",
+                "client_id": "google-client",
+                "issuer": "https://accounts.google.com",
+            },
+            {"access_token": "access-token", "id_token": "id-token"},
+        )
+
+        with self.assertRaises(OAuthError) as context:
+            fetch_social_profile(OAuthTransaction(provider="google"), "code")
+
+        self.assertEqual(context.exception.code, "provider_account_not_verified")
