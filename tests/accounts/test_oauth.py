@@ -15,6 +15,7 @@ from apps.accounts.oauth import (
     SocialProfile,
     _callback_url,
     _exchange_code,
+    _jwks_client,
     _provider_settings,
     connect_social_account,
     fetch_social_profile,
@@ -325,6 +326,38 @@ class OAuthAccountTests(TestCase):
     def test_social_models_are_registered_in_admin(self):
         self.assertIn(UserAuthProvider, admin.site._registry)
         self.assertIn(OAuthTransaction, admin.site._registry)
+
+    @patch("apps.accounts.oauth.requests.get")
+    def test_jwks_fetch_uses_requests_not_urllib(self, get):
+        # Regression test: PyJWKClient's default fetch_data() uses urllib, which in
+        # production has been observed to get "403 Forbidden" from Google's JWKS
+        # endpoint (and, on some interpreters, "CERTIFICATE_VERIFY_FAILED" locally)
+        # even though every other call in this module — which all go through
+        # `requests` — succeeds. The JWKS fetch must also use `requests` so it is
+        # consistent with (and works as reliably as) the rest of this module.
+        _jwks_client.cache_clear()
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "keys": [
+                {
+                    "kty": "RSA",
+                    "use": "sig",
+                    "kid": "test-key",
+                    "alg": "RS256",
+                    "n": "sZ8gG5g4h9x7C8G8G8G8G8G8G8G8G8G8G8G8G8G8G8",
+                    "e": "AQAB",
+                }
+            ]
+        }
+        get.return_value = response
+
+        client = _jwks_client("https://www.googleapis.com/oauth2/v3/certs")
+        client.get_jwk_set()
+
+        get.assert_called_once()
+        self.assertEqual(get.call_args.args[0], "https://www.googleapis.com/oauth2/v3/certs")
+        _jwks_client.cache_clear()
 
     @override_settings(LINKEDIN_CLIENT_ID="linkedin-client", LINKEDIN_CLIENT_SECRET="linkedin-secret")
     @patch("apps.accounts.oauth.requests.get")

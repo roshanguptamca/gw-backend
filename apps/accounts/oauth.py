@@ -2,7 +2,6 @@ import base64
 import hashlib
 import logging
 import secrets
-import ssl
 from dataclasses import dataclass, replace
 from functools import lru_cache
 from urllib.parse import urlencode
@@ -12,7 +11,6 @@ from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-import certifi
 import jwt
 import requests
 
@@ -227,17 +225,38 @@ def _exchange_code(oauth_transaction, code):
     return config, payload
 
 
+class _RequestsPyJWKClient(jwt.PyJWKClient):
+    """A PyJWKClient that fetches the JWK Set with `requests` instead of urllib.
+
+    PyJWKClient's default `fetch_data` uses `urllib.request`, which sends a
+    generic "Python-urllib/x.y" User-Agent and relies on the interpreter's own
+    default SSL trust store. In production this has been observed to fail in
+    two different ways depending on the environment:
+    - "CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate" on
+      hosts/interpreters with an incomplete default trust store.
+    - "403 Forbidden" from Google's JWKS endpoint, while every other call in
+      this module (token exchange, userinfo) succeeds — those all go through
+      `requests`, not urllib.
+    Reusing `requests` here (as everywhere else in this module) fixes both:
+    it uses certifi's CA bundle by default and sends a User-Agent Google
+    doesn't reject.
+    """
+
+    def fetch_data(self):
+        try:
+            response = requests.get(self.uri, headers=self.headers, timeout=self.timeout)
+            response.raise_for_status()
+            jwk_set = response.json()
+        except (requests.RequestException, ValueError) as exc:
+            raise jwt.exceptions.PyJWKClientConnectionError(f'Fail to fetch data from the url, err: "{exc}"') from exc
+        if self.jwk_set_cache is not None:
+            self.jwk_set_cache.put(jwk_set)
+        return jwk_set
+
+
 @lru_cache(maxsize=None)
 def _jwks_client(jwks_uri):
-    # Build an explicit SSL context from certifi's CA bundle instead of relying on
-    # PyJWKClient's default (the interpreter's own trust store). On some local/dev
-    # setups (notably python.org installs on macOS that skip "Install Certificates
-    # .command", or minimal containers) that default store is missing root CAs,
-    # which makes fetching the provider's JWKS fail with
-    # "CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate" even
-    # though the certificate itself is valid.
-    ssl_context = ssl.create_default_context(cafile=certifi.where())
-    return jwt.PyJWKClient(jwks_uri, ssl_context=ssl_context)
+    return _RequestsPyJWKClient(jwks_uri)
 
 
 def _validated_oidc_claims(config, token_payload, oauth_transaction):
