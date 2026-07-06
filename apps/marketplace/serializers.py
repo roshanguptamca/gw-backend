@@ -394,7 +394,12 @@ class OrderCreateSerializer(serializers.Serializer):
         User = get_user_model()
         if User.objects.filter(email__iexact=email).exists():
             raise serializers.ValidationError(
-                {"customer_email": ("An account already exists with this email. Please log in to track this order.")}
+                {
+                    "customer_email": (
+                        "An account already exists with this email. Please log in to track this order."
+                    ),
+                    "code": "ACCOUNT_ALREADY_EXISTS",
+                }
             )
 
         return attrs

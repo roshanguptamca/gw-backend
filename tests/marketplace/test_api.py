@@ -684,6 +684,22 @@ class OrderCheckoutAccountCreationTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("customer_email", response.data)
         self.assertIn("already exists", str(response.data["customer_email"]))
+        # Stable machine-readable code so the frontend can show a login CTA
+        # instead of a generic validation error.
+        self.assertIn("ACCOUNT_ALREADY_EXISTS", str(response.data["code"]))
+
+    def test_guest_order_with_existing_email_and_no_create_account_still_works(self):
+        """create_account=false must not be blocked by an existing account with that email."""
+        User.objects.create_user(
+            username="existing-buyer-2",
+            email="guest-checkout@example.com",
+            password="ExistingPass123!",
+        )
+        payload = self._order_payload(create_account=False)
+        with patch("apps.marketplace.services.threading.Thread", _SyncThread):
+            response = self.client.post("/api/marketplace/orders/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(response.data["customer"])
 
     def test_password_mismatch_returns_validation_error(self):
         payload = self._order_payload(
@@ -789,3 +805,141 @@ class OrderCheckoutAccountCreationTests(TestCase):
         order.refresh_from_db()
         self.assertIsNone(order.buyer_email_sent_at)
         self.assertIsNone(order.seller_email_sent_at)
+
+
+class DeliveryFeeAPITests(TestCase):
+    """Delivery fee fields must be computed server-side and returned on order creation."""
+
+    def setUp(self):
+        self.client = APIClient()
+        admin = User.objects.create_superuser(
+            username="admin7@example.com",
+            email="admin7@example.com",
+            password="AdminPass123!",
+        )
+        self.seller_user, _, self.shop = create_seller_with_shop(
+            email="seller7@example.com",
+            password="SellerPass123!",
+            first_name="Seller",
+            last_name="Seven",
+            business_name="Delivery Test Shop",
+            created_by=admin,
+        )
+        self.shop.is_approved = True
+        self.shop.pickup_available = True
+        self.shop.delivery_available = True
+        self.shop.save()
+        self.shop.settings.local_delivery_fee = Decimal("4.50")
+        self.shop.settings.international_delivery_fee = Decimal("12.00")
+        self.shop.settings.free_delivery_above = Decimal("50.00")
+        self.shop.settings.save()
+        self.product = Product.objects.create(
+            shop=self.shop,
+            name="Delivery Product",
+            slug="delivery-product",
+            price=Decimal("10.00"),
+            stock_quantity=20,
+            is_active=True,
+            is_approved=True,
+        )
+
+    def _payload(self, **overrides):
+        payload = {
+            "shop_id": self.shop.id,
+            "customer_name": "Buyer",
+            "customer_email": "delivery-buyer@example.com",
+            "customer_phone": "+31600000222",
+            "order_type": "pickup",
+            "payment_method": "cash",
+            "items": [{"product_id": self.product.id, "quantity": 1}],
+            "terms_accepted": True,
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_pickup_order_has_zero_delivery_fee(self):
+        with patch("apps.marketplace.services.threading.Thread", _SyncThread):
+            response = self.client.post("/api/marketplace/orders/", self._payload(order_type="pickup"), format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Decimal(response.data["delivery_fee"]), Decimal("0.00"))
+        self.assertEqual(Decimal(response.data["subtotal"]), Decimal("10.00"))
+        self.assertEqual(Decimal(response.data["total"]), Decimal("10.00"))
+
+    def test_delivery_order_includes_local_delivery_fee_in_total(self):
+        with patch("apps.marketplace.services.threading.Thread", _SyncThread):
+            response = self.client.post(
+                "/api/marketplace/orders/",
+                self._payload(order_type="delivery", delivery_zone="local", delivery_address="Main St 1, 1000AA, Amsterdam"),
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Decimal(response.data["delivery_fee"]), Decimal("4.50"))
+        self.assertEqual(Decimal(response.data["total"]), Decimal("14.50"))
+
+    def test_delivery_order_above_free_threshold_has_zero_fee(self):
+        with patch("apps.marketplace.services.threading.Thread", _SyncThread):
+            response = self.client.post(
+                "/api/marketplace/orders/",
+                self._payload(
+                    order_type="delivery",
+                    delivery_zone="local",
+                    delivery_address="Main St 1, 1000AA, Amsterdam",
+                    items=[{"product_id": self.product.id, "quantity": 6}],  # 60.00 subtotal > 50 threshold
+                ),
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Decimal(response.data["delivery_fee"]), Decimal("0.00"))
+        self.assertEqual(Decimal(response.data["subtotal"]), Decimal("60.00"))
+        self.assertEqual(Decimal(response.data["total"]), Decimal("60.00"))
+
+    def test_shop_detail_response_includes_delivery_fee_settings(self):
+        response = self.client.get(f"/api/marketplace/shops/{self.shop.slug}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        settings_data = response.data["settings"]
+        self.assertEqual(Decimal(settings_data["local_delivery_fee"]), Decimal("4.50"))
+        self.assertEqual(Decimal(settings_data["international_delivery_fee"]), Decimal("12.00"))
+        self.assertEqual(Decimal(settings_data["free_delivery_above"]), Decimal("50.00"))
+        self.assertTrue(response.data["pickup_available"])
+        self.assertTrue(response.data["delivery_available"])
+
+
+class AddressLookupAPITests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    def test_missing_query_params_returns_400(self):
+        response = self.client.get("/api/marketplace/address-lookup/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("apps.marketplace.views.lookup_dutch_address")
+    def test_successful_lookup_returns_street_and_city(self, mock_lookup):
+        mock_lookup.return_value = {"street": "Damrak", "city": "Amsterdam", "country": "Netherlands"}
+        response = self.client.get(
+            "/api/marketplace/address-lookup/", {"postcode": "1012AB", "house_number": "1"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["street"], "Damrak")
+        self.assertEqual(response.data["city"], "Amsterdam")
+        self.assertEqual(response.data["country"], "Netherlands")
+
+    @patch("apps.marketplace.views.lookup_dutch_address")
+    def test_failed_lookup_returns_404_not_500(self, mock_lookup):
+        mock_lookup.return_value = None
+        response = self.client.get(
+            "/api/marketplace/address-lookup/", {"postcode": "0000ZZ", "house_number": "999"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_provider_disabled_returns_none_safely(self):
+        with self.settings(MARKETPLACE_ADDRESS_LOOKUP_PROVIDER_URL=""):
+            from apps.marketplace.services import lookup_dutch_address
+
+            self.assertIsNone(lookup_dutch_address("1012AB", "1"))
+
+    def test_provider_exception_is_caught_and_returns_none(self):
+        with self.settings(MARKETPLACE_ADDRESS_LOOKUP_PROVIDER_URL="https://example.invalid/lookup"):
+            with patch("requests.get", side_effect=Exception("network down")):
+                from apps.marketplace.services import lookup_dutch_address
+
+                self.assertIsNone(lookup_dutch_address("1012AB", "1"))

@@ -50,6 +50,7 @@ from .serializers import (
 from .services import (
     generate_unique_slug,
     link_guest_orders_to_user,
+    lookup_dutch_address,
     send_cancellation_request_email_to_seller,
     send_cancellation_result_email_to_buyer,
     update_order_status,
@@ -420,6 +421,33 @@ class PublicCategoryListView(APIView):
             .order_by("name")
         )
         return Response(PublicCategorySerializer(categories, many=True).data)
+
+
+class AddressLookupView(APIView):
+    """Optional Dutch postcode + house number → street/city lookup for checkout.
+
+    Always AllowAny/read-only and never raises — an unavailable or misconfigured
+    provider returns 404 "not found" so the frontend can fall back to manual
+    address entry without blocking checkout.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        postcode = request.query_params.get("postcode", "")
+        house_number = request.query_params.get("house_number", "")
+        if not postcode or not house_number:
+            return Response(
+                {"detail": "postcode and house_number query params are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        result = lookup_dutch_address(postcode, house_number)
+        if not result:
+            return Response(
+                {"detail": "Address not found. Please enter it manually."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(result)
 
 
 class MarketplaceMeView(APIView):

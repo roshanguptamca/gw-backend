@@ -3,6 +3,7 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
+    AddressLookupView,
     AdminProductViewSet,
     AdminSellerViewSet,
     AdminShopViewSet,
@@ -67,6 +68,7 @@ urlpatterns = [
     path("marketplace/me/", MarketplaceMeView.as_view(), name="marketplace-me"),
     path("marketplace/search/", MarketplaceSearchView.as_view(), name="marketplace-search"),
     path("marketplace/categories/", PublicCategoryListView.as_view(), name="marketplace-categories"),
+    path("marketplace/address-lookup/", AddressLookupView.as_view(), name="marketplace-address-lookup"),
     path("marketplace/cart/", MarketplaceCartView.as_view(), name="marketplace-cart"),
     path(
         "marketplace/cart/items/",

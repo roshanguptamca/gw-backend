@@ -507,3 +507,52 @@ def update_order_status(order, new_status):
     order.status = new_status
     order.save(update_fields=["status", "updated_at"])
     return order
+
+
+# ── Dutch postcode + house number address lookup ──────────────────────────
+# Uses PDOK Locatieserver — the Dutch government's free, keyless open-data
+# geocoder (https://www.pdok.nl/), so no paid provider or API key is
+# required. Checkout must never be blocked by this: any failure/timeout
+# simply returns None and the caller falls back to manual address entry.
+POSTCODE_RE = re.compile(r"^\d{4}\s?[A-Za-z]{2}$")
+
+
+def lookup_dutch_address(postcode: str, house_number: str):
+    """Look up street/city for a Dutch postcode + house number.
+
+    Returns a dict {"street", "city", "country"} on success, or None if the
+    lookup is disabled, the input is invalid, or the provider call fails.
+    """
+    from django.conf import settings
+
+    provider_url = getattr(settings, "MARKETPLACE_ADDRESS_LOOKUP_PROVIDER_URL", "")
+    if not provider_url:
+        return None
+
+    postcode = (postcode or "").strip().upper().replace(" ", "")
+    house_number = (house_number or "").strip()
+    if not POSTCODE_RE.match(postcode) or not house_number:
+        return None
+
+    try:
+        import requests
+
+        response = requests.get(
+            provider_url,
+            params={"q": f"{postcode} {house_number}", "fq": "type:adres", "rows": 1},
+            timeout=3,
+        )
+        response.raise_for_status()
+        docs = response.json().get("response", {}).get("docs", [])
+        if not docs:
+            return None
+        doc = docs[0]
+        street = doc.get("straatnaam")
+        city = doc.get("woonplaatsnaam")
+        if not street or not city:
+            return None
+        return {"street": street, "city": city, "country": "Netherlands"}
+    except Exception:  # noqa: BLE001 — any provider hiccup must not block checkout
+        logger.warning("Address lookup failed for postcode=%s house_number=%s", postcode, house_number)
+        return None
+
