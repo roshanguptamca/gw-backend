@@ -228,6 +228,8 @@ class Order(models.Model):
     customer_note = models.TextField(blank=True)
     seller_note = models.TextField(blank=True)
     terms_accepted = models.BooleanField(default=False)
+    buyer_email_sent_at = models.DateTimeField(null=True, blank=True)
+    seller_email_sent_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -253,6 +255,46 @@ class OrderItem(models.Model):
 
     def __str__(self):
         return f"{self.quantity} x {self.product_name}"
+
+
+class OrderEmailLog(models.Model):
+    """Audit trail for every order-related email attempt so support can see
+    what was sent, to whom, and whether it succeeded — instead of only
+    trusting silent background-thread delivery."""
+
+    STATUS_PENDING = "pending"
+    STATUS_SENT = "sent"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_SENT, "Sent"),
+        (STATUS_FAILED, "Failed"),
+    ]
+
+    EMAIL_TYPE_BUYER_CONFIRMATION = "buyer_confirmation"
+    EMAIL_TYPE_SELLER_NOTIFICATION = "seller_notification"
+    EMAIL_TYPE_CHOICES = [
+        (EMAIL_TYPE_BUYER_CONFIRMATION, "Buyer confirmation"),
+        (EMAIL_TYPE_SELLER_NOTIFICATION, "Seller notification"),
+    ]
+
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="email_logs")
+    email_type = models.CharField(max_length=30, choices=EMAIL_TYPE_CHOICES)
+    recipient = models.EmailField()
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["order", "email_type"]),
+            models.Index(fields=["status"]),
+        ]
+
+    def __str__(self):
+        return f"{self.email_type} -> {self.recipient} ({self.status})"
 
 
 class Coupon(models.Model):

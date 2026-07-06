@@ -8,7 +8,7 @@ from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from apps.marketplace.models import Coupon, Order, Product, Shop
+from apps.marketplace.models import Coupon, Order, OrderEmailLog, Product, Shop
 from apps.marketplace.services import create_seller_with_shop
 
 User = get_user_model()
@@ -750,3 +750,42 @@ class OrderCheckoutAccountCreationTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         recipients = {tuple(msg.to) for msg in mail.outbox}
         self.assertIn((self.seller_user.email,), recipients)
+
+    def test_successful_emails_are_logged_and_order_flags_updated(self):
+        with patch("apps.marketplace.services.threading.Thread", _SyncThread):
+            response = self.client.post("/api/marketplace/orders/", self._order_payload(), format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        order = Order.objects.get(pk=response.data["id"])
+        logs = {log.email_type: log for log in order.email_logs.all()}
+        self.assertEqual(len(logs), 2)
+        self.assertEqual(logs["buyer_confirmation"].status, OrderEmailLog.STATUS_SENT)
+        self.assertEqual(logs["buyer_confirmation"].recipient, "guest-checkout@example.com")
+        self.assertIsNotNone(logs["buyer_confirmation"].sent_at)
+        self.assertEqual(logs["seller_notification"].status, OrderEmailLog.STATUS_SENT)
+        self.assertEqual(logs["seller_notification"].recipient, self.seller_user.email)
+        self.assertIsNotNone(logs["seller_notification"].sent_at)
+
+        order.refresh_from_db()
+        self.assertIsNotNone(order.buyer_email_sent_at)
+        self.assertIsNotNone(order.seller_email_sent_at)
+
+    def test_failed_email_is_logged_with_error_and_flag_not_set(self):
+        with (
+            patch("apps.marketplace.services.threading.Thread", _SyncThread),
+            patch("apps.marketplace.services.send_mail", side_effect=Exception("smtp down")),
+        ):
+            response = self.client.post("/api/marketplace/orders/", self._order_payload(), format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        order = Order.objects.get(pk=response.data["id"])
+        logs = list(order.email_logs.all())
+        self.assertEqual(len(logs), 2)
+        for log in logs:
+            self.assertEqual(log.status, OrderEmailLog.STATUS_FAILED)
+            self.assertIn("smtp down", log.error_message)
+            self.assertIsNone(log.sent_at)
+
+        order.refresh_from_db()
+        self.assertIsNone(order.buyer_email_sent_at)
+        self.assertIsNone(order.seller_email_sent_at)

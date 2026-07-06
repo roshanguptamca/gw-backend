@@ -18,6 +18,7 @@ from .models import (
     Category,
     Coupon,
     Order,
+    OrderEmailLog,
     OrderItem,
     Product,
     ProductImage,
@@ -388,10 +389,40 @@ class OrderItemInline(admin.TabularInline):
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
-    list_display = ["order_number", "shop", "customer_name", "status", "payment_status", "total", "created_at"]
+    list_display = [
+        "order_number",
+        "shop",
+        "customer_name",
+        "status",
+        "payment_status",
+        "total",
+        "buyer_email_sent_at",
+        "seller_email_sent_at",
+        "created_at",
+    ]
     list_filter = ["status", "payment_status", "order_type", "payment_method", "shop"]
     search_fields = ["order_number", "customer_name", "customer_email", "customer_phone", "shop__name"]
+    readonly_fields = ["buyer_email_sent_at", "seller_email_sent_at"]
     inlines = [OrderItemInline]
+
+
+@admin.register(OrderEmailLog)
+class OrderEmailLogAdmin(admin.ModelAdmin):
+    list_display = ["order", "email_type", "recipient", "status", "created_at", "sent_at"]
+    list_filter = ["email_type", "status"]
+    search_fields = ["recipient", "order__order_number"]
+    readonly_fields = [
+        "order",
+        "email_type",
+        "recipient",
+        "status",
+        "error_message",
+        "created_at",
+        "sent_at",
+    ]
+
+    def has_add_permission(self, request):
+        return False
 
 
 @admin.register(OrderItem)

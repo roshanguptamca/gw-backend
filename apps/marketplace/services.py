@@ -20,6 +20,7 @@ from .models import (
     Coupon,
     Order,
     OrderCancellationRequest,
+    OrderEmailLog,
     OrderItem,
     Product,
     SellerProfile,
@@ -312,6 +313,36 @@ def create_order_from_payload(payload, user=None):
     return order
 
 
+def _send_and_log_order_email(order, email_type, recipient, send_fn):
+    """Create a pending OrderEmailLog row, attempt to send, then update the
+    log (and the matching Order.*_email_sent_at flag) based on the outcome.
+    Re-raises on failure so callers can still see/report it, but the audit
+    trail in OrderEmailLog is always left in a final (sent/failed) state."""
+    log = OrderEmailLog.objects.create(
+        order=order,
+        email_type=email_type,
+        recipient=recipient,
+        status=OrderEmailLog.STATUS_PENDING,
+    )
+    try:
+        send_fn()
+    except Exception as exc:  # noqa: BLE001
+        log.status = OrderEmailLog.STATUS_FAILED
+        log.error_message = str(exc)[:2000]
+        log.save(update_fields=["status", "error_message"])
+        raise
+    else:
+        log.status = OrderEmailLog.STATUS_SENT
+        log.sent_at = timezone.now()
+        log.save(update_fields=["status", "sent_at"])
+        if email_type == OrderEmailLog.EMAIL_TYPE_BUYER_CONFIRMATION:
+            order.buyer_email_sent_at = log.sent_at
+            order.save(update_fields=["buyer_email_sent_at"])
+        elif email_type == OrderEmailLog.EMAIL_TYPE_SELLER_NOTIFICATION:
+            order.seller_email_sent_at = log.sent_at
+            order.save(update_fields=["seller_email_sent_at"])
+
+
 def send_buyer_confirmation_email(order):
     """Send HTML order confirmation to buyer (if email provided)."""
     if not order.customer_email:
@@ -337,14 +368,18 @@ def send_buyer_confirmation_email(order):
     <p><strong>Grand total:</strong> {order.total} {currency}</p>
     <p><strong>Status:</strong> {order.status}</p>
     """
-    send_mail(
-        subject=f"Order {order.order_number} confirmed – {order.shop.name}",
-        message=f"Order {order.order_number} confirmed. Total: {order.total} {currency}.",
-        from_email=None,
-        recipient_list=[order.customer_email],
-        html_message=html_message,
-        fail_silently=True,
-    )
+
+    def _send():
+        send_mail(
+            subject=f"Order {order.order_number} confirmed – {order.shop.name}",
+            message=f"Order {order.order_number} confirmed. Total: {order.total} {currency}.",
+            from_email=None,
+            recipient_list=[order.customer_email],
+            html_message=html_message,
+            fail_silently=False,
+        )
+
+    _send_and_log_order_email(order, OrderEmailLog.EMAIL_TYPE_BUYER_CONFIRMATION, order.customer_email, _send)
 
 
 def send_seller_notification_email(order):
@@ -362,13 +397,17 @@ def send_seller_notification_email(order):
         f"Delivery method: {delivery_label}\n"
         f"Total: {order.total} {currency}\n"
     )
-    send_mail(
-        subject=f"New order {order.order_number} – {order.shop.name}",
-        message=message,
-        from_email=None,
-        recipient_list=[seller_email],
-        fail_silently=True,
-    )
+
+    def _send():
+        send_mail(
+            subject=f"New order {order.order_number} – {order.shop.name}",
+            message=message,
+            from_email=None,
+            recipient_list=[seller_email],
+            fail_silently=False,
+        )
+
+    _send_and_log_order_email(order, OrderEmailLog.EMAIL_TYPE_SELLER_NOTIFICATION, seller_email, _send)
 
 
 def link_guest_orders_to_user(user):

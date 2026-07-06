@@ -243,6 +243,14 @@ same email machinery as the rest of the app — no separate config needed:
   in a background thread so the HTTP response returns immediately. A failure
   sending either email is logged and does **not** fail the order.
 
+Every buyer/seller order email attempt is recorded in the `OrderEmailLog`
+model (Django admin: **Marketplace → Order email logs**), with `email_type`,
+`recipient`, `status` (`pending`/`sent`/`failed`), `error_message`, and
+`sent_at` — so support can see exactly what was attempted and why it failed,
+instead of relying only on server logs. `Order.buyer_email_sent_at` and
+`Order.seller_email_sent_at` are updated the moment each email succeeds, so
+the order list/detail views also show at a glance whether emails went out.
+
 Locally, with `EMAIL_HOST_PASSWORD` and `BREVO_API_KEY` unset, `EMAIL_BACKEND`
 falls back to `django.core.mail.backends.console.EmailBackend`, so all three
 emails (verification, buyer confirmation, seller notification) print straight
