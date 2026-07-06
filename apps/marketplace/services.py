@@ -31,6 +31,7 @@ _DB_LOCK_RETRY_DELAY_SECONDS = 0.3
 def _is_database_locked_error(exc: BaseException) -> bool:
     return isinstance(exc, OperationalError) and "database is locked" in str(exc).lower()
 
+
 from .models import (
     Category,
     Coupon,
@@ -297,9 +298,7 @@ def _create_account_for_order(payload):
     password = payload.get("password")
     password_confirm = payload.get("password_confirm")
     if not email or not password:
-        raise serializers.ValidationError(
-            {"customer_email": "Email and password are required to create an account."}
-        )
+        raise serializers.ValidationError({"customer_email": "Email and password are required to create an account."})
 
     reg_serializer = UserRegistrationSerializer(
         data={
@@ -318,9 +317,7 @@ def _create_account_for_order(payload):
         # a "log in instead" CTA rather than a generic error.
         raise serializers.ValidationError(
             {
-                "customer_email": (
-                    "An account already exists with this email. Please log in to track this order."
-                ),
+                "customer_email": ("An account already exists with this email. Please log in to track this order."),
                 "code": "ACCOUNT_ALREADY_EXISTS",
             }
         )
@@ -330,9 +327,7 @@ def _create_account_for_order(payload):
         # is the real source of truth here, so treat it the same way.
         raise serializers.ValidationError(
             {
-                "customer_email": (
-                    "An account already exists with this email. Please log in to track this order."
-                ),
+                "customer_email": ("An account already exists with this email. Please log in to track this order."),
                 "code": "ACCOUNT_ALREADY_EXISTS",
             }
         )
@@ -376,7 +371,6 @@ def create_order_from_payload(payload, user=None):
     logger.info("Order %s created; email thread %s dispatched.", order.order_number, t.name)
 
     return order
-
 
 
 def _send_and_log_order_email(order, email_type, recipient, send_fn):
@@ -672,9 +666,7 @@ def cancel_pending_order_by_buyer(order):
         )
     for item in locked_order.items.select_related("product"):
         if item.product_id:
-            Product.objects.filter(pk=item.product_id).update(
-                stock_quantity=F("stock_quantity") + item.quantity
-            )
+            Product.objects.filter(pk=item.product_id).update(stock_quantity=F("stock_quantity") + item.quantity)
     locked_order.status = Order.STATUS_CANCELLED
     locked_order.save(update_fields=["status", "updated_at"])
     return locked_order
@@ -753,4 +745,3 @@ def lookup_dutch_address(postcode: str, house_number: str):
     except Exception:  # noqa: BLE001 — any provider hiccup must not block checkout
         logger.warning("Address lookup failed for postcode=%s house_number=%s", postcode, house_number)
         return None
-

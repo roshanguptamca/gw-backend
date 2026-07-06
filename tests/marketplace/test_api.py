@@ -955,7 +955,9 @@ class DeliveryFeeAPITests(TestCase):
         with patch("apps.marketplace.services.threading.Thread", _SyncThread):
             response = self.client.post(
                 "/api/marketplace/orders/",
-                self._payload(order_type="delivery", delivery_zone="local", delivery_address="Main St 1, 1000AA, Amsterdam"),
+                self._payload(
+                    order_type="delivery", delivery_zone="local", delivery_address="Main St 1, 1000AA, Amsterdam"
+                ),
                 format="json",
             )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -1001,9 +1003,7 @@ class AddressLookupAPITests(TestCase):
     @patch("apps.marketplace.views.lookup_dutch_address")
     def test_successful_lookup_returns_street_and_city(self, mock_lookup):
         mock_lookup.return_value = {"street": "Damrak", "city": "Amsterdam", "country": "Netherlands"}
-        response = self.client.get(
-            "/api/marketplace/address-lookup/", {"postcode": "1012AB", "house_number": "1"}
-        )
+        response = self.client.get("/api/marketplace/address-lookup/", {"postcode": "1012AB", "house_number": "1"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["street"], "Damrak")
         self.assertEqual(response.data["city"], "Amsterdam")
@@ -1012,9 +1012,7 @@ class AddressLookupAPITests(TestCase):
     @patch("apps.marketplace.views.lookup_dutch_address")
     def test_failed_lookup_returns_404_not_500(self, mock_lookup):
         mock_lookup.return_value = None
-        response = self.client.get(
-            "/api/marketplace/address-lookup/", {"postcode": "0000ZZ", "house_number": "999"}
-        )
+        response = self.client.get("/api/marketplace/address-lookup/", {"postcode": "0000ZZ", "house_number": "999"})
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_provider_disabled_returns_none_safely(self):
