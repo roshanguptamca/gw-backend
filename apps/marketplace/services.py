@@ -1,4 +1,5 @@
 import logging
+import re
 import threading
 from decimal import Decimal
 from uuid import uuid4
@@ -251,10 +252,57 @@ def _send_emails_background(order_id: int) -> None:
         logger.exception("Background email: seller notification failed for order %s", order_id)
 
 
+def _unique_username_from_email(email):
+    """Derive a unique username from an email's local-part, reusing the same
+    User model uniqueness rules as normal registration."""
+    base = re.sub(r"[^\w.]+", "", email.split("@")[0]).lower() or "customer"
+    username = base
+    counter = 1
+    while User.objects.filter(username=username).exists():
+        counter += 1
+        username = f"{base}{counter}"
+    return username
+
+
+def _create_account_for_order(order, payload):
+    """Create a customer account during checkout by reusing the existing
+    GuideWisey registration flow (UserRegistrationSerializer), so the new
+    user gets the same email-confirmation flow as any other signup."""
+    from apps.accounts.serializers import UserRegistrationSerializer
+
+    email = (payload.get("customer_email") or "").strip()
+    password = payload.get("password")
+    password_confirm = payload.get("password_confirm")
+    if not email or not password:
+        return None
+
+    reg_serializer = UserRegistrationSerializer(
+        data={
+            "username": _unique_username_from_email(email),
+            "email": email,
+            "password": password,
+            "password2": password_confirm,
+        }
+    )
+    try:
+        reg_serializer.is_valid(raise_exception=True)
+        new_user = reg_serializer.save()
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Failed to create account during order checkout for %s: %s", email, exc)
+        return None
+
+    order.customer = new_user
+    order.save(update_fields=["customer"])
+    return new_user
+
+
 def create_order_from_payload(payload, user=None):
     """Public entry point. Commits the DB transaction first, then sends emails
     in a background daemon thread so the HTTP response is immediate."""
     order = _create_order_atomic(payload, user=user)
+
+    if not (user and user.is_authenticated) and payload.get("create_account"):
+        _create_account_for_order(order, payload)
 
     # Dispatch emails to a background daemon thread — caller gets instant response.
     t = threading.Thread(target=_send_emails_background, args=(order.pk,), daemon=True)

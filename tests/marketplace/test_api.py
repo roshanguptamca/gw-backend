@@ -1,6 +1,8 @@
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core import mail
 from django.test import TestCase
 
 from rest_framework import status
@@ -585,3 +587,166 @@ class GuestOrderLinkingTests(TestCase):
         guest_order.refresh_from_db()
         user = User.objects.get(email="newbuyer@example.com")
         self.assertEqual(guest_order.customer, user)
+
+
+class _SyncThread:
+    """Drop-in replacement for threading.Thread that runs the target
+    synchronously in the calling thread. Avoids SQLite table-locking
+    flakiness in tests while still exercising the real email code path."""
+
+    def __init__(self, target=None, args=(), kwargs=None, daemon=None):
+        self._target = target
+        self._args = args
+        self._kwargs = kwargs or {}
+        self.name = "SyncThread"
+
+    def start(self):
+        self._target(*self._args, **self._kwargs)
+
+
+class OrderCheckoutAccountCreationTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        admin = User.objects.create_superuser(
+            username="admin6@example.com",
+            email="admin6@example.com",
+            password="AdminPass123!",
+        )
+        self.seller_user, _, self.shop = create_seller_with_shop(
+            email="seller6@example.com",
+            password="SellerPass123!",
+            first_name="Seller",
+            last_name="Six",
+            business_name="Checkout Test Shop",
+            created_by=admin,
+        )
+        self.shop.is_approved = True
+        self.shop.delivery_available = True
+        self.shop.save()
+        self.product = Product.objects.create(
+            shop=self.shop,
+            name="Test Product",
+            slug="test-product",
+            price=Decimal("5.00"),
+            stock_quantity=20,
+            is_active=True,
+            is_approved=True,
+        )
+
+    def _order_payload(self, **overrides):
+        payload = {
+            "shop_id": self.shop.id,
+            "customer_name": "New Buyer",
+            "customer_email": "guest-checkout@example.com",
+            "customer_phone": "+31600000111",
+            "order_type": "pickup",
+            "payment_method": "cash",
+            "items": [{"product_id": self.product.id, "quantity": 1}],
+            "terms_accepted": True,
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_guest_order_creation_works(self):
+        with patch("apps.marketplace.services.threading.Thread", _SyncThread):
+            response = self.client.post("/api/marketplace/orders/", self._order_payload(), format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(response.data["customer"])
+
+    def test_guest_order_with_create_account_creates_user_via_existing_flow(self):
+        payload = self._order_payload(
+            create_account=True,
+            password="StrongPass123!",
+            password_confirm="StrongPass123!",
+        )
+        with patch("apps.marketplace.services.threading.Thread", _SyncThread):
+            response = self.client.post("/api/marketplace/orders/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = User.objects.get(email="guest-checkout@example.com")
+        self.assertEqual(response.data["customer"], user.id)
+        # Reuses the existing registration flow: profile + confirmation token created.
+        self.assertFalse(user.profile.email_confirmed)
+        self.assertTrue(user.profile.email_confirmation_token)
+
+    def test_duplicate_email_returns_validation_error(self):
+        User.objects.create_user(
+            username="existing-buyer",
+            email="guest-checkout@example.com",
+            password="ExistingPass123!",
+        )
+        payload = self._order_payload(
+            create_account=True,
+            password="StrongPass123!",
+            password_confirm="StrongPass123!",
+        )
+        response = self.client.post("/api/marketplace/orders/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("customer_email", response.data)
+        self.assertIn("already exists", str(response.data["customer_email"]))
+
+    def test_password_mismatch_returns_validation_error(self):
+        payload = self._order_payload(
+            create_account=True,
+            password="StrongPass123!",
+            password_confirm="Different123!",
+        )
+        response = self.client.post("/api/marketplace/orders/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("password_confirm", response.data)
+
+    @patch("apps.future_wise.email_service.BrevoEmailService.send_account_confirmation_email")
+    def test_verification_email_is_triggered_on_account_creation(self, mock_send):
+        payload = self._order_payload(
+            create_account=True,
+            password="StrongPass123!",
+            password_confirm="StrongPass123!",
+        )
+        with patch("apps.marketplace.services.threading.Thread", _SyncThread):
+            response = self.client.post("/api/marketplace/orders/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        mock_send.assert_called_once()
+
+    def test_logged_in_order_links_to_request_user_and_ignores_create_account(self):
+        buyer = User.objects.create_user(
+            username="logged-in-buyer",
+            email="logged-in-buyer@example.com",
+            password="LoggedInPass123!",
+        )
+        self.client.force_authenticate(buyer)
+        payload = self._order_payload(
+            customer_email="logged-in-buyer@example.com",
+            create_account=True,
+            password="StrongPass123!",
+            password_confirm="StrongPass123!",
+        )
+        with patch("apps.marketplace.services.threading.Thread", _SyncThread):
+            response = self.client.post("/api/marketplace/orders/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["customer"], buyer.id)
+        # No extra account should have been created.
+        self.assertEqual(User.objects.filter(email="logged-in-buyer@example.com").count(), 1)
+
+    def test_email_failure_does_not_roll_back_order(self):
+        with (
+            patch("apps.marketplace.services.threading.Thread", _SyncThread),
+            patch("apps.marketplace.services.send_mail", side_effect=Exception("smtp down")),
+        ):
+            response = self.client.post("/api/marketplace/orders/", self._order_payload(), format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(Order.objects.filter(pk=response.data["id"]).exists())
+
+    def test_buyer_confirmation_email_is_triggered(self):
+        with patch("apps.marketplace.services.threading.Thread", _SyncThread):
+            response = self.client.post("/api/marketplace/orders/", self._order_payload(), format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(len(mail.outbox), 2)  # buyer confirmation + seller notification
+        recipients = {tuple(msg.to) for msg in mail.outbox}
+        self.assertIn(("guest-checkout@example.com",), recipients)
+
+    def test_seller_notification_email_uses_shop_owner_email(self):
+        with patch("apps.marketplace.services.threading.Thread", _SyncThread):
+            response = self.client.post("/api/marketplace/orders/", self._order_payload(), format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        recipients = {tuple(msg.to) for msg in mail.outbox}
+        self.assertIn((self.seller_user.email,), recipients)

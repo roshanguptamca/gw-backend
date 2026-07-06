@@ -1,6 +1,7 @@
 import re
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Max
@@ -346,6 +347,9 @@ class OrderCreateSerializer(serializers.Serializer):
     coupon_code = serializers.CharField(required=False, allow_blank=True)
     items = serializers.ListField(child=serializers.DictField(), min_length=1)
     terms_accepted = serializers.BooleanField()
+    create_account = serializers.BooleanField(required=False, default=False)
+    password = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    password_confirm = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     def validate_terms_accepted(self, value):
         if not value:
@@ -357,6 +361,43 @@ class OrderCreateSerializer(serializers.Serializer):
             if "product_id" not in item or "quantity" not in item:
                 raise serializers.ValidationError("Each item needs product_id and quantity.")
         return items
+
+    def validate(self, attrs):
+        request = self.context["request"]
+        user = getattr(request, "user", None)
+
+        # Logged-in customers already have an account — ignore any create_account/password
+        # fields that may have been sent and link the order straight to request.user.
+        if user and user.is_authenticated:
+            attrs["create_account"] = False
+            return attrs
+
+        if not attrs.get("create_account"):
+            return attrs
+
+        email = (attrs.get("customer_email") or "").strip()
+        if not email:
+            raise serializers.ValidationError({"customer_email": "Email is required to create an account."})
+
+        password = attrs.get("password") or ""
+        password_confirm = attrs.get("password_confirm") or ""
+        if not password:
+            raise serializers.ValidationError({"password": "Password is required to create an account."})
+        if password != password_confirm:
+            raise serializers.ValidationError({"password_confirm": "Passwords must match."})
+
+        try:
+            validate_password(password)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"password": list(exc.messages)})
+
+        User = get_user_model()
+        if User.objects.filter(email__iexact=email).exists():
+            raise serializers.ValidationError(
+                {"customer_email": ("An account already exists with this email. Please log in to track this order.")}
+            )
+
+        return attrs
 
     def create(self, validated_data):
         return create_order_from_payload(validated_data, user=self.context["request"].user)
