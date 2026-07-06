@@ -8,7 +8,7 @@ from uuid import uuid4
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
 from django.db import IntegrityError, OperationalError, transaction
-from django.db.models import Q
+from django.db.models import F, Q
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -554,6 +554,132 @@ def send_cancellation_result_email_to_buyer(cancel_request):
     )
 
 
+def send_order_cancelled_by_buyer_email_to_seller(order):
+    """Notify seller that a buyer cancelled a still-pending order outright
+    (no approval needed, since the seller hadn't accepted it yet)."""
+    seller_email = getattr(order.shop.owner, "email", None)
+    if not seller_email:
+        return
+    currency = getattr(getattr(order.shop, "settings", None), "currency", "EUR")
+    html_message = f"""
+    <h2>Order Cancelled by Buyer – {order.order_number}</h2>
+    <p>The buyer cancelled order <strong>{order.order_number}</strong> before it was accepted.
+       No action is needed from you.</p>
+    <table cellpadding="6" style="border-collapse:collapse">
+      <tr><td><strong>Order number:</strong></td><td>{order.order_number}</td></tr>
+      <tr><td><strong>Order total:</strong></td><td>{order.total} {currency}</td></tr>
+      <tr><td><strong>Buyer name:</strong></td><td>{order.customer_name}</td></tr>
+    </table>
+    """
+    send_mail(
+        subject=f"Order {order.order_number} was cancelled by the buyer",
+        message=f"Order {order.order_number} was cancelled by the buyer before acceptance. No action needed.",
+        from_email=None,
+        recipient_list=[seller_email],
+        html_message=html_message,
+        fail_silently=True,
+    )
+
+
+def send_order_cancelled_confirmation_email_to_buyer(order):
+    """Confirm to the buyer that their self-serve cancellation went through."""
+    buyer_email = order.customer_email
+    if not buyer_email:
+        return
+    currency = getattr(getattr(order.shop, "settings", None), "currency", "EUR")
+    html_message = f"""
+    <h2>Order Cancelled – {order.order_number}</h2>
+    <p>Hi <strong>{order.customer_name}</strong>, your order <strong>{order.order_number}</strong>
+       from <strong>{order.shop.name}</strong> has been cancelled as requested.</p>
+    <p>Order total: <strong>{order.total} {currency}</strong></p>
+    <p>If you didn't request this, please contact the shop directly.</p>
+    """
+    send_mail(
+        subject=f"Order {order.order_number} cancelled",
+        message=f"Your order {order.order_number} from {order.shop.name} has been cancelled as requested.",
+        from_email=None,
+        recipient_list=[buyer_email],
+        html_message=html_message,
+        fail_silently=True,
+    )
+
+
+# Buyer-facing copy shown/emailed for each status a seller can move an order
+# to via the seller "status" action (accept/reject/prepare/ready/etc.).
+# Cancellation-request approve/reject and buyer self-cancel have their own
+# dedicated, more detailed emails (see above) and are NOT routed through this
+# generic map, to avoid sending two emails for the same transition.
+ORDER_STATUS_UPDATE_SUBJECTS = {
+    Order.STATUS_ACCEPTED: "Your order {order_number} was accepted",
+    Order.STATUS_REJECTED: "Your order {order_number} was declined",
+    Order.STATUS_PREPARING: "Your order {order_number} is being prepared",
+    Order.STATUS_READY: "Your order {order_number} is ready",
+    Order.STATUS_OUT_FOR_DELIVERY: "Your order {order_number} is out for delivery",
+    Order.STATUS_COMPLETED: "Your order {order_number} is complete",
+    Order.STATUS_CANCELLED: "Your order {order_number} was cancelled",
+}
+
+
+def send_order_status_update_email_to_buyer(order, previous_status):
+    """Notify the buyer whenever a seller modifies an order's status
+    (accept/reject/prepare/ready/out-for-delivery/complete/cancel via the
+    seller order-status action). Never blocks the request if email fails."""
+    buyer_email = order.customer_email
+    if not buyer_email:
+        return
+    subject_template = ORDER_STATUS_UPDATE_SUBJECTS.get(order.status)
+    if not subject_template:
+        return
+    subject = subject_template.format(order_number=order.order_number)
+    status_label = order.status.replace("_", " ").title()
+    html_message = f"""
+    <h2>Order Update – {order.order_number}</h2>
+    <p>Hi <strong>{order.customer_name}</strong>, your order <strong>{order.order_number}</strong>
+       from <strong>{order.shop.name}</strong> is now: <strong>{status_label}</strong>.</p>
+    <p>Previous status: {previous_status.replace('_', ' ').title()}</p>
+    """
+    try:
+        send_mail(
+            subject=subject,
+            message=f"Your order {order.order_number} status changed to {status_label}.",
+            from_email=None,
+            recipient_list=[buyer_email],
+            html_message=html_message,
+            fail_silently=True,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to send order status update email for order %s", order.order_number)
+
+
+@transaction.atomic
+def cancel_pending_order_by_buyer(order):
+    """Instantly cancel an order that is still STATUS_PENDING (the seller
+    hasn't accepted it yet, so no approval workflow is needed). Restores
+    stock for every item and marks the order cancelled. Raises
+    serializers.ValidationError if the order is no longer pending (e.g. the
+    seller already accepted/rejected it in the meantime)."""
+    # Re-fetch with a row lock so a concurrent seller "accept" can't race
+    # with this cancellation.
+    locked_order = Order.objects.select_for_update().select_related("shop").get(pk=order.pk)
+    if locked_order.status != Order.STATUS_PENDING:
+        raise serializers.ValidationError(
+            {
+                "detail": (
+                    "This order can no longer be cancelled directly — it has already "
+                    "been accepted, rejected, or completed by the seller."
+                )
+            }
+        )
+    for item in locked_order.items.select_related("product"):
+        if item.product_id:
+            Product.objects.filter(pk=item.product_id).update(
+                stock_quantity=F("stock_quantity") + item.quantity
+            )
+    locked_order.status = Order.STATUS_CANCELLED
+    locked_order.save(update_fields=["status", "updated_at"])
+    return locked_order
+
+
 ALLOWED_ORDER_TRANSITIONS = {
     Order.STATUS_PENDING: {Order.STATUS_ACCEPTED, Order.STATUS_REJECTED, Order.STATUS_CANCELLED},
     Order.STATUS_ACCEPTED: {Order.STATUS_PREPARING, Order.STATUS_CANCELLED},
@@ -570,8 +696,14 @@ def update_order_status(order, new_status):
         return order
     if new_status not in ALLOWED_ORDER_TRANSITIONS.get(order.status, set()):
         raise serializers.ValidationError({"status": f"Cannot change order from {order.status} to {new_status}."})
+    previous_status = order.status
     order.status = new_status
     order.save(update_fields=["status", "updated_at"])
+    try:
+        send_order_status_update_email_to_buyer(order, previous_status)
+    except Exception:  # noqa: BLE001
+        # Never let an email failure roll back or fail the status change itself.
+        logger.exception("Failed to dispatch order status update email for order %s", order.order_number)
     return order
 
 

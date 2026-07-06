@@ -8,7 +8,7 @@ from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from apps.marketplace.models import Coupon, Order, OrderEmailLog, Product, Shop
+from apps.marketplace.models import Coupon, Order, OrderEmailLog, OrderItem, Product, Shop
 from apps.marketplace.services import create_seller_with_shop
 
 User = get_user_model()
@@ -321,6 +321,8 @@ class BuyerOrderAPITests(TestCase):
         self.assertIn(res.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
 
     def test_buyer_can_submit_cancellation_request(self):
+        self.order.status = Order.STATUS_ACCEPTED
+        self.order.save(update_fields=["status"])
         self.client.force_authenticate(self.buyer)
         res = self.client.post(
             f"/api/buyer/orders/{self.order.id}/cancel_request/",
@@ -331,9 +333,60 @@ class BuyerOrderAPITests(TestCase):
         self.assertEqual(res.data["status"], "pending")
         self.assertEqual(res.data["reason"], "changed_mind")
 
+    def test_buyer_cannot_submit_cancellation_request_for_pending_order(self):
+        """Pending orders must use the instant `cancel` action instead."""
+        self.client.force_authenticate(self.buyer)
+        res = self.client.post(
+            f"/api/buyer/orders/{self.order.id}/cancel_request/",
+            {"reason": "changed_mind"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_buyer_can_instantly_cancel_pending_order(self):
+        self.client.force_authenticate(self.buyer)
+        res = self.client.post(f"/api/buyer/orders/{self.order.id}/cancel/", format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["status"], "cancelled")
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.STATUS_CANCELLED)
+
+    def test_instant_cancel_restores_product_stock(self):
+        OrderItem.objects.create(
+            order=self.order,
+            product=self.product,
+            product_name=self.product.name,
+            unit_price=self.product.price,
+            quantity=3,
+            line_total=Decimal("30.00"),
+        )
+        self.product.stock_quantity = 47
+        self.product.save(update_fields=["stock_quantity"])
+        self.client.force_authenticate(self.buyer)
+        res = self.client.post(f"/api/buyer/orders/{self.order.id}/cancel/", format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock_quantity, 50)
+
+    def test_buyer_cannot_instantly_cancel_already_accepted_order(self):
+        self.order.status = Order.STATUS_ACCEPTED
+        self.order.save(update_fields=["status"])
+        self.client.force_authenticate(self.buyer)
+        res = self.client.post(f"/api/buyer/orders/{self.order.id}/cancel/", format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.STATUS_ACCEPTED)
+
+    def test_buyer_cannot_instantly_cancel_other_buyers_order(self):
+        self.client.force_authenticate(self.buyer)
+        res = self.client.post(f"/api/buyer/orders/{self.other_order.id}/cancel/", format="json")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_buyer_cannot_submit_duplicate_cancellation_request(self):
         from apps.marketplace.models import OrderCancellationRequest
 
+        self.order.status = Order.STATUS_ACCEPTED
+        self.order.save(update_fields=["status"])
         OrderCancellationRequest.objects.create(
             order=self.order,
             buyer=self.buyer,
