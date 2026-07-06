@@ -1,12 +1,13 @@
 import logging
 import re
 import threading
+import time
 from decimal import Decimal
 from uuid import uuid4
 
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, OperationalError, transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.text import slugify
@@ -14,6 +15,21 @@ from django.utils.text import slugify
 from rest_framework import serializers
 
 logger = logging.getLogger(__name__)
+
+# SQLite only allows a single writer at a time. Even with WAL mode and a
+# 20s busy_timeout configured, a request can still occasionally hit
+# "database is locked" if it lands in the narrow window right as another
+# write transaction is being set up. Rather than surface a raw 500 to the
+# shopper for what's usually a sub-second contention blip, retry the whole
+# order-creation transaction a few times with a short backoff. This is a
+# no-op on Postgres (production) since OperationalError there means
+# something else entirely and won't match this narrow retry count anyway.
+_DB_LOCK_MAX_RETRIES = 3
+_DB_LOCK_RETRY_DELAY_SECONDS = 0.3
+
+
+def _is_database_locked_error(exc: BaseException) -> bool:
+    return isinstance(exc, OperationalError) and "database is locked" in str(exc).lower()
 
 from .models import (
     Category,
@@ -332,12 +348,27 @@ def create_order_from_payload(payload, user=None):
     with an order silently created without its requested account."""
     creating_account = not (user and user.is_authenticated) and payload.get("create_account")
 
-    if creating_account:
-        with transaction.atomic():
-            new_user = _create_account_for_order(payload)
-            order = _create_order_atomic(payload, user=new_user)
-    else:
-        order = _create_order_atomic(payload, user=user)
+    def _create():
+        if creating_account:
+            with transaction.atomic():
+                new_user = _create_account_for_order(payload)
+                return _create_order_atomic(payload, user=new_user)
+        return _create_order_atomic(payload, user=user)
+
+    order = None
+    for attempt in range(1, _DB_LOCK_MAX_RETRIES + 1):
+        try:
+            order = _create()
+            break
+        except OperationalError as exc:
+            if not _is_database_locked_error(exc) or attempt == _DB_LOCK_MAX_RETRIES:
+                raise
+            logger.warning(
+                "Order creation hit 'database is locked' (attempt %s/%s); retrying shortly.",
+                attempt,
+                _DB_LOCK_MAX_RETRIES,
+            )
+            time.sleep(_DB_LOCK_RETRY_DELAY_SECONDS * attempt)
 
     # Dispatch emails to a background daemon thread — caller gets instant response.
     t = threading.Thread(target=_send_emails_background, args=(order.pk,), daemon=True)
