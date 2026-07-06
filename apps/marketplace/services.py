@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.text import slugify
@@ -265,17 +265,25 @@ def _unique_username_from_email(email):
     return username
 
 
-def _create_account_for_order(order, payload):
+def _create_account_for_order(payload):
     """Create a customer account during checkout by reusing the existing
     GuideWisey registration flow (UserRegistrationSerializer), so the new
-    user gets the same email-confirmation flow as any other signup."""
+    user gets the same email-confirmation flow as any other signup.
+
+    Raises serializers.ValidationError (never swallows errors) so a
+    duplicate-email race — two near-simultaneous checkout submissions with
+    the same email — surfaces as a clean ACCOUNT_ALREADY_EXISTS response
+    instead of silently creating the order without an account, or bubbling
+    up as an unhandled 500."""
     from apps.accounts.serializers import UserRegistrationSerializer
 
     email = (payload.get("customer_email") or "").strip()
     password = payload.get("password")
     password_confirm = payload.get("password_confirm")
     if not email or not password:
-        return None
+        raise serializers.ValidationError(
+            {"customer_email": "Email and password are required to create an account."}
+        )
 
     reg_serializer = UserRegistrationSerializer(
         data={
@@ -287,23 +295,49 @@ def _create_account_for_order(order, payload):
     )
     try:
         reg_serializer.is_valid(raise_exception=True)
-        new_user = reg_serializer.save()
-    except Exception as exc:  # noqa: BLE001
-        logger.error("Failed to create account during order checkout for %s: %s", email, exc)
-        return None
-
-    order.customer = new_user
-    order.save(update_fields=["customer"])
-    return new_user
+        return reg_serializer.save()
+    except serializers.ValidationError:
+        # UserRegistrationSerializer.validate_email() already raises this when the
+        # email is taken — re-raise with our stable code so the frontend can show
+        # a "log in instead" CTA rather than a generic error.
+        raise serializers.ValidationError(
+            {
+                "customer_email": (
+                    "An account already exists with this email. Please log in to track this order."
+                ),
+                "code": "ACCOUNT_ALREADY_EXISTS",
+            }
+        )
+    except IntegrityError:
+        # Belt-and-suspenders: a concurrent request created the same email/username
+        # between our validate() check and this save() — the DB unique constraint
+        # is the real source of truth here, so treat it the same way.
+        raise serializers.ValidationError(
+            {
+                "customer_email": (
+                    "An account already exists with this email. Please log in to track this order."
+                ),
+                "code": "ACCOUNT_ALREADY_EXISTS",
+            }
+        )
 
 
 def create_order_from_payload(payload, user=None):
     """Public entry point. Commits the DB transaction first, then sends emails
-    in a background daemon thread so the HTTP response is immediate."""
-    order = _create_order_atomic(payload, user=user)
+    in a background daemon thread so the HTTP response is immediate.
 
-    if not (user and user.is_authenticated) and payload.get("create_account"):
-        _create_account_for_order(order, payload)
+    When create_account is requested, the account is created FIRST inside the
+    same atomic transaction as the order — if account creation fails (e.g. a
+    duplicate email race), the whole transaction rolls back so we never end up
+    with an order silently created without its requested account."""
+    creating_account = not (user and user.is_authenticated) and payload.get("create_account")
+
+    if creating_account:
+        with transaction.atomic():
+            new_user = _create_account_for_order(payload)
+            order = _create_order_atomic(payload, user=new_user)
+    else:
+        order = _create_order_atomic(payload, user=user)
 
     # Dispatch emails to a background daemon thread — caller gets instant response.
     t = threading.Thread(target=_send_emails_background, args=(order.pk,), daemon=True)
@@ -311,6 +345,7 @@ def create_order_from_payload(payload, user=None):
     logger.info("Order %s created; email thread %s dispatched.", order.order_number, t.name)
 
     return order
+
 
 
 def _send_and_log_order_email(order, email_type, recipient, send_fn):

@@ -701,6 +701,39 @@ class OrderCheckoutAccountCreationTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertIsNone(response.data["customer"])
 
+    def test_duplicate_email_race_rolls_back_the_order_atomically(self):
+        """Regression test: if a request races past the serializer-level
+        duplicate-email pre-check (e.g. two near-simultaneous checkout
+        submissions with the same email), the service layer must still
+        refuse to silently create an order without its requested account.
+        It must raise ACCOUNT_ALREADY_EXISTS and roll back the whole
+        transaction -- never leave a stray Order row with no linked account."""
+        from apps.marketplace.services import create_order_from_payload
+
+        payload = self._order_payload(
+            create_account=True,
+            password="Race12345Pass!",
+            password_confirm="Race12345Pass!",
+        )
+        orders_before = Order.objects.count()
+
+        # Simulate the race directly: create the "colliding" account and then
+        # call the service layer straight past the serializer's pre-check.
+        User.objects.create_user(
+            username="existing-buyer-race",
+            email="guest-checkout@example.com",
+            password="Race12345Pass!",
+        )
+
+        with self.assertRaises(Exception) as ctx:
+            with patch("apps.marketplace.services.threading.Thread", _SyncThread):
+                create_order_from_payload(payload, user=None)
+
+        error_data = getattr(ctx.exception, "detail", None) or getattr(ctx.exception, "message_dict", None)
+        self.assertIn("ACCOUNT_ALREADY_EXISTS", str(error_data or ctx.exception))
+        # No order should have been created -- the whole transaction rolled back.
+        self.assertEqual(Order.objects.count(), orders_before)
+
     def test_password_mismatch_returns_validation_error(self):
         payload = self._order_payload(
             create_account=True,
