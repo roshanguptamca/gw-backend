@@ -112,6 +112,90 @@ class PublicProductViewSet(viewsets.ReadOnlyModelViewSet):
         return queryset
 
 
+def _cart_response(request):
+    cart = request.session.get("marketplace_cart", {})
+    products = {
+        str(product.id): product
+        for product in Product.objects.filter(
+            id__in=cart.keys(),
+            shop__is_active=True,
+            shop__is_approved=True,
+            is_active=True,
+            is_approved=True,
+        )
+        .select_related("shop", "shop__settings", "category")
+        .prefetch_related("images")
+    }
+    items = [
+        {
+            "product": PublicProductSerializer(product, context={"request": request}).data,
+            "quantity": min(int(cart[product_id]), product.stock_quantity),
+        }
+        for product_id, product in products.items()
+        if int(cart[product_id]) > 0 and product.stock_quantity > 0
+    ]
+    return Response({"items": items})
+
+
+class MarketplaceCartView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        return _cart_response(request)
+
+
+class MarketplaceCartItemCreateView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        product_id = str(request.data.get("product_id", ""))
+        try:
+            quantity = max(1, int(request.data.get("quantity", 1)))
+            product = Product.objects.get(
+                id=product_id,
+                shop__is_active=True,
+                shop__is_approved=True,
+                is_active=True,
+                is_approved=True,
+            )
+        except (ValueError, TypeError, Product.DoesNotExist):
+            return Response({"detail": "Product not found."}, status=status.HTTP_404_NOT_FOUND)
+        cart = request.session.get("marketplace_cart", {})
+        cart[product_id] = min(int(cart.get(product_id, 0)) + quantity, product.stock_quantity)
+        request.session["marketplace_cart"] = cart
+        return _cart_response(request)
+
+
+class MarketplaceCartItemView(APIView):
+    permission_classes = [AllowAny]
+
+    def patch(self, request, product_id):
+        cart = request.session.get("marketplace_cart", {})
+        key = str(product_id)
+        if key not in cart:
+            return Response({"detail": "Cart item not found."}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            quantity = int(request.data.get("quantity", 1))
+        except (ValueError, TypeError):
+            return Response({"detail": "Invalid quantity."}, status=status.HTTP_400_BAD_REQUEST)
+        if quantity <= 0:
+            cart.pop(key, None)
+        else:
+            stock = Product.objects.filter(id=product_id).values_list("stock_quantity", flat=True).first()
+            if stock is None:
+                cart.pop(key, None)
+            else:
+                cart[key] = min(quantity, stock)
+        request.session["marketplace_cart"] = cart
+        return _cart_response(request)
+
+    def delete(self, request, product_id):
+        cart = request.session.get("marketplace_cart", {})
+        cart.pop(str(product_id), None)
+        request.session["marketplace_cart"] = cart
+        return _cart_response(request)
+
+
 class OrderCreateView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [ScopedRateThrottle]
@@ -122,6 +206,34 @@ class OrderCreateView(APIView):
         serializer.is_valid(raise_exception=True)
         order = serializer.save()
         return Response(OrderSerializer(order, context={"request": request}).data, status=status.HTTP_201_CREATED)
+
+
+class MarketplaceOrderDetailView(APIView):
+    """Return an order only to its buyer, owning seller, or a superuser.
+
+    Guest order details are intentionally returned by the create response only;
+    exposing sequential database IDs as a public lookup would leak customer data.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, order_id):
+        order = (
+            Order.objects.filter(pk=order_id).select_related("shop", "shop__owner").prefetch_related("items").first()
+        )
+        if not order:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        user = request.user
+        can_view = bool(
+            user
+            and user.is_authenticated
+            and (user.is_superuser or order.customer_id == user.id or order.shop.owner_id == user.id)
+        )
+        if not can_view:
+            return Response(
+                {"detail": "Authentication credentials were not provided."}, status=status.HTTP_403_FORBIDDEN
+            )
+        return Response(OrderSerializer(order, context={"request": request}).data)
 
 
 class CustomerOrderViewSet(viewsets.ReadOnlyModelViewSet):
@@ -308,6 +420,33 @@ class PublicCategoryListView(APIView):
             .order_by("name")
         )
         return Response(PublicCategorySerializer(categories, many=True).data)
+
+
+class MarketplaceMeView(APIView):
+    """Lightweight auth/session check for the marketplace frontend.
+
+    Unlike ``MeView``/``SellerMeView`` this never requires authentication and
+    never returns 401/403 for anonymous users - it simply reports the
+    session state so the marketplace SPA can decide what to render.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        user = request.user
+        is_authenticated = bool(user and user.is_authenticated)
+        seller_profile = getattr(user, "seller_profile", None) if is_authenticated else None
+        shop_slug = None
+        if seller_profile is not None:
+            shop = getattr(seller_profile, "shop", None)
+            shop_slug = getattr(shop, "slug", None)
+        return Response(
+            {
+                "is_authenticated": is_authenticated,
+                "is_seller": seller_profile is not None,
+                "shop_slug": shop_slug,
+            }
+        )
 
 
 class SellerMeView(APIView):

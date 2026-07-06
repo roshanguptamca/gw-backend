@@ -164,14 +164,26 @@ CORS_ALLOWED_ORIGINS = [
     "https://gw-frontend-7kjrbapg8-roshans-projects-8dfa7f93.vercel.app",
     # SecureWise portal
     "https://securewise.guidewisey.com",
+    "https://marketplace.guidewisey.com",
+    # gw-marketplace-fe (new marketplace frontend) — production Vercel domain
+    "https://gw-marketplace-fe.vercel.app",
 ] + _env_list("EXTRA_CORS_ORIGINS")
+
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://[a-z0-9-]+\.shop\.guidewisey\.com$",
+    # gw-marketplace-fe Vercel preview/branch deployments, e.g.
+    # https://gw-marketplace-fe-git-feature-x-roshans-projects.vercel.app
+    r"^https://gw-marketplace-fe.*\.vercel\.app$",
+] + _env_list("EXTRA_CORS_ORIGIN_REGEXES")
 
 if IS_DEVELOPMENT:
     CORS_ALLOWED_ORIGINS += [
         "http://localhost:3000",
+        "http://localhost:3002",
         "http://localhost:5173",
         "http://localhost:5174",  # securewise-frontend dev port
         "http://127.0.0.1:3000",
+        "http://127.0.0.1:3002",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:5174",
     ]
@@ -191,7 +203,7 @@ CSRF_TRUSTED_ORIGINS = list(
     dict.fromkeys(
         _env_list(
             "CSRF_TRUSTED_ORIGINS",
-            "https://api.guidewisey.com,https://guidewisey.com,https://www.guidewisey.com,https://securewise.guidewisey.com",
+            "https://api.guidewisey.com,https://guidewisey.com,https://www.guidewisey.com,https://securewise.guidewisey.com,https://marketplace.guidewisey.com,https://*.shop.guidewisey.com,https://gw-marketplace-fe.vercel.app",
         )
     )
 )
@@ -199,6 +211,8 @@ CSRF_TRUSTED_ORIGINS = list(
 if IS_DEVELOPMENT:
     CSRF_TRUSTED_ORIGINS += [
         "http://localhost:3000",
+        "http://localhost:3002",
+        "http://*.localhost:3002",
         "http://localhost:5173",
         "http://localhost:5174",  # securewise-frontend dev port
         "http://127.0.0.1:3000",
@@ -223,8 +237,8 @@ else:
     SESSION_COOKIE_SAMESITE = "None"
 
 # Common cookie settings (both environments)
-CSRF_COOKIE_DOMAIN = None
-SESSION_COOKIE_DOMAIN = None
+CSRF_COOKIE_DOMAIN = ".guidewisey.com" if IS_PRODUCTION else None
+SESSION_COOKIE_DOMAIN = ".guidewisey.com" if IS_PRODUCTION else None
 CSRF_COOKIE_HTTPONLY = False  # JavaScript needs to read CSRF token
 SESSION_COOKIE_HTTPONLY = True  # Security: prevent JS access to session
 CSRF_COOKIE_PATH = "/"
@@ -245,7 +259,7 @@ if IS_PRODUCTION:
     SECURE_CONTENT_TYPE_NOSNIFF = True
     SECURE_BROWSER_XSS_FILTER = True
     X_FRAME_OPTIONS = "DENY"
-    CORS_ALLOWED_ORIGIN_REGEXES = [
+    CORS_ALLOWED_ORIGIN_REGEXES += [
         r"^https://gw-frontend-.*\.vercel\.app$",
         r"^https://securewise.*\.vercel\.app$",
     ]

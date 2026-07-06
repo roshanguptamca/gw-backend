@@ -8,6 +8,11 @@ from .views import (
     AdminShopViewSet,
     BuyerOrderViewSet,
     CustomerOrderViewSet,
+    MarketplaceCartItemCreateView,
+    MarketplaceCartItemView,
+    MarketplaceCartView,
+    MarketplaceMeView,
+    MarketplaceOrderDetailView,
     MarketplaceSearchView,
     OrderCreateView,
     PublicCategoryListView,
@@ -48,8 +53,31 @@ router.register("admin/products", AdminProductViewSet, basename="admin-product")
 
 urlpatterns = [
     path("orders/", OrderCreateView.as_view(), name="marketplace-order-create"),
+    path("marketplace/orders/", OrderCreateView.as_view(), name="marketplace-order-request-create"),
+    path(
+        "marketplace/orders/<int:order_id>/",
+        MarketplaceOrderDetailView.as_view(),
+        name="marketplace-order-request-detail",
+    ),
+    path(
+        "marketplace/seller/orders/",
+        SellerOrderViewSet.as_view({"get": "list"}),
+        name="marketplace-seller-order-list",
+    ),
+    path("marketplace/me/", MarketplaceMeView.as_view(), name="marketplace-me"),
     path("marketplace/search/", MarketplaceSearchView.as_view(), name="marketplace-search"),
     path("marketplace/categories/", PublicCategoryListView.as_view(), name="marketplace-categories"),
+    path("marketplace/cart/", MarketplaceCartView.as_view(), name="marketplace-cart"),
+    path(
+        "marketplace/cart/items/",
+        MarketplaceCartItemCreateView.as_view(),
+        name="marketplace-cart-item-create",
+    ),
+    path(
+        "marketplace/cart/items/<int:product_id>/",
+        MarketplaceCartItemView.as_view(),
+        name="marketplace-cart-item",
+    ),
     path("seller/me/", SellerMeView.as_view(), name="seller-me"),
     path("seller/dashboard/", SellerDashboardView.as_view(), name="seller-dashboard"),
     path("seller/shop/", SellerShopView.as_view(), name="seller-shop"),
