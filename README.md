@@ -229,6 +229,27 @@ FUTUREWAVE_FRONTEND_BASE_URL=http://localhost:3000
 
 > **Zero dependencies locally:** SQLite is used when DB vars are blank. Email prints to the console when `EMAIL_HOST_PASSWORD` is not set.
 
+#### Marketplace checkout emails (account verification + order notifications)
+
+The marketplace checkout endpoint (`POST /api/marketplace/orders/`) reuses the
+same email machinery as the rest of the app — no separate config needed:
+
+- **Account verification** (when a guest checks "Create an account to track
+  my order" and submits a password): sent via
+  `apps.future_wise.email_service.BrevoEmailService.send_account_confirmation_email`,
+  the exact same flow as `/api/accounts/register/`.
+- **Buyer order confirmation** and **seller new-order notification**: sent via
+  `django.core.mail.send_mail` from `apps/marketplace/services.py`, dispatched
+  in a background thread so the HTTP response returns immediately. A failure
+  sending either email is logged and does **not** fail the order.
+
+Locally, with `EMAIL_HOST_PASSWORD` and `BREVO_API_KEY` unset, `EMAIL_BACKEND`
+falls back to `django.core.mail.backends.console.EmailBackend`, so all three
+emails (verification, buyer confirmation, seller notification) print straight
+to the `runserver` terminal — no SMTP setup required to see them while
+testing checkout locally. Set `EMAIL_HOST_PASSWORD` (Brevo SMTP) or
+`BREVO_API_KEY` (Brevo HTTP API) to send real emails instead.
+
 ### Twilio WhatsApp Sandbox
 
 To test WhatsApp reminders with a Twilio trial account:
