@@ -48,10 +48,14 @@ from .serializers import (
     ShopSettingsSerializer,
 )
 from .services import (
+    cancel_pending_order_by_buyer,
     generate_unique_slug,
     link_guest_orders_to_user,
+    lookup_dutch_address,
     send_cancellation_request_email_to_seller,
     send_cancellation_result_email_to_buyer,
+    send_order_cancelled_by_buyer_email_to_seller,
+    send_order_cancelled_confirmation_email_to_buyer,
     update_order_status,
 )
 
@@ -260,12 +264,48 @@ class BuyerOrderViewSet(viewsets.ReadOnlyModelViewSet):
         )
 
     @action(detail=True, methods=["post"])
-    def cancel_request(self, request, pk=None):
-        """Submit a cancellation request for an order."""
+    def cancel(self, request, pk=None):
+        """Instantly cancel an order that's still pending (the seller hasn't
+        accepted it yet, so no approval workflow is needed). Restores stock
+        for every item. For orders already accepted/in-progress, buyers must
+        use `cancel_request` instead (seller approval required)."""
         order = self.get_object()  # already scoped to request.user
-        if order.status not in (Order.STATUS_PENDING, Order.STATUS_ACCEPTED):
+        if order.status != Order.STATUS_PENDING:
             return Response(
-                {"detail": "Cancellation requests can only be submitted for pending or accepted orders."},
+                {
+                    "detail": (
+                        "Only orders that are still pending can be cancelled directly. "
+                        "For orders the seller has already accepted, please submit a "
+                        "cancellation request instead."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        cancelled_order = cancel_pending_order_by_buyer(order)
+        try:
+            send_order_cancelled_by_buyer_email_to_seller(cancelled_order)
+        except Exception:
+            pass
+        try:
+            send_order_cancelled_confirmation_email_to_buyer(cancelled_order)
+        except Exception:
+            pass
+        return Response(BuyerOrderSerializer(cancelled_order).data)
+
+    @action(detail=True, methods=["post"])
+    def cancel_request(self, request, pk=None):
+        """Submit a cancellation request for an order the seller has already
+        accepted (pending orders should use the `cancel` action instead for
+        an instant self-serve cancellation)."""
+        order = self.get_object()  # already scoped to request.user
+        if order.status != Order.STATUS_ACCEPTED:
+            return Response(
+                {
+                    "detail": (
+                        "Cancellation requests can only be submitted for orders the seller "
+                        "has already accepted. Pending orders can be cancelled directly."
+                    )
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if hasattr(order, "cancellation_request"):
@@ -420,6 +460,33 @@ class PublicCategoryListView(APIView):
             .order_by("name")
         )
         return Response(PublicCategorySerializer(categories, many=True).data)
+
+
+class AddressLookupView(APIView):
+    """Optional Dutch postcode + house number → street/city lookup for checkout.
+
+    Always AllowAny/read-only and never raises — an unavailable or misconfigured
+    provider returns 404 "not found" so the frontend can fall back to manual
+    address entry without blocking checkout.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        postcode = request.query_params.get("postcode", "")
+        house_number = request.query_params.get("house_number", "")
+        if not postcode or not house_number:
+            return Response(
+                {"detail": "postcode and house_number query params are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        result = lookup_dutch_address(postcode, house_number)
+        if not result:
+            return Response(
+                {"detail": "Address not found. Please enter it manually."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(result)
 
 
 class MarketplaceMeView(APIView):

@@ -8,7 +8,7 @@ from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from apps.marketplace.models import Coupon, Order, OrderEmailLog, Product, Shop
+from apps.marketplace.models import Coupon, Order, OrderEmailLog, OrderItem, Product, Shop
 from apps.marketplace.services import create_seller_with_shop
 
 User = get_user_model()
@@ -321,6 +321,8 @@ class BuyerOrderAPITests(TestCase):
         self.assertIn(res.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
 
     def test_buyer_can_submit_cancellation_request(self):
+        self.order.status = Order.STATUS_ACCEPTED
+        self.order.save(update_fields=["status"])
         self.client.force_authenticate(self.buyer)
         res = self.client.post(
             f"/api/buyer/orders/{self.order.id}/cancel_request/",
@@ -331,9 +333,60 @@ class BuyerOrderAPITests(TestCase):
         self.assertEqual(res.data["status"], "pending")
         self.assertEqual(res.data["reason"], "changed_mind")
 
+    def test_buyer_cannot_submit_cancellation_request_for_pending_order(self):
+        """Pending orders must use the instant `cancel` action instead."""
+        self.client.force_authenticate(self.buyer)
+        res = self.client.post(
+            f"/api/buyer/orders/{self.order.id}/cancel_request/",
+            {"reason": "changed_mind"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_buyer_can_instantly_cancel_pending_order(self):
+        self.client.force_authenticate(self.buyer)
+        res = self.client.post(f"/api/buyer/orders/{self.order.id}/cancel/", format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["status"], "cancelled")
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.STATUS_CANCELLED)
+
+    def test_instant_cancel_restores_product_stock(self):
+        OrderItem.objects.create(
+            order=self.order,
+            product=self.product,
+            product_name=self.product.name,
+            unit_price=self.product.price,
+            quantity=3,
+            line_total=Decimal("30.00"),
+        )
+        self.product.stock_quantity = 47
+        self.product.save(update_fields=["stock_quantity"])
+        self.client.force_authenticate(self.buyer)
+        res = self.client.post(f"/api/buyer/orders/{self.order.id}/cancel/", format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock_quantity, 50)
+
+    def test_buyer_cannot_instantly_cancel_already_accepted_order(self):
+        self.order.status = Order.STATUS_ACCEPTED
+        self.order.save(update_fields=["status"])
+        self.client.force_authenticate(self.buyer)
+        res = self.client.post(f"/api/buyer/orders/{self.order.id}/cancel/", format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.STATUS_ACCEPTED)
+
+    def test_buyer_cannot_instantly_cancel_other_buyers_order(self):
+        self.client.force_authenticate(self.buyer)
+        res = self.client.post(f"/api/buyer/orders/{self.other_order.id}/cancel/", format="json")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_buyer_cannot_submit_duplicate_cancellation_request(self):
         from apps.marketplace.models import OrderCancellationRequest
 
+        self.order.status = Order.STATUS_ACCEPTED
+        self.order.save(update_fields=["status"])
         OrderCancellationRequest.objects.create(
             order=self.order,
             buyer=self.buyer,
@@ -684,6 +737,55 @@ class OrderCheckoutAccountCreationTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("customer_email", response.data)
         self.assertIn("already exists", str(response.data["customer_email"]))
+        # Stable machine-readable code so the frontend can show a login CTA
+        # instead of a generic validation error.
+        self.assertIn("ACCOUNT_ALREADY_EXISTS", str(response.data["code"]))
+
+    def test_guest_order_with_existing_email_and_no_create_account_still_works(self):
+        """create_account=false must not be blocked by an existing account with that email."""
+        User.objects.create_user(
+            username="existing-buyer-2",
+            email="guest-checkout@example.com",
+            password="ExistingPass123!",
+        )
+        payload = self._order_payload(create_account=False)
+        with patch("apps.marketplace.services.threading.Thread", _SyncThread):
+            response = self.client.post("/api/marketplace/orders/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(response.data["customer"])
+
+    def test_duplicate_email_race_rolls_back_the_order_atomically(self):
+        """Regression test: if a request races past the serializer-level
+        duplicate-email pre-check (e.g. two near-simultaneous checkout
+        submissions with the same email), the service layer must still
+        refuse to silently create an order without its requested account.
+        It must raise ACCOUNT_ALREADY_EXISTS and roll back the whole
+        transaction -- never leave a stray Order row with no linked account."""
+        from apps.marketplace.services import create_order_from_payload
+
+        payload = self._order_payload(
+            create_account=True,
+            password="Race12345Pass!",
+            password_confirm="Race12345Pass!",
+        )
+        orders_before = Order.objects.count()
+
+        # Simulate the race directly: create the "colliding" account and then
+        # call the service layer straight past the serializer's pre-check.
+        User.objects.create_user(
+            username="existing-buyer-race",
+            email="guest-checkout@example.com",
+            password="Race12345Pass!",
+        )
+
+        with self.assertRaises(Exception) as ctx:
+            with patch("apps.marketplace.services.threading.Thread", _SyncThread):
+                create_order_from_payload(payload, user=None)
+
+        error_data = getattr(ctx.exception, "detail", None) or getattr(ctx.exception, "message_dict", None)
+        self.assertIn("ACCOUNT_ALREADY_EXISTS", str(error_data or ctx.exception))
+        # No order should have been created -- the whole transaction rolled back.
+        self.assertEqual(Order.objects.count(), orders_before)
 
     def test_password_mismatch_returns_validation_error(self):
         payload = self._order_payload(
@@ -789,3 +891,139 @@ class OrderCheckoutAccountCreationTests(TestCase):
         order.refresh_from_db()
         self.assertIsNone(order.buyer_email_sent_at)
         self.assertIsNone(order.seller_email_sent_at)
+
+
+class DeliveryFeeAPITests(TestCase):
+    """Delivery fee fields must be computed server-side and returned on order creation."""
+
+    def setUp(self):
+        self.client = APIClient()
+        admin = User.objects.create_superuser(
+            username="admin7@example.com",
+            email="admin7@example.com",
+            password="AdminPass123!",
+        )
+        self.seller_user, _, self.shop = create_seller_with_shop(
+            email="seller7@example.com",
+            password="SellerPass123!",
+            first_name="Seller",
+            last_name="Seven",
+            business_name="Delivery Test Shop",
+            created_by=admin,
+        )
+        self.shop.is_approved = True
+        self.shop.pickup_available = True
+        self.shop.delivery_available = True
+        self.shop.save()
+        self.shop.settings.local_delivery_fee = Decimal("4.50")
+        self.shop.settings.international_delivery_fee = Decimal("12.00")
+        self.shop.settings.free_delivery_above = Decimal("50.00")
+        self.shop.settings.save()
+        self.product = Product.objects.create(
+            shop=self.shop,
+            name="Delivery Product",
+            slug="delivery-product",
+            price=Decimal("10.00"),
+            stock_quantity=20,
+            is_active=True,
+            is_approved=True,
+        )
+
+    def _payload(self, **overrides):
+        payload = {
+            "shop_id": self.shop.id,
+            "customer_name": "Buyer",
+            "customer_email": "delivery-buyer@example.com",
+            "customer_phone": "+31600000222",
+            "order_type": "pickup",
+            "payment_method": "cash",
+            "items": [{"product_id": self.product.id, "quantity": 1}],
+            "terms_accepted": True,
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_pickup_order_has_zero_delivery_fee(self):
+        with patch("apps.marketplace.services.threading.Thread", _SyncThread):
+            response = self.client.post("/api/marketplace/orders/", self._payload(order_type="pickup"), format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Decimal(response.data["delivery_fee"]), Decimal("0.00"))
+        self.assertEqual(Decimal(response.data["subtotal"]), Decimal("10.00"))
+        self.assertEqual(Decimal(response.data["total"]), Decimal("10.00"))
+
+    def test_delivery_order_includes_local_delivery_fee_in_total(self):
+        with patch("apps.marketplace.services.threading.Thread", _SyncThread):
+            response = self.client.post(
+                "/api/marketplace/orders/",
+                self._payload(
+                    order_type="delivery", delivery_zone="local", delivery_address="Main St 1, 1000AA, Amsterdam"
+                ),
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Decimal(response.data["delivery_fee"]), Decimal("4.50"))
+        self.assertEqual(Decimal(response.data["total"]), Decimal("14.50"))
+
+    def test_delivery_order_above_free_threshold_has_zero_fee(self):
+        with patch("apps.marketplace.services.threading.Thread", _SyncThread):
+            response = self.client.post(
+                "/api/marketplace/orders/",
+                self._payload(
+                    order_type="delivery",
+                    delivery_zone="local",
+                    delivery_address="Main St 1, 1000AA, Amsterdam",
+                    items=[{"product_id": self.product.id, "quantity": 6}],  # 60.00 subtotal > 50 threshold
+                ),
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Decimal(response.data["delivery_fee"]), Decimal("0.00"))
+        self.assertEqual(Decimal(response.data["subtotal"]), Decimal("60.00"))
+        self.assertEqual(Decimal(response.data["total"]), Decimal("60.00"))
+
+    def test_shop_detail_response_includes_delivery_fee_settings(self):
+        response = self.client.get(f"/api/marketplace/shops/{self.shop.slug}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        settings_data = response.data["settings"]
+        self.assertEqual(Decimal(settings_data["local_delivery_fee"]), Decimal("4.50"))
+        self.assertEqual(Decimal(settings_data["international_delivery_fee"]), Decimal("12.00"))
+        self.assertEqual(Decimal(settings_data["free_delivery_above"]), Decimal("50.00"))
+        self.assertTrue(response.data["pickup_available"])
+        self.assertTrue(response.data["delivery_available"])
+
+
+class AddressLookupAPITests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    def test_missing_query_params_returns_400(self):
+        response = self.client.get("/api/marketplace/address-lookup/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("apps.marketplace.views.lookup_dutch_address")
+    def test_successful_lookup_returns_street_and_city(self, mock_lookup):
+        mock_lookup.return_value = {"street": "Damrak", "city": "Amsterdam", "country": "Netherlands"}
+        response = self.client.get("/api/marketplace/address-lookup/", {"postcode": "1012AB", "house_number": "1"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["street"], "Damrak")
+        self.assertEqual(response.data["city"], "Amsterdam")
+        self.assertEqual(response.data["country"], "Netherlands")
+
+    @patch("apps.marketplace.views.lookup_dutch_address")
+    def test_failed_lookup_returns_404_not_500(self, mock_lookup):
+        mock_lookup.return_value = None
+        response = self.client.get("/api/marketplace/address-lookup/", {"postcode": "0000ZZ", "house_number": "999"})
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_provider_disabled_returns_none_safely(self):
+        with self.settings(MARKETPLACE_ADDRESS_LOOKUP_PROVIDER_URL=""):
+            from apps.marketplace.services import lookup_dutch_address
+
+            self.assertIsNone(lookup_dutch_address("1012AB", "1"))
+
+    def test_provider_exception_is_caught_and_returns_none(self):
+        with self.settings(MARKETPLACE_ADDRESS_LOOKUP_PROVIDER_URL="https://example.invalid/lookup"):
+            with patch("requests.get", side_effect=Exception("network down")):
+                from apps.marketplace.services import lookup_dutch_address
+
+                self.assertIsNone(lookup_dutch_address("1012AB", "1"))

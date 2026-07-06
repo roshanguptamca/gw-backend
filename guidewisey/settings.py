@@ -274,6 +274,17 @@ SECUREWISE_FRONTEND_URL = os.getenv("SECUREWISE_FRONTEND_URL", "https://securewi
 SECUREWISE_ENCRYPTION_KEY = os.getenv("SECUREWISE_ENCRYPTION_KEY", "")
 
 # -------------------------------
+# Marketplace: Dutch address lookup (postcode + house number)
+# -------------------------------
+# Defaults to PDOK Locatieserver, the Dutch government's free/keyless open-data
+# geocoder — no paid provider or API key required. Set to an empty string to
+# disable the /api/marketplace/address-lookup/ endpoint entirely.
+MARKETPLACE_ADDRESS_LOOKUP_PROVIDER_URL = os.getenv(
+    "MARKETPLACE_ADDRESS_LOOKUP_PROVIDER_URL",
+    "https://api.pdok.nl/bzk/locatieserver/search/v3_1/free",
+)
+
+# -------------------------------
 # Password Validators
 # -------------------------------
 AUTH_PASSWORD_VALIDATORS = [

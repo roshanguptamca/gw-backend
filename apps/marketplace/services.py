@@ -1,19 +1,36 @@
 import logging
 import re
 import threading
+import time
 from decimal import Decimal
 from uuid import uuid4
 
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
-from django.db import transaction
-from django.db.models import Q
+from django.db import IntegrityError, OperationalError, transaction
+from django.db.models import F, Q
 from django.utils import timezone
 from django.utils.text import slugify
 
 from rest_framework import serializers
 
 logger = logging.getLogger(__name__)
+
+# SQLite only allows a single writer at a time. Even with WAL mode and a
+# 20s busy_timeout configured, a request can still occasionally hit
+# "database is locked" if it lands in the narrow window right as another
+# write transaction is being set up. Rather than surface a raw 500 to the
+# shopper for what's usually a sub-second contention blip, retry the whole
+# order-creation transaction a few times with a short backoff. This is a
+# no-op on Postgres (production) since OperationalError there means
+# something else entirely and won't match this narrow retry count anyway.
+_DB_LOCK_MAX_RETRIES = 3
+_DB_LOCK_RETRY_DELAY_SECONDS = 0.3
+
+
+def _is_database_locked_error(exc: BaseException) -> bool:
+    return isinstance(exc, OperationalError) and "database is locked" in str(exc).lower()
+
 
 from .models import (
     Category,
@@ -265,17 +282,23 @@ def _unique_username_from_email(email):
     return username
 
 
-def _create_account_for_order(order, payload):
+def _create_account_for_order(payload):
     """Create a customer account during checkout by reusing the existing
     GuideWisey registration flow (UserRegistrationSerializer), so the new
-    user gets the same email-confirmation flow as any other signup."""
+    user gets the same email-confirmation flow as any other signup.
+
+    Raises serializers.ValidationError (never swallows errors) so a
+    duplicate-email race — two near-simultaneous checkout submissions with
+    the same email — surfaces as a clean ACCOUNT_ALREADY_EXISTS response
+    instead of silently creating the order without an account, or bubbling
+    up as an unhandled 500."""
     from apps.accounts.serializers import UserRegistrationSerializer
 
     email = (payload.get("customer_email") or "").strip()
     password = payload.get("password")
     password_confirm = payload.get("password_confirm")
     if not email or not password:
-        return None
+        raise serializers.ValidationError({"customer_email": "Email and password are required to create an account."})
 
     reg_serializer = UserRegistrationSerializer(
         data={
@@ -287,23 +310,60 @@ def _create_account_for_order(order, payload):
     )
     try:
         reg_serializer.is_valid(raise_exception=True)
-        new_user = reg_serializer.save()
-    except Exception as exc:  # noqa: BLE001
-        logger.error("Failed to create account during order checkout for %s: %s", email, exc)
-        return None
-
-    order.customer = new_user
-    order.save(update_fields=["customer"])
-    return new_user
+        return reg_serializer.save()
+    except serializers.ValidationError:
+        # UserRegistrationSerializer.validate_email() already raises this when the
+        # email is taken — re-raise with our stable code so the frontend can show
+        # a "log in instead" CTA rather than a generic error.
+        raise serializers.ValidationError(
+            {
+                "customer_email": ("An account already exists with this email. Please log in to track this order."),
+                "code": "ACCOUNT_ALREADY_EXISTS",
+            }
+        )
+    except IntegrityError:
+        # Belt-and-suspenders: a concurrent request created the same email/username
+        # between our validate() check and this save() — the DB unique constraint
+        # is the real source of truth here, so treat it the same way.
+        raise serializers.ValidationError(
+            {
+                "customer_email": ("An account already exists with this email. Please log in to track this order."),
+                "code": "ACCOUNT_ALREADY_EXISTS",
+            }
+        )
 
 
 def create_order_from_payload(payload, user=None):
     """Public entry point. Commits the DB transaction first, then sends emails
-    in a background daemon thread so the HTTP response is immediate."""
-    order = _create_order_atomic(payload, user=user)
+    in a background daemon thread so the HTTP response is immediate.
 
-    if not (user and user.is_authenticated) and payload.get("create_account"):
-        _create_account_for_order(order, payload)
+    When create_account is requested, the account is created FIRST inside the
+    same atomic transaction as the order — if account creation fails (e.g. a
+    duplicate email race), the whole transaction rolls back so we never end up
+    with an order silently created without its requested account."""
+    creating_account = not (user and user.is_authenticated) and payload.get("create_account")
+
+    def _create():
+        if creating_account:
+            with transaction.atomic():
+                new_user = _create_account_for_order(payload)
+                return _create_order_atomic(payload, user=new_user)
+        return _create_order_atomic(payload, user=user)
+
+    order = None
+    for attempt in range(1, _DB_LOCK_MAX_RETRIES + 1):
+        try:
+            order = _create()
+            break
+        except OperationalError as exc:
+            if not _is_database_locked_error(exc) or attempt == _DB_LOCK_MAX_RETRIES:
+                raise
+            logger.warning(
+                "Order creation hit 'database is locked' (attempt %s/%s); retrying shortly.",
+                attempt,
+                _DB_LOCK_MAX_RETRIES,
+            )
+            time.sleep(_DB_LOCK_RETRY_DELAY_SECONDS * attempt)
 
     # Dispatch emails to a background daemon thread — caller gets instant response.
     t = threading.Thread(target=_send_emails_background, args=(order.pk,), daemon=True)
@@ -488,6 +548,130 @@ def send_cancellation_result_email_to_buyer(cancel_request):
     )
 
 
+def send_order_cancelled_by_buyer_email_to_seller(order):
+    """Notify seller that a buyer cancelled a still-pending order outright
+    (no approval needed, since the seller hadn't accepted it yet)."""
+    seller_email = getattr(order.shop.owner, "email", None)
+    if not seller_email:
+        return
+    currency = getattr(getattr(order.shop, "settings", None), "currency", "EUR")
+    html_message = f"""
+    <h2>Order Cancelled by Buyer – {order.order_number}</h2>
+    <p>The buyer cancelled order <strong>{order.order_number}</strong> before it was accepted.
+       No action is needed from you.</p>
+    <table cellpadding="6" style="border-collapse:collapse">
+      <tr><td><strong>Order number:</strong></td><td>{order.order_number}</td></tr>
+      <tr><td><strong>Order total:</strong></td><td>{order.total} {currency}</td></tr>
+      <tr><td><strong>Buyer name:</strong></td><td>{order.customer_name}</td></tr>
+    </table>
+    """
+    send_mail(
+        subject=f"Order {order.order_number} was cancelled by the buyer",
+        message=f"Order {order.order_number} was cancelled by the buyer before acceptance. No action needed.",
+        from_email=None,
+        recipient_list=[seller_email],
+        html_message=html_message,
+        fail_silently=True,
+    )
+
+
+def send_order_cancelled_confirmation_email_to_buyer(order):
+    """Confirm to the buyer that their self-serve cancellation went through."""
+    buyer_email = order.customer_email
+    if not buyer_email:
+        return
+    currency = getattr(getattr(order.shop, "settings", None), "currency", "EUR")
+    html_message = f"""
+    <h2>Order Cancelled – {order.order_number}</h2>
+    <p>Hi <strong>{order.customer_name}</strong>, your order <strong>{order.order_number}</strong>
+       from <strong>{order.shop.name}</strong> has been cancelled as requested.</p>
+    <p>Order total: <strong>{order.total} {currency}</strong></p>
+    <p>If you didn't request this, please contact the shop directly.</p>
+    """
+    send_mail(
+        subject=f"Order {order.order_number} cancelled",
+        message=f"Your order {order.order_number} from {order.shop.name} has been cancelled as requested.",
+        from_email=None,
+        recipient_list=[buyer_email],
+        html_message=html_message,
+        fail_silently=True,
+    )
+
+
+# Buyer-facing copy shown/emailed for each status a seller can move an order
+# to via the seller "status" action (accept/reject/prepare/ready/etc.).
+# Cancellation-request approve/reject and buyer self-cancel have their own
+# dedicated, more detailed emails (see above) and are NOT routed through this
+# generic map, to avoid sending two emails for the same transition.
+ORDER_STATUS_UPDATE_SUBJECTS = {
+    Order.STATUS_ACCEPTED: "Your order {order_number} was accepted",
+    Order.STATUS_REJECTED: "Your order {order_number} was declined",
+    Order.STATUS_PREPARING: "Your order {order_number} is being prepared",
+    Order.STATUS_READY: "Your order {order_number} is ready",
+    Order.STATUS_OUT_FOR_DELIVERY: "Your order {order_number} is out for delivery",
+    Order.STATUS_COMPLETED: "Your order {order_number} is complete",
+    Order.STATUS_CANCELLED: "Your order {order_number} was cancelled",
+}
+
+
+def send_order_status_update_email_to_buyer(order, previous_status):
+    """Notify the buyer whenever a seller modifies an order's status
+    (accept/reject/prepare/ready/out-for-delivery/complete/cancel via the
+    seller order-status action). Never blocks the request if email fails."""
+    buyer_email = order.customer_email
+    if not buyer_email:
+        return
+    subject_template = ORDER_STATUS_UPDATE_SUBJECTS.get(order.status)
+    if not subject_template:
+        return
+    subject = subject_template.format(order_number=order.order_number)
+    status_label = order.status.replace("_", " ").title()
+    html_message = f"""
+    <h2>Order Update – {order.order_number}</h2>
+    <p>Hi <strong>{order.customer_name}</strong>, your order <strong>{order.order_number}</strong>
+       from <strong>{order.shop.name}</strong> is now: <strong>{status_label}</strong>.</p>
+    <p>Previous status: {previous_status.replace('_', ' ').title()}</p>
+    """
+    try:
+        send_mail(
+            subject=subject,
+            message=f"Your order {order.order_number} status changed to {status_label}.",
+            from_email=None,
+            recipient_list=[buyer_email],
+            html_message=html_message,
+            fail_silently=True,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to send order status update email for order %s", order.order_number)
+
+
+@transaction.atomic
+def cancel_pending_order_by_buyer(order):
+    """Instantly cancel an order that is still STATUS_PENDING (the seller
+    hasn't accepted it yet, so no approval workflow is needed). Restores
+    stock for every item and marks the order cancelled. Raises
+    serializers.ValidationError if the order is no longer pending (e.g. the
+    seller already accepted/rejected it in the meantime)."""
+    # Re-fetch with a row lock so a concurrent seller "accept" can't race
+    # with this cancellation.
+    locked_order = Order.objects.select_for_update().select_related("shop").get(pk=order.pk)
+    if locked_order.status != Order.STATUS_PENDING:
+        raise serializers.ValidationError(
+            {
+                "detail": (
+                    "This order can no longer be cancelled directly — it has already "
+                    "been accepted, rejected, or completed by the seller."
+                )
+            }
+        )
+    for item in locked_order.items.select_related("product"):
+        if item.product_id:
+            Product.objects.filter(pk=item.product_id).update(stock_quantity=F("stock_quantity") + item.quantity)
+    locked_order.status = Order.STATUS_CANCELLED
+    locked_order.save(update_fields=["status", "updated_at"])
+    return locked_order
+
+
 ALLOWED_ORDER_TRANSITIONS = {
     Order.STATUS_PENDING: {Order.STATUS_ACCEPTED, Order.STATUS_REJECTED, Order.STATUS_CANCELLED},
     Order.STATUS_ACCEPTED: {Order.STATUS_PREPARING, Order.STATUS_CANCELLED},
@@ -504,6 +688,60 @@ def update_order_status(order, new_status):
         return order
     if new_status not in ALLOWED_ORDER_TRANSITIONS.get(order.status, set()):
         raise serializers.ValidationError({"status": f"Cannot change order from {order.status} to {new_status}."})
+    previous_status = order.status
     order.status = new_status
     order.save(update_fields=["status", "updated_at"])
+    try:
+        send_order_status_update_email_to_buyer(order, previous_status)
+    except Exception:  # noqa: BLE001
+        # Never let an email failure roll back or fail the status change itself.
+        logger.exception("Failed to dispatch order status update email for order %s", order.order_number)
     return order
+
+
+# ── Dutch postcode + house number address lookup ──────────────────────────
+# Uses PDOK Locatieserver — the Dutch government's free, keyless open-data
+# geocoder (https://www.pdok.nl/), so no paid provider or API key is
+# required. Checkout must never be blocked by this: any failure/timeout
+# simply returns None and the caller falls back to manual address entry.
+POSTCODE_RE = re.compile(r"^\d{4}\s?[A-Za-z]{2}$")
+
+
+def lookup_dutch_address(postcode: str, house_number: str):
+    """Look up street/city for a Dutch postcode + house number.
+
+    Returns a dict {"street", "city", "country"} on success, or None if the
+    lookup is disabled, the input is invalid, or the provider call fails.
+    """
+    from django.conf import settings
+
+    provider_url = getattr(settings, "MARKETPLACE_ADDRESS_LOOKUP_PROVIDER_URL", "")
+    if not provider_url:
+        return None
+
+    postcode = (postcode or "").strip().upper().replace(" ", "")
+    house_number = (house_number or "").strip()
+    if not POSTCODE_RE.match(postcode) or not house_number:
+        return None
+
+    try:
+        import requests
+
+        response = requests.get(
+            provider_url,
+            params={"q": f"{postcode} {house_number}", "fq": "type:adres", "rows": 1},
+            timeout=3,
+        )
+        response.raise_for_status()
+        docs = response.json().get("response", {}).get("docs", [])
+        if not docs:
+            return None
+        doc = docs[0]
+        street = doc.get("straatnaam")
+        city = doc.get("woonplaatsnaam")
+        if not street or not city:
+            return None
+        return {"street": street, "city": city, "country": "Netherlands"}
+    except Exception:  # noqa: BLE001 — any provider hiccup must not block checkout
+        logger.warning("Address lookup failed for postcode=%s house_number=%s", postcode, house_number)
+        return None
