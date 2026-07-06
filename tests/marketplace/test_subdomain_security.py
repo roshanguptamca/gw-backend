@@ -12,6 +12,20 @@ class MarketplaceSubdomainSettingsTests(SimpleTestCase):
             any("shop" in pattern and "guidewisey" in pattern for pattern in settings.CORS_ALLOWED_ORIGIN_REGEXES)
         )
 
+    def test_gw_marketplace_fe_vercel_origin_is_allowed(self):
+        # The new gw-marketplace-fe React frontend is deployed on Vercel and
+        # calls the API cross-origin (with credentials), so both its stable
+        # production domain and its per-branch preview deployments must be
+        # allowed, or every fetch fails CORS preflight.
+        self.assertIn("https://gw-marketplace-fe.vercel.app", settings.CORS_ALLOWED_ORIGINS)
+        self.assertIn("https://gw-marketplace-fe.vercel.app", settings.CSRF_TRUSTED_ORIGINS)
+        self.assertTrue(
+            any(
+                "gw-marketplace-fe" in pattern and "vercel" in pattern
+                for pattern in settings.CORS_ALLOWED_ORIGIN_REGEXES
+            )
+        )
+
     def test_local_marketplace_origin_is_enabled_in_development(self):
         if settings.IS_DEVELOPMENT:
             self.assertIn("http://localhost:3002", settings.CORS_ALLOWED_ORIGINS)
