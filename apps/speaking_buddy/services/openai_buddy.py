@@ -123,12 +123,27 @@ def summarize_session(context: BuddyContext, transcript: list):
         return _fallback_summary(context, transcript)
 
 
+def _eagerness_from_silence_timeout(silence_timeout_ms: int) -> str:
+    """Map the tunable "silence timeout" setting onto Semantic VAD's eagerness
+    levels so the existing per-user setting still has an effect: shorter
+    timeouts respond faster (high eagerness), longer timeouts wait longer for
+    the user to finish a thought (low eagerness)."""
+    if silence_timeout_ms <= 600:
+        return "high"
+    if silence_timeout_ms >= 1200:
+        return "low"
+    return "auto"
+
+
 def create_realtime_client_secret(context: BuddyContext, *, selected_voice="marin", buddy_session_id=None):
     client = _client()
     settings_data = context.prompt_data.get("settings", {}) if context and context.prompt_data else {}
+    profile_data = context.prompt_data.get("profile", {}) if context and context.prompt_data else {}
     turn_detection_mode = str(settings_data.get("turn_detection_mode") or "auto").lower()
     silence_timeout_ms = int(settings_data.get("silence_timeout_ms") or 900)
     create_response = turn_detection_mode == "auto"
+    eagerness = _eagerness_from_silence_timeout(silence_timeout_ms)
+    target_language = profile_data.get("target_language") or "en"
     debug_metadata = {
         "buddy_session_id": buddy_session_id,
         "selected_voice": selected_voice,
@@ -138,12 +153,13 @@ def create_realtime_client_secret(context: BuddyContext, *, selected_voice="mari
     }
     logger.info(
         "Speaking buddy realtime token: session_id=%s selected_voice=%s "
-        "audio_source=%s turn_detection_mode=%s silence_timeout_ms=%s",
+        "audio_source=%s turn_detection_mode=%s silence_timeout_ms=%s eagerness=%s",
         buddy_session_id,
         selected_voice,
         debug_metadata["audio_source"],
         turn_detection_mode,
         silence_timeout_ms,
+        eagerness,
     )
     if client is None:
         return {
@@ -163,12 +179,27 @@ def create_realtime_client_secret(context: BuddyContext, *, selected_voice="mari
                 "audio": {
                     "output": {"voice": selected_voice},
                     "input": {
+                        # Semantic VAD uses a model to judge whether the
+                        # learner has actually finished a thought (instead of
+                        # a fixed silence window), which is both more
+                        # human-like and less likely to cut the user off or
+                        # end the call mid-sentence. interrupt_response lets
+                        # the learner naturally talk over the AI, like a real
+                        # conversation partner would allow.
                         "turn_detection": {
-                            "type": "server_vad",
-                            "threshold": 0.5,
-                            "prefix_padding_ms": 500,
-                            "silence_duration_ms": silence_timeout_ms,
+                            "type": "semantic_vad",
+                            "eagerness": eagerness,
                             "create_response": create_response,
+                            "interrupt_response": True,
+                        },
+                        # near_field noise reduction and a dedicated
+                        # transcription model improve recognition accuracy in
+                        # noisy environments and give more reliable
+                        # transcripts for the on-screen captions.
+                        "noise_reduction": {"type": "near_field"},
+                        "transcription": {
+                            "model": "gpt-4o-mini-transcribe",
+                            "language": target_language,
                         },
                     },
                 },

@@ -414,17 +414,35 @@ class SpeakingBuddyApiTests(TestCase):
                     "output": {"voice": "marin"},
                     "input": {
                         "turn_detection": {
-                            "type": "server_vad",
-                            "threshold": 0.5,
-                            "prefix_padding_ms": 500,
-                            "silence_duration_ms": 900,
+                            "type": "semantic_vad",
+                            "eagerness": "auto",
                             "create_response": True,
+                            "interrupt_response": True,
+                        },
+                        "noise_reduction": {"type": "near_field"},
+                        "transcription": {
+                            "model": "gpt-4o-mini-transcribe",
+                            "language": "nl",
                         },
                     },
                 },
                 "instructions": ANY,
             },
         )
+
+    def test_semantic_vad_eagerness_mapping_is_stable(self):
+        """Regression test for the human-like Semantic VAD turn detection:
+        shorter silence_timeout_ms settings should respond quicker (higher
+        eagerness), longer ones should wait for the learner to finish a
+        thought (lower eagerness), and this must stay deterministic."""
+        from apps.speaking_buddy.services.openai_buddy import _eagerness_from_silence_timeout
+
+        self.assertEqual(_eagerness_from_silence_timeout(300), "high")
+        self.assertEqual(_eagerness_from_silence_timeout(600), "high")
+        self.assertEqual(_eagerness_from_silence_timeout(900), "auto")
+        self.assertEqual(_eagerness_from_silence_timeout(1199), "auto")
+        self.assertEqual(_eagerness_from_silence_timeout(1200), "low")
+        self.assertEqual(_eagerness_from_silence_timeout(2000), "low")
 
     @patch("apps.speaking_buddy.views.generate_buddy_reply", return_value="Welcome")
     def test_session_voice_is_frozen_and_duplicate_start_reuses_session(self, generate_buddy_reply):
