@@ -160,13 +160,17 @@ def create_realtime_client_secret(context: BuddyContext, *, selected_voice="mari
             session={
                 "type": "realtime",
                 "model": getattr(settings, "SPEAKING_BUDDY_REALTIME_MODEL", "gpt-realtime-2"),
-                "audio": {"output": {"voice": selected_voice}},
-                "turn_detection": {
-                    "type": "server_vad",
-                    "threshold": 0.5,
-                    "prefix_padding_ms": 500,
-                    "silence_duration_ms": silence_timeout_ms,
-                    "create_response": create_response,
+                "audio": {
+                    "output": {"voice": selected_voice},
+                    "input": {
+                        "turn_detection": {
+                            "type": "server_vad",
+                            "threshold": 0.5,
+                            "prefix_padding_ms": 500,
+                            "silence_duration_ms": silence_timeout_ms,
+                            "create_response": create_response,
+                        },
+                    },
                 },
                 "instructions": context.system_prompt,
             },

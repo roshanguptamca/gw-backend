@@ -410,13 +410,17 @@ class SpeakingBuddyApiTests(TestCase):
             session={
                 "type": "realtime",
                 "model": "gpt-realtime-test",
-                "audio": {"output": {"voice": "marin"}},
-                "turn_detection": {
-                    "type": "server_vad",
-                    "threshold": 0.5,
-                    "prefix_padding_ms": 500,
-                    "silence_duration_ms": 900,
-                    "create_response": True,
+                "audio": {
+                    "output": {"voice": "marin"},
+                    "input": {
+                        "turn_detection": {
+                            "type": "server_vad",
+                            "threshold": 0.5,
+                            "prefix_padding_ms": 500,
+                            "silence_duration_ms": 900,
+                            "create_response": True,
+                        },
+                    },
                 },
                 "instructions": ANY,
             },
