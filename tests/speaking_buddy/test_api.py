@@ -415,7 +415,7 @@ class SpeakingBuddyApiTests(TestCase):
                     "type": "server_vad",
                     "threshold": 0.5,
                     "prefix_padding_ms": 500,
-                    "silence_duration_ms": 1600,
+                    "silence_duration_ms": 900,
                     "create_response": True,
                 },
                 "instructions": ANY,
@@ -520,13 +520,33 @@ class SpeakingBuddyApiTests(TestCase):
             "/api/buddy/settings/", {"voice_gender": "female", "voice_age": "adult"}, format="json"
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["selected_voice"], "alloy")
+        self.assertEqual(response.data["selected_voice"], "nova")
+        self.assertIn(response.data["selected_voice"], {"nova", "shimmer"})
 
         response = self.client.patch(
             "/api/buddy/settings/", {"voice_gender": "male", "voice_age": "senior"}, format="json"
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["selected_voice"], "onyx")
+        self.assertIn(response.data["selected_voice"], {"onyx", "echo"})
+
+    def test_female_voice_gender_never_resolves_to_a_non_female_voice(self):
+        """Regression test: female previously mapped to 'alloy' for adult voice
+        age, which sounds male/neutral on the Realtime API and caused calls to
+        still sound male even after selecting Female. Female must always
+        resolve to nova or shimmer, never alloy/echo/onyx."""
+        from apps.speaking_buddy.services.voice_mapping import resolve_voice
+
+        for age in ["young", "adult", "senior"]:
+            voice = resolve_voice("female", age)
+            self.assertIn(voice, {"nova", "shimmer"}, f"female/{age} resolved to {voice}")
+
+        for age in ["young", "adult", "senior"]:
+            voice = resolve_voice("male", age)
+            self.assertIn(voice, {"echo", "onyx"}, f"male/{age} resolved to {voice}")
+
+        for age in ["young", "adult", "senior"]:
+            self.assertEqual(resolve_voice("neutral", age), "alloy")
 
     def test_voice_mapping_is_stable_for_same_inputs(self):
         from apps.speaking_buddy.services.voice_mapping import resolve_voice

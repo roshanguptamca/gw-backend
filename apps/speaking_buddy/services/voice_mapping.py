@@ -7,10 +7,13 @@ voice fixed and predictable instead of "randomly" switching between male and
 female voices for the same settings.
 """
 
-# female adult -> alloy/shimmer/nova, male adult -> echo/onyx, neutral -> alloy
+# female -> nova/shimmer (never alloy), male -> onyx/echo, neutral -> alloy.
+# IMPORTANT: alloy must never be used for female or male — it reads as a
+# neutral/male-leaning voice on the Realtime API, which was the root cause of
+# "Female gender selected but the call still sounds male".
 VOICE_BY_GENDER_AGE = {
     ("female", "young"): "shimmer",
-    ("female", "adult"): "alloy",
+    ("female", "adult"): "nova",
     ("female", "senior"): "nova",
     ("male", "young"): "echo",
     ("male", "adult"): "echo",

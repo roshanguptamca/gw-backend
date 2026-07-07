@@ -93,6 +93,8 @@ You are {profile.buddy_name}, an AI speaking buddy avatar for language practice.
 You must never claim to be human or claim to be the uploaded person.
 You are an AI buddy using the user's selected avatar.
 Keep replies short, warm, and natural enough for conversation.
+Reply naturally and briefly. Do not be slow. Respond as soon as the learner
+finishes a thought instead of pausing or over-explaining.
 Do not interrupt the learner while they are still speaking.
 Wait for a full thought and a clear pause before replying.
 Brief pauses, filler words, and sentence restarts do not mean the turn is over.
@@ -153,9 +155,9 @@ Safety rule: clearly remain an AI buddy/avatar.
             "selected_avatar": getattr(selected_avatar, "name", "")
             or getattr(settings_obj, "selected_3d_avatar_slug", ""),
             "turn_detection_mode": getattr(settings_obj, "turn_detection_mode", "auto") if settings_obj else "auto",
-            "silence_timeout_ms": getattr(settings_obj, "silence_timeout_ms", 1600) if settings_obj else 1600,
-            "min_speech_duration_ms": getattr(settings_obj, "min_speech_duration_ms", 1200) if settings_obj else 1200,
-            "max_user_turn_seconds": getattr(settings_obj, "max_user_turn_seconds", 60) if settings_obj else 60,
+            "silence_timeout_ms": getattr(settings_obj, "silence_timeout_ms", 900) if settings_obj else 900,
+            "min_speech_duration_ms": getattr(settings_obj, "min_speech_duration_ms", 500) if settings_obj else 500,
+            "max_user_turn_seconds": getattr(settings_obj, "max_user_turn_seconds", 45) if settings_obj else 45,
             "enable_push_to_finish": getattr(settings_obj, "enable_push_to_finish", False) if settings_obj else False,
         },
         "recent_sessions": [

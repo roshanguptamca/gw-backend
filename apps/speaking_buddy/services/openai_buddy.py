@@ -127,7 +127,7 @@ def create_realtime_client_secret(context: BuddyContext, *, selected_voice="mari
     client = _client()
     settings_data = context.prompt_data.get("settings", {}) if context and context.prompt_data else {}
     turn_detection_mode = str(settings_data.get("turn_detection_mode") or "auto").lower()
-    silence_timeout_ms = int(settings_data.get("silence_timeout_ms") or 1600)
+    silence_timeout_ms = int(settings_data.get("silence_timeout_ms") or 900)
     create_response = turn_detection_mode == "auto"
     debug_metadata = {
         "buddy_session_id": buddy_session_id,
