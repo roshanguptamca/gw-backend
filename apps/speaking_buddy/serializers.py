@@ -15,6 +15,7 @@ from .models import (
     BuddySettings,
     BuddyVocabulary,
 )
+from .services.voice_mapping import resolve_voice
 
 
 class BuddyProfileSerializer(serializers.ModelSerializer):
@@ -61,6 +62,33 @@ class BuddySettingsSerializer(serializers.ModelSerializer):
             "updated_at",
         )
         read_only_fields = ("id", "created_at", "updated_at")
+
+    def _apply_voice_mapping(self, validated_data, instance=None):
+        """Keep selected_voice consistent with voice_gender/voice_age.
+
+        If the caller changes gender/age but does not explicitly choose a
+        selected_voice in the same request, derive it via the single voice
+        mapping function so the resulting voice always matches the chosen
+        gender/age instead of being left stale or mismatched.
+        """
+        gender_provided = "voice_gender" in validated_data
+        age_provided = "voice_age" in validated_data
+        if not gender_provided and not age_provided:
+            return validated_data
+        if "selected_voice" in validated_data:
+            return validated_data
+        gender = validated_data.get("voice_gender", getattr(instance, "voice_gender", None))
+        age = validated_data.get("voice_age", getattr(instance, "voice_age", None))
+        validated_data["selected_voice"] = resolve_voice(gender, age)
+        return validated_data
+
+    def create(self, validated_data):
+        validated_data = self._apply_voice_mapping(validated_data)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        validated_data = self._apply_voice_mapping(validated_data, instance=instance)
+        return super().update(instance, validated_data)
 
 
 class BuddyAvatarSerializer(serializers.ModelSerializer):

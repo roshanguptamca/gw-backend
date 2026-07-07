@@ -61,12 +61,40 @@ def build_session_context(
         or getattr(settings_obj, "selected_3d_avatar_slug", "")
         or "default AI avatar"
     )
+    memory_enabled = bool(profile.is_memory_enabled)
+    if not memory_enabled:
+        # Do not leak prior-session context into the prompt when memory is disabled.
+        weak_areas = []
+        learned_words = []
+        memory_snippets = []
+        recent_memories = []
+        previous_summary = "none (memory disabled)"
+    else:
+        previous_summary = profile.previous_conversation_summary or "none"
+
+    difficulty_level = getattr(settings_obj, "difficulty_level", "medium") if settings_obj else "medium"
+    speaking_speed = getattr(settings_obj, "speaking_speed", 50) if settings_obj else 50
+    voice_gender = getattr(settings_obj, "voice_gender", "neutral") if settings_obj else "neutral"
+    voice_age = getattr(settings_obj, "voice_age", "adult") if settings_obj else "adult"
+    if speaking_speed <= 40:
+        speaking_speed_instruction = "Speak noticeably slower than normal and pause between phrases."
+    elif speaking_speed >= 70:
+        speaking_speed_instruction = "Speak a bit faster and more fluidly than a beginner pace."
+    else:
+        speaking_speed_instruction = "Speak at a natural, normal conversational pace."
+    difficulty_instruction = {
+        "easy": "Use simple vocabulary, short sentences, and avoid idioms or complex grammar.",
+        "medium": "Use everyday vocabulary and moderately complex sentences.",
+        "hard": "Use rich vocabulary, idioms, and more complex sentence structures.",
+    }.get(difficulty_level, "Use everyday vocabulary and moderately complex sentences.")
 
     system_prompt = f"""
 You are {profile.buddy_name}, an AI speaking buddy avatar for language practice.
 You must never claim to be human or claim to be the uploaded person.
 You are an AI buddy using the user's selected avatar.
 Keep replies short, warm, and natural enough for conversation.
+Reply naturally and briefly. Do not be slow. Respond as soon as the learner
+finishes a thought instead of pausing or over-explaining.
 Do not interrupt the learner while they are still speaking.
 Wait for a full thought and a clear pause before replying.
 Brief pauses, filler words, and sentence restarts do not mean the turn is over.
@@ -82,12 +110,16 @@ Learning goal: {profile.learning_goal or "general speaking practice"}.
 Personality: {getattr(settings_obj, "personality", "friendly") if settings_obj else "friendly"}.
 Selected avatar: {selected_avatar_name}.
 Voice style: {getattr(settings_obj, "voice_style", "warm") if settings_obj else "warm"}.
+Voice gender: {voice_gender}. Voice age: {voice_age}.
+Difficulty level: {difficulty_level}. {difficulty_instruction}
+Speaking speed preference: {speaking_speed}/120. {speaking_speed_instruction}
 Correction level: {getattr(settings_obj, "correction_level", profile.preferred_correction_style)}.
 Topic: {getattr(settings_obj, "default_topic", "") if settings_obj else ""}.
+Memory: {"enabled" if memory_enabled else "disabled"}.
 Weak areas: {", ".join(weak_areas) or "none"}.
 Practice vocabulary: {", ".join(learned_words) or "none"}.
 Favorite topics: {", ".join(favorite_topics) or "none"}.
-Recent conversation summaries: {profile.previous_conversation_summary or "none"}.
+Recent conversation summaries: {previous_summary}.
 Recent memory snippets: {memory_snippets and " | ".join(memory_snippets) or "none"}.
 Recent sessions: {len(recent_sessions)}.
 Stored memories: {len(recent_memories)}.
@@ -123,9 +155,9 @@ Safety rule: clearly remain an AI buddy/avatar.
             "selected_avatar": getattr(selected_avatar, "name", "")
             or getattr(settings_obj, "selected_3d_avatar_slug", ""),
             "turn_detection_mode": getattr(settings_obj, "turn_detection_mode", "auto") if settings_obj else "auto",
-            "silence_timeout_ms": getattr(settings_obj, "silence_timeout_ms", 1600) if settings_obj else 1600,
-            "min_speech_duration_ms": getattr(settings_obj, "min_speech_duration_ms", 1200) if settings_obj else 1200,
-            "max_user_turn_seconds": getattr(settings_obj, "max_user_turn_seconds", 60) if settings_obj else 60,
+            "silence_timeout_ms": getattr(settings_obj, "silence_timeout_ms", 900) if settings_obj else 900,
+            "min_speech_duration_ms": getattr(settings_obj, "min_speech_duration_ms", 500) if settings_obj else 500,
+            "max_user_turn_seconds": getattr(settings_obj, "max_user_turn_seconds", 45) if settings_obj else 45,
             "enable_push_to_finish": getattr(settings_obj, "enable_push_to_finish", False) if settings_obj else False,
         },
         "recent_sessions": [
