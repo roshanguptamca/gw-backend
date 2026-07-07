@@ -61,6 +61,32 @@ def build_session_context(
         or getattr(settings_obj, "selected_3d_avatar_slug", "")
         or "default AI avatar"
     )
+    memory_enabled = bool(profile.is_memory_enabled)
+    if not memory_enabled:
+        # Do not leak prior-session context into the prompt when memory is disabled.
+        weak_areas = []
+        learned_words = []
+        memory_snippets = []
+        recent_memories = []
+        previous_summary = "none (memory disabled)"
+    else:
+        previous_summary = profile.previous_conversation_summary or "none"
+
+    difficulty_level = getattr(settings_obj, "difficulty_level", "medium") if settings_obj else "medium"
+    speaking_speed = getattr(settings_obj, "speaking_speed", 50) if settings_obj else 50
+    voice_gender = getattr(settings_obj, "voice_gender", "neutral") if settings_obj else "neutral"
+    voice_age = getattr(settings_obj, "voice_age", "adult") if settings_obj else "adult"
+    if speaking_speed <= 40:
+        speaking_speed_instruction = "Speak noticeably slower than normal and pause between phrases."
+    elif speaking_speed >= 70:
+        speaking_speed_instruction = "Speak a bit faster and more fluidly than a beginner pace."
+    else:
+        speaking_speed_instruction = "Speak at a natural, normal conversational pace."
+    difficulty_instruction = {
+        "easy": "Use simple vocabulary, short sentences, and avoid idioms or complex grammar.",
+        "medium": "Use everyday vocabulary and moderately complex sentences.",
+        "hard": "Use rich vocabulary, idioms, and more complex sentence structures.",
+    }.get(difficulty_level, "Use everyday vocabulary and moderately complex sentences.")
 
     system_prompt = f"""
 You are {profile.buddy_name}, an AI speaking buddy avatar for language practice.
@@ -82,12 +108,16 @@ Learning goal: {profile.learning_goal or "general speaking practice"}.
 Personality: {getattr(settings_obj, "personality", "friendly") if settings_obj else "friendly"}.
 Selected avatar: {selected_avatar_name}.
 Voice style: {getattr(settings_obj, "voice_style", "warm") if settings_obj else "warm"}.
+Voice gender: {voice_gender}. Voice age: {voice_age}.
+Difficulty level: {difficulty_level}. {difficulty_instruction}
+Speaking speed preference: {speaking_speed}/120. {speaking_speed_instruction}
 Correction level: {getattr(settings_obj, "correction_level", profile.preferred_correction_style)}.
 Topic: {getattr(settings_obj, "default_topic", "") if settings_obj else ""}.
+Memory: {"enabled" if memory_enabled else "disabled"}.
 Weak areas: {", ".join(weak_areas) or "none"}.
 Practice vocabulary: {", ".join(learned_words) or "none"}.
 Favorite topics: {", ".join(favorite_topics) or "none"}.
-Recent conversation summaries: {profile.previous_conversation_summary or "none"}.
+Recent conversation summaries: {previous_summary}.
 Recent memory snippets: {memory_snippets and " | ".join(memory_snippets) or "none"}.
 Recent sessions: {len(recent_sessions)}.
 Stored memories: {len(recent_memories)}.

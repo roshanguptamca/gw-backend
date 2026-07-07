@@ -59,8 +59,13 @@ VOICE_AGE_CHOICES = [
 ]
 
 OPENAI_VOICE_CHOICES = [
-    ("marin", "Female Adult"),
-    ("cedar", "Male Adult"),
+    ("marin", "Female Adult (legacy)"),
+    ("cedar", "Male Adult (legacy)"),
+    ("alloy", "Alloy (Neutral/Female Adult)"),
+    ("shimmer", "Shimmer (Female Young)"),
+    ("nova", "Nova (Female Senior)"),
+    ("echo", "Echo (Male Adult/Young)"),
+    ("onyx", "Onyx (Male Senior)"),
 ]
 
 CORRECTION_LEVEL_CHOICES = [

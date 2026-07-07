@@ -491,3 +491,109 @@ class SpeakingBuddyApiTests(TestCase):
         self.auth(self.user2)
         self.assertEqual(self.client.get("/api/buddy/vocabulary/").data, [])
         self.assertEqual(self.client.get("/api/buddy/mistakes/").data, [])
+
+    def test_settings_patch_saves_every_field(self):
+        self.auth(self.user1)
+        payload = {
+            "personality": "strict_coach",
+            "voice_style": "energetic",
+            "voice_gender": "male",
+            "voice_age": "senior",
+            "speaking_speed": 90,
+            "correction_level": "strict",
+            "difficulty_level": "hard",
+            "theme_color": "#112233",
+            "default_topic": "Job interviews",
+        }
+        response = self.client.patch("/api/buddy/settings/", payload, format="json")
+        self.assertEqual(response.status_code, 200)
+        for field, value in payload.items():
+            self.assertEqual(response.data[field], value, field)
+
+        settings_obj = BuddySettings.objects.get(profile=self.profile1)
+        for field, value in payload.items():
+            self.assertEqual(getattr(settings_obj, field), value, field)
+
+    def test_voice_gender_change_maps_to_consistent_voice_without_explicit_choice(self):
+        self.auth(self.user1)
+        response = self.client.patch(
+            "/api/buddy/settings/", {"voice_gender": "female", "voice_age": "adult"}, format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["selected_voice"], "alloy")
+
+        response = self.client.patch(
+            "/api/buddy/settings/", {"voice_gender": "male", "voice_age": "senior"}, format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["selected_voice"], "onyx")
+
+    def test_voice_mapping_is_stable_for_same_inputs(self):
+        from apps.speaking_buddy.services.voice_mapping import resolve_voice
+
+        for gender, age in [("female", "young"), ("female", "adult"), ("male", "senior"), ("neutral", "adult")]:
+            first = resolve_voice(gender, age)
+            second = resolve_voice(gender, age)
+            self.assertEqual(first, second)
+
+    def test_explicit_selected_voice_is_not_overridden_by_gender_change(self):
+        self.auth(self.user1)
+        response = self.client.patch(
+            "/api/buddy/settings/",
+            {"voice_gender": "female", "voice_age": "young", "selected_voice": "cedar"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["selected_voice"], "cedar")
+
+    def test_settings_rejects_invalid_enum_values(self):
+        self.auth(self.user1)
+        response = self.client.patch("/api/buddy/settings/", {"difficulty_level": "impossible"}, format="json")
+        self.assertEqual(response.status_code, 400)
+
+        response = self.client.patch("/api/buddy/settings/", {"voice_gender": "robotic"}, format="json")
+        self.assertEqual(response.status_code, 400)
+
+    def test_session_prompt_contains_key_settings(self):
+        self.profile1.target_language = "nl"
+        self.profile1.learning_goal = "Practice Dutch for customer support"
+        self.profile1.save(update_fields=["target_language", "learning_goal", "updated_at"])
+        settings_obj, _ = BuddySettings.objects.get_or_create(profile=self.profile1)
+        settings_obj.personality = "strict_coach"
+        settings_obj.correction_level = "strict"
+        settings_obj.difficulty_level = "hard"
+        settings_obj.save(update_fields=["personality", "correction_level", "difficulty_level", "updated_at"])
+
+        context = build_session_context(self.profile1, settings_obj)
+        prompt = context.system_prompt
+        self.assertIn("Dutch", prompt)
+        self.assertIn("hard", prompt)
+        self.assertIn("strict", prompt)
+        self.assertIn("strict_coach", prompt)
+        self.assertIn("Practice Dutch for customer support", prompt)
+
+    def test_memory_disabled_excludes_memory_from_prompt(self):
+        self.profile1.is_memory_enabled = False
+        self.profile1.previous_conversation_summary = "Talked about holidays last time."
+        self.profile1.weak_areas = ["past tense"]
+        self.profile1.save(
+            update_fields=["is_memory_enabled", "previous_conversation_summary", "weak_areas", "updated_at"]
+        )
+        settings_obj, _ = BuddySettings.objects.get_or_create(profile=self.profile1)
+
+        context = build_session_context(self.profile1, settings_obj)
+        prompt = context.system_prompt
+        self.assertIn("Memory: disabled", prompt)
+        self.assertNotIn("Talked about holidays last time.", prompt)
+        self.assertNotIn("past tense", prompt)
+
+    def test_memory_enabled_includes_memory_in_prompt(self):
+        self.profile1.is_memory_enabled = True
+        self.profile1.previous_conversation_summary = "Talked about holidays last time."
+        self.profile1.save(update_fields=["is_memory_enabled", "previous_conversation_summary", "updated_at"])
+        settings_obj, _ = BuddySettings.objects.get_or_create(profile=self.profile1)
+
+        context = build_session_context(self.profile1, settings_obj)
+        prompt = context.system_prompt
+        self.assertIn("Memory: enabled", prompt)
+        self.assertIn("Talked about holidays last time.", prompt)
