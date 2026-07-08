@@ -293,6 +293,8 @@ class Buddy3DAvatar(models.Model):
 class BuddyGeneratedAvatar(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="generated_buddy_avatars")
     source_image = models.ImageField(upload_to="speaking_buddy/generated_sources/", blank=True, null=True)
+    source_image_url = models.CharField(max_length=1000, blank=True)
+    source_image_public_id = models.CharField(max_length=300, blank=True)
     generated_glb_url = models.CharField(max_length=1000, blank=True)
     generated_thumbnail_url = models.CharField(max_length=1000, blank=True)
     generated_model_path = models.CharField(max_length=1000, blank=True)

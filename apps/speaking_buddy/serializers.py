@@ -242,6 +242,10 @@ class BuddyGeneratedAvatarSerializer(serializers.ModelSerializer):
         )
 
     def get_source_image_url(self, obj):
+        # Prefer the Cloudinary-hosted URL — it's CDN-backed and reliably
+        # persists across deploys, unlike local disk storage.
+        if obj.source_image_url:
+            return obj.source_image_url
         request = self.context.get("request") if hasattr(self, "context") else None
         if obj.source_image and getattr(obj.source_image, "name", ""):
             try:

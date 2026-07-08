@@ -1,5 +1,15 @@
 from ...models import Buddy3DAvatar
 
+# Real, existing human-like illustration assets used as a last-resort
+# thumbnail when Cloudinary isn't configured (e.g. local dev without
+# credentials) and the selected 3D template has no thumbnail_url of its own.
+# These are genuine designed avatar images — never a generic icon.
+_FALLBACK_HUMAN_THUMBNAILS = [
+    "/assets/images/speaking-buddy/avatar-nova.svg",
+    "/assets/images/speaking-buddy/avatar-mila.svg",
+    "/assets/images/speaking-buddy/avatar-rio.svg",
+]
+
 
 class TemplateAvatarGenerator:
     def select_base_avatar(self, detected, options):
@@ -42,6 +52,11 @@ class TemplateAvatarGenerator:
             "realism_level": options.get("realism_level") or "balanced",
         }
 
+    def _fallback_thumbnail(self, base_avatar, avatar_id):
+        if base_avatar.thumbnail_url:
+            return base_avatar.thumbnail_url
+        return _FALLBACK_HUMAN_THUMBNAILS[avatar_id % len(_FALLBACK_HUMAN_THUMBNAILS)]
+
     def generate(self, avatar, detected, options):
         base_avatar = self.select_base_avatar(detected, options)
         if not base_avatar:
@@ -52,8 +67,13 @@ class TemplateAvatarGenerator:
         avatar.appearance_config = appearance
         avatar.generated_model_path = base_avatar.model_url
         avatar.generated_glb_url = base_avatar.model_url
-        avatar.generated_thumbnail = ""
-        avatar.generated_thumbnail_url = ""
+        # A Cloudinary-hosted face-cropped thumbnail may already be set by
+        # AvatarGenerationService._sync_source_photo_to_cloudinary(); only
+        # fall back to a template/static thumbnail if that didn't happen, so
+        # we never leave the avatar with no usable preview image at all.
+        if not avatar.generated_thumbnail_url:
+            avatar.generated_thumbnail_url = self._fallback_thumbnail(base_avatar, avatar.id or 0)
+        avatar.generated_thumbnail = avatar.generated_thumbnail_url
         avatar.generation_method = "template"
         avatar.provider = "template"
         avatar.status = "completed"

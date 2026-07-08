@@ -6,13 +6,7 @@ from django.utils import timezone
 
 from rest_framework.test import APIClient
 
-from apps.speaking_buddy.models import (
-    BuddyMistake,
-    BuddyProfile,
-    BuddySession,
-    BuddySettings,
-    BuddyVocabulary,
-)
+from apps.speaking_buddy.models import BuddyMistake, BuddyProfile, BuddySession, BuddySettings, BuddyVocabulary
 from apps.speaking_buddy.services.context_builder import build_session_context
 from apps.speaking_buddy.services.greeting_service import BuddyGreetingService
 from apps.speaking_buddy.services.intent_detector import BuddyIntentDetector
@@ -142,7 +136,9 @@ class BuddyPersonalizationTests(TestCase):
             ai_summary="Practiced job interview questions.",
             ended_at=timezone.now(),
         )
-        BuddyVocabulary.objects.create(profile=self.profile, word="sollicitatie", translation="job application", language="nl")
+        BuddyVocabulary.objects.create(
+            profile=self.profile, word="sollicitatie", translation="job application", language="nl"
+        )
         BuddyMistake.objects.create(
             profile=self.profile,
             original_text="Ik ben werk",

@@ -69,10 +69,16 @@ class BuddyGreetingService:
             instructions_parts.append(
                 f"Vary the greeting each session so it does not sound identical every time. Ask: {question}"
             )
-        instructions_parts.append("Keep the greeting short (2-3 sentences) and ask exactly one simple opening question.")
+        instructions_parts.append(
+            "Keep the greeting short (2-3 sentences) and ask exactly one simple opening question."
+        )
         instructions = " ".join(instructions_parts)
 
-        return {"text": text, "instructions": instructions, "memory_note": continuity_note if not memory_enabled else None}
+        return {
+            "text": text,
+            "instructions": instructions,
+            "memory_note": continuity_note if not memory_enabled else None,
+        }
 
     @staticmethod
     def _opening_question(topic=None):

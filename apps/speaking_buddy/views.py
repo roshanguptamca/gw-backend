@@ -52,6 +52,7 @@ from .serializers import (
     BuddyWeakAreaSerializer,
 )
 from .services.avatar_generation import AvatarGenerationService, BuddyAvatarGenerationError, request_generated_avatar
+from .services.cloudinary_service import delete_avatar_source_photo
 from .services.context_builder import build_session_context
 from .services.greeting_service import BuddyGreetingService
 from .services.intent_detector import BuddyIntentDetector
@@ -92,6 +93,7 @@ def _run_in_background(fn):
     thread = threading.Thread(target=fn, daemon=True)
     thread.start()
     return False
+
 
 GOODBYE_REPLIES = {
     "en": "Nice talking with you. See you next time!",
@@ -466,6 +468,13 @@ def buddy_generated_avatar_detail_view(request, pk):
         profile.buddy_settings.selected_generated_avatar = None
         profile.buddy_settings.avatar_render_mode = "2d"
         profile.buddy_settings.save(update_fields=["selected_generated_avatar", "avatar_render_mode", "updated_at"])
+    if avatar.source_image_public_id:
+        try:
+            delete_avatar_source_photo(avatar.source_image_public_id)
+        except Exception:
+            logger.warning(
+                "Could not delete Cloudinary asset %s for avatar %s", avatar.source_image_public_id, avatar.id
+            )
     avatar.delete()
     return Response(status=status.HTTP_204_NO_CONTENT)
 

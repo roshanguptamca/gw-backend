@@ -32,6 +32,63 @@ def make_png():
     return buffer.getvalue()
 
 
+def seed_free_avatar_catalog():
+    """Recreate the free local avatar catalog normally seeded by data migration
+    0005_buddy3davatar_listening_animation_and_more. Tests run with
+    ``--nomigrations`` (see pytest.ini), so RunPython data migrations never
+    execute against the test database — call this helper in setUp for any
+    test that depends on the seeded Buddy3DAvatar catalog."""
+    names = ["Emma", "Leo", "Zara", "Noah", "Luna", "Kai", "Mila", "Omar", "Aria", "Atlas"]
+    female_names = {"Emma", "Zara", "Luna", "Mila", "Aria"}
+    for index, name in enumerate(names):
+        slug = name.lower()
+        Buddy3DAvatar.objects.update_or_create(
+            slug=slug,
+            defaults={
+                "name": name,
+                "gender_style": "female" if name in female_names else "male",
+                "age_style": "adult",
+                "personality": "friendly" if index % 2 == 0 else "teacher",
+                "default_voice": f"{name} voice",
+                "voice_style": "warm" if index % 2 == 0 else "clear",
+                "mood": "encouraging",
+                "backstory": "A free local AI speaking buddy avatar.",
+                "thumbnail": "",
+                "thumbnail_url": "",
+                "glb_file": f"/assets/buddy3d/{slug}.vrm",
+                "model_url": f"/assets/buddy3d/{slug}.vrm",
+                "supported_blendshapes": {
+                    "mouthOpen": ["aa", "mouthOpen", "jawOpen"],
+                    "blink": ["blink", "blinkLeft", "blinkRight"],
+                    "happy": ["happy", "smile"],
+                },
+                "idle_animation": "idle",
+                "talking_animation": "talking",
+                "listening_animation": "listening",
+                "thinking_animation": "thinking",
+                "emotion_set": {"happy": "happy", "encouraging": "happy"},
+                "is_premium": False,
+                "is_active": True,
+                "base_skin_material_key": "skin",
+                "base_hair_material_key": "hair",
+                "supported_customizations": {
+                    "skin_material": True,
+                    "hair_material": True,
+                    "eye_material": True,
+                    "hair_mesh": ["close-crop", "short", "medium", "long"],
+                    "beard_mesh": ["none", "short-beard"],
+                    "glasses_mesh": ["none", "classic-frames"],
+                    "body_type": ["balanced"],
+                    "outfit_style": ["casual", "smart-casual", "professional", "sport"],
+                },
+                "has_full_body": True,
+                "has_hair": True,
+                "has_hands": True,
+                "has_feet": True,
+            },
+        )
+
+
 @override_settings(
     OPENAI_API_KEY="test-key",
     SPEAKING_BUDDY_MODEL="gpt-4o-mini",
@@ -47,6 +104,7 @@ class SpeakingBuddyApiTests(TestCase):
         )
         BuddyProfile.objects.create(user=self.user2, buddy_name="Other", native_language="en", target_language="en")
         BuddyMemory.objects.create(profile=self.profile1, memory_type="note", key="welcome", value={"text": "hello"})
+        seed_free_avatar_catalog()
 
     def auth(self, user):
         self.client.force_authenticate(user=user)
