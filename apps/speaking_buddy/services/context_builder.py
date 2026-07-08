@@ -1,6 +1,15 @@
 from dataclasses import dataclass
 
+from django.db.models import Q
+from django.utils import timezone
+
 from ..models import BuddyProfile, BuddySettings
+
+
+def models_q_due(now):
+    """Vocabulary is 'due' when it has no scheduled review yet or the
+    scheduled review time has already passed."""
+    return Q(next_review_at__isnull=True) | Q(next_review_at__lte=now)
 
 
 @dataclass
@@ -47,7 +56,24 @@ def build_session_context(
     selected_avatar = getattr(settings_obj, "selected_avatar", None) if settings_obj else None
     recent_sessions = list(profile.sessions.order_by("-started_at")[:limit])
     recent_memories = list(profile.memories.filter(is_active=True).order_by("-updated_at")[:limit])
-    recent_vocab = list(profile.vocabulary.order_by("-last_practiced_at", "-updated_at")[:limit])
+    # Prefer vocabulary that is due for review (next_review_at in the past,
+    # or never reviewed / not yet mastered) so the buddy naturally reuses
+    # words the learner still needs to practice, falling back to recency.
+    now = timezone.now()
+    due_vocab = list(
+        profile.vocabulary.exclude(review_status="mastered")
+        .filter(models_q_due(now))
+        .order_by("next_review_at", "-updated_at")[:limit]
+    )
+    if len(due_vocab) < limit:
+        seen_ids = {item.id for item in due_vocab}
+        extra = [
+            item
+            for item in profile.vocabulary.order_by("-last_practiced_at", "-updated_at")[: limit * 2]
+            if item.id not in seen_ids
+        ][: limit - len(due_vocab)]
+        due_vocab.extend(extra)
+    recent_vocab = due_vocab
     recent_mistakes = list(profile.mistakes.order_by("-created_at")[:limit])
     weak_areas = _unique_text_values(profile.weak_areas)
     favorite_topics = _unique_text_values(profile.favorite_topics)
@@ -126,6 +152,10 @@ Stored memories: {len(recent_memories)}.
 Recent mistakes: {len(recent_mistakes)}.
 Safety rule: never pretend to be human or the uploaded person.
 Safety rule: clearly remain an AI buddy/avatar.
+Goodbye rule: if the learner says goodbye/farewell in any language (e.g. "bye",
+"goodbye", "doei", "tot ziens", "अलविदा", "au revoir", "adiós", "tschüss", "ciao"),
+respond with one brief, warm goodbye line (e.g. "Nice talking with you. See you
+next time!") and do not ask another question.
 """.strip()
 
     prompt_data = {
@@ -188,6 +218,8 @@ Safety rule: clearly remain an AI buddy/avatar.
                 "translation": vocab.translation,
                 "example_sentence": vocab.example_sentence,
                 "language": vocab.language,
+                "review_status": vocab.review_status,
+                "next_review_at": vocab.next_review_at.isoformat() if vocab.next_review_at else None,
             }
             for vocab in recent_vocab
         ],

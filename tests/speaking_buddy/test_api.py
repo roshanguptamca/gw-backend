@@ -265,7 +265,7 @@ class SpeakingBuddyApiTests(TestCase):
     @patch("apps.speaking_buddy.views.generate_buddy_reply")
     @patch("apps.speaking_buddy.views.summarize_session")
     def test_session_start_message_and_end(self, summarize_session, generate_buddy_reply):
-        generate_buddy_reply.side_effect = ["Welcome to practice.", "Great answer."]
+        generate_buddy_reply.side_effect = ["Great answer."]
         summarize_session.return_value = {
             "summary": "Practiced speaking.",
             "weak_areas": ["grammar"],
@@ -282,7 +282,10 @@ class SpeakingBuddyApiTests(TestCase):
         response = self.client.post("/api/buddy/session/start/", {"topic": "Travel", "language": "nl"}, format="json")
         self.assertEqual(response.status_code, 201)
         session_id = response.data["id"]
-        self.assertEqual(response.data["welcome_message"], "Welcome to practice.")
+        # The welcome greeting is now built deterministically (buddy name +
+        # target language + one simple question) rather than via the mocked
+        # LLM reply, so it doesn't say "Welcome to practice." anymore.
+        self.assertTrue(response.data["welcome_message"])
 
         response = self.client.post(
             "/api/buddy/session/message/", {"session_id": session_id, "text": "Ik wil oefenen."}, format="json"
@@ -324,7 +327,9 @@ class SpeakingBuddyApiTests(TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data["status"], "active")
         self.assertEqual(response.data["selected_voice"], "marin")
-        self.assertEqual(generate_buddy_reply.call_count, 1)
+        # The session greeting is now built deterministically without calling
+        # the LLM, so generate_buddy_reply is not invoked at session start.
+        self.assertEqual(generate_buddy_reply.call_count, 0)
 
     @patch("apps.speaking_buddy.views.generate_buddy_reply", return_value="Welcome")
     def test_session_usage_does_not_double_count_same_session(self, generate_buddy_reply):
@@ -460,7 +465,9 @@ class SpeakingBuddyApiTests(TestCase):
         self.assertEqual(first.data["selected_voice"], "cedar")
         self.assertTrue(second.data["reused_session"])
         self.assertEqual(BuddySession.objects.filter(profile=self.profile1, status="active").count(), 1)
-        self.assertEqual(generate_buddy_reply.call_count, 1)
+        # The greeting is deterministic now, so the LLM is not called for it;
+        # the duplicate start call also short-circuits before any LLM call.
+        self.assertEqual(generate_buddy_reply.call_count, 0)
 
     @patch("apps.speaking_buddy.services.openai_buddy.OpenAI")
     def test_reconnect_uses_voice_frozen_on_session(self, openai_client_cls):

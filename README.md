@@ -62,6 +62,12 @@ The app enforces a free quota of 100 completed conversations per authenticated u
 - `BuddyVocabulary` was extended with `review_status`, `next_review_at`, `review_count`, and `last_result` for spaced-repetition-style flashcard review.
 - Progress dashboard aggregate stats (`services/progress_service.py`): total conversations, minutes practiced, average score, score trend, weekly practice chart, strongest/weakest skill, vocabulary learned, mistakes reduced, current streak, and next recommended lesson.
 
+**Goodbye detection, proactive greeting, and personalization:**
+- `BuddyIntentDetector` (`services/intent_detector.py`): detects goodbye/farewell intent across English, Dutch, Hindi, French, Spanish, German, and Italian phrases (plus a light heuristic fallback for unmatched leave-taking sentences). Wired into `buddy_session_message_view`: when a goodbye is detected, the session ends automatically with `end_reason="user_goodbye"` and the response includes `should_end_session: true`.
+- `BuddyGreetingService` (`services/greeting_service.py`): builds a deterministic session-start greeting (buddy name, target language, one simple question), plus `instructions` text used to make the realtime voice model speak the greeting first, without waiting for the learner to talk. The frontend sends a `response.create` event over the WebRTC data channel as soon as it opens.
+- `BuddyPersonalizationService` (`services/personalization_service.py`): a thin, testable wrapper over `context_builder.build_session_context` exposing the continuity data (last session summary, recommended continuation) and a personalization summary (recent sessions/vocabulary/mistakes/weak areas), respecting `BuddyProfile.is_memory_enabled`.
+- `context_builder.py` now prioritizes vocabulary due for review (`next_review_at`/`review_status`) and instructs the AI to reply with a brief warm goodbye line when the learner signs off in any language.
+
 **New API endpoints (all under `/api/buddy/`, authenticated, owner-scoped):**
 - `GET /scenarios/` (filter by `?language=` and kids mode), `GET /scenarios/:id/`
 - `GET /progress/`

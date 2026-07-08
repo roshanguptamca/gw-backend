@@ -50,8 +50,9 @@ from .serializers import (
     BuddyWeakAreaSerializer,
 )
 from .services.avatar_generation import AvatarGenerationService, BuddyAvatarGenerationError, request_generated_avatar
-from .services.context_builder import build_session_context, language_name
-from .services.continuity_service import BuddyContinuityService
+from .services.context_builder import build_session_context
+from .services.greeting_service import BuddyGreetingService
+from .services.intent_detector import BuddyIntentDetector
 from .services.memory_service import update_session_insights
 from .services.next_lesson_service import generate_next_lesson
 from .services.openai_buddy import (
@@ -71,6 +72,21 @@ from .services.quota import (
 from .services.report_service import generate_report, update_weak_areas
 
 logger = logging.getLogger(__name__)
+
+GOODBYE_REPLIES = {
+    "en": "Nice talking with you. See you next time!",
+    "nl": "Leuk om met je te praten. Tot de volgende keer!",
+    "hi": "आपसे बात करके अच्छा लगा। फिर मिलेंगे!",
+    "ur": "آپ سے بات کر کے اچھا لگا۔ پھر ملیں گے!",
+    "ar": "سررت بالحديث معك. أراك في المرة القادمة!",
+    "es": "Fue un placer hablar contigo. ¡Hasta la próxima!",
+    "fr": "Ravi d'avoir discuté avec toi. À la prochaine !",
+    "de": "Schön, mit dir gesprochen zu haben. Bis zum nächsten Mal!",
+}
+
+
+def _goodbye_reply(language):
+    return GOODBYE_REPLIES.get(language, GOODBYE_REPLIES["en"])
 
 
 def _ensure_profile(user):
@@ -551,6 +567,10 @@ def buddy_session_start_view(request):
         payload = BuddySessionSerializer(active_session).data
         payload["transcript"] = _session_transcript(active_session)
         payload["reused_session"] = True
+        greeting = BuddyGreetingService(profile, settings_obj).build_greeting(
+            topic=active_session.topic, scenario=active_session.selected_scenario
+        )
+        payload["greeting_instructions"] = greeting["instructions"]
         return Response(payload)
     if not can_start_conversation(request.user):
         return Response(
@@ -584,22 +604,18 @@ def buddy_session_start_view(request):
     context = build_session_context(profile, settings_obj)
     if scenario:
         context.system_prompt = f"{context.system_prompt}\n\nScenario instructions: {scenario.system_prompt}"
-        welcome = scenario.opening_message or generate_buddy_reply(
-            context, f"Start the '{scenario.title}' scenario in {language_name(language)}.", []
-        )
-    else:
-        greeting = BuddyContinuityService(profile).build_personalized_greeting()
-        welcome = generate_buddy_reply(
-            context,
-            f"Start a short {language_name(language)} conversation about {topic}. "
-            f"Optionally use this personalized greeting as inspiration: {greeting}",
-            [],
-        )
+    greeting = BuddyGreetingService(profile, settings_obj).build_greeting(topic=topic, scenario=scenario)
+    # The greeting text is deterministic (always available, even without an
+    # OpenAI call) so the buddy reliably greets first with the buddy name,
+    # target language, and one simple question. `instructions` is handed to
+    # the realtime voice model so it speaks an equivalent greeting live.
+    welcome = greeting["text"]
     BuddyMessage.objects.create(session=session, role="assistant", text=welcome, metadata={"kind": "welcome"})
     session.transcript = [{"role": "assistant", "text": welcome, "metadata": {"kind": "welcome"}}]
     session.save(update_fields=["transcript", "updated_at"])
     payload = BuddySessionSerializer(session).data
     payload["welcome_message"] = welcome
+    payload["greeting_instructions"] = greeting["instructions"]
     payload["context"] = context.prompt_data
     return Response(payload, status=status.HTTP_201_CREATED)
 
@@ -616,6 +632,18 @@ def buddy_session_message_view(request):
 
     user_text = serializer.validated_data["text"]
     BuddyMessage.objects.create(session=session, role="user", text=user_text, metadata={})
+
+    if BuddyIntentDetector.is_goodbye(user_text):
+        farewell = _goodbye_reply(session.language or profile.target_language)
+        BuddyMessage.objects.create(session=session, role="assistant", text=farewell, metadata={"kind": "goodbye"})
+        transcript = _session_transcript(session)
+        end_payload = _end_buddy_session(request, profile, session, end_reason="user_goodbye")
+        end_payload["assistant_reply"] = farewell
+        end_payload["transcript"] = transcript
+        end_payload["should_end_session"] = True
+        end_payload["end_reason"] = "user_goodbye"
+        return Response(end_payload)
+
     transcript = _session_transcript(session)
     context = build_session_context(profile, BuddySettings.objects.get(profile=profile))
     reply = generate_buddy_reply(context, user_text, transcript)
@@ -628,6 +656,7 @@ def buddy_session_message_view(request):
             "session_id": session.id,
             "assistant_reply": reply,
             "transcript": transcript,
+            "should_end_session": False,
         }
     )
 
@@ -642,6 +671,14 @@ def buddy_session_end_view(request):
     session = get_object_or_404(BuddySession, id=serializer.validated_data["session_id"], profile=profile)
     end_reason = serializer.validated_data.get("reason") or ""
     client_closed_at = serializer.validated_data.get("client_closed_at")
+    return Response(_end_buddy_session(request, profile, session, end_reason, client_closed_at))
+
+
+def _end_buddy_session(request, profile, session, end_reason="", client_closed_at=None):
+    """Shared session-end logic used by both the explicit end endpoint and
+    the goodbye-detection flow in ``buddy_session_message_view``. Generates
+    the session summary/report/next-lesson/weak-area updates exactly once,
+    and is idempotent if the session was already ended."""
     end_session_reason(session, end_reason, client_closed_at)
     if session.status == "ended":
         quota = get_usage_quota(request.user)
@@ -653,7 +690,7 @@ def buddy_session_end_view(request):
             "conversations_remaining": quota.conversations_remaining,
             "is_limit_reached": quota.conversations_remaining <= 0,
         }
-        return Response(payload)
+        return payload
 
     transcript = _session_transcript(session)
     context = build_session_context(profile, BuddySettings.objects.get(profile=profile))
@@ -689,7 +726,7 @@ def buddy_session_end_view(request):
         "conversations_remaining": quota.conversations_remaining,
         "is_limit_reached": quota.conversations_remaining <= 0,
     }
-    return Response(payload)
+    return payload
 
 
 @api_view(["GET"])
