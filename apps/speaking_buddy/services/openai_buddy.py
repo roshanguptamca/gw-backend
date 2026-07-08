@@ -3,9 +3,10 @@ import logging
 
 from django.conf import settings
 
-from openai import OpenAI
+from openai import BadRequestError, OpenAI
 
 from .context_builder import BuddyContext, language_name
+from .voice_mapping import DEFAULT_VOICE, resolve_realtime_voice
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +136,14 @@ def _eagerness_from_silence_timeout(silence_timeout_ms: int) -> str:
     return "auto"
 
 
-def create_realtime_client_secret(context: BuddyContext, *, selected_voice="marin", buddy_session_id=None):
+def create_realtime_client_secret(
+    context: BuddyContext,
+    *,
+    selected_voice="marin",
+    voice_gender=None,
+    voice_style=None,
+    buddy_session_id=None,
+):
     client = _client()
     settings_data = context.prompt_data.get("settings", {}) if context and context.prompt_data else {}
     profile_data = context.prompt_data.get("profile", {}) if context and context.prompt_data else {}
@@ -144,18 +152,36 @@ def create_realtime_client_secret(context: BuddyContext, *, selected_voice="mari
     create_response = turn_detection_mode == "auto"
     eagerness = _eagerness_from_silence_timeout(silence_timeout_ms)
     target_language = profile_data.get("target_language") or "en"
+
+    # Never send an unsanitized voice straight to OpenAI: the Realtime API
+    # only accepts a fixed voice list (see services/voice_mapping.py), and a
+    # legacy/invalid value like "nova" must never crash token creation.
+    requested_voice = selected_voice
+    resolved_voice = resolve_realtime_voice(requested_voice, voice_gender, voice_style)
+    logger.info(
+        "AI Buddy voice resolved: requested=%s gender=%s style=%s resolved=%s source=%s",
+        requested_voice,
+        voice_gender,
+        voice_style,
+        resolved_voice,
+        "requested_voice" if resolved_voice == (requested_voice or "").strip().lower() else "fallback_mapping",
+    )
+
     debug_metadata = {
         "buddy_session_id": buddy_session_id,
-        "selected_voice": selected_voice,
+        "requested_voice": requested_voice,
+        "resolved_voice": resolved_voice,
+        "selected_voice": resolved_voice,
         "audio_source": "openai_realtime",
         "turn_detection_mode": turn_detection_mode,
         "silence_timeout_ms": silence_timeout_ms,
     }
     logger.info(
-        "Speaking buddy realtime token: session_id=%s selected_voice=%s "
+        "Speaking buddy realtime token: session_id=%s requested_voice=%s resolved_voice=%s "
         "audio_source=%s turn_detection_mode=%s silence_timeout_ms=%s eagerness=%s",
         buddy_session_id,
-        selected_voice,
+        requested_voice,
+        resolved_voice,
         debug_metadata["audio_source"],
         turn_detection_mode,
         silence_timeout_ms,
@@ -170,58 +196,88 @@ def create_realtime_client_secret(context: BuddyContext, *, selected_voice="mari
             **debug_metadata,
         }
 
-    try:
-        response = client.realtime.client_secrets.create(
-            expires_after={"anchor": "created_at", "seconds": 600},
-            session={
-                "type": "realtime",
-                "model": getattr(settings, "SPEAKING_BUDDY_REALTIME_MODEL", "gpt-realtime-2"),
-                "audio": {
-                    "output": {"voice": selected_voice},
-                    "input": {
-                        # Semantic VAD uses a model to judge whether the
-                        # learner has actually finished a thought (instead of
-                        # a fixed silence window), which is both more
-                        # human-like and less likely to cut the user off or
-                        # end the call mid-sentence. interrupt_response lets
-                        # the learner naturally talk over the AI, like a real
-                        # conversation partner would allow.
-                        "turn_detection": {
-                            "type": "semantic_vad",
-                            "eagerness": eagerness,
-                            "create_response": create_response,
-                            "interrupt_response": True,
-                        },
-                        # near_field noise reduction and a dedicated
-                        # transcription model improve recognition accuracy in
-                        # noisy environments and give more reliable
-                        # transcripts for the on-screen captions.
-                        "noise_reduction": {"type": "near_field"},
-                        "transcription": {
-                            "model": "gpt-4o-mini-transcribe",
-                            "language": target_language,
-                        },
+    def _build_session(voice):
+        return {
+            "type": "realtime",
+            "model": getattr(settings, "SPEAKING_BUDDY_REALTIME_MODEL", "gpt-realtime-2"),
+            "audio": {
+                "output": {"voice": voice},
+                "input": {
+                    # Semantic VAD uses a model to judge whether the
+                    # learner has actually finished a thought (instead of
+                    # a fixed silence window), which is both more
+                    # human-like and less likely to cut the user off or
+                    # end the call mid-sentence. interrupt_response lets
+                    # the learner naturally talk over the AI, like a real
+                    # conversation partner would allow.
+                    "turn_detection": {
+                        "type": "semantic_vad",
+                        "eagerness": eagerness,
+                        "create_response": create_response,
+                        "interrupt_response": True,
+                    },
+                    # near_field noise reduction and a dedicated
+                    # transcription model improve recognition accuracy in
+                    # noisy environments and give more reliable
+                    # transcripts for the on-screen captions.
+                    "noise_reduction": {"type": "near_field"},
+                    "transcription": {
+                        "model": "gpt-4o-mini-transcribe",
+                        "language": target_language,
                     },
                 },
-                "instructions": context.system_prompt,
             },
-        )
+            "instructions": context.system_prompt,
+        }
+
+    def _format_response(response, voice, metadata):
+        metadata = {**metadata, "resolved_voice": voice, "selected_voice": voice}
         if hasattr(response, "model_dump"):
             payload = response.model_dump()
             payload.setdefault("client_secret", payload.get("value"))
-            payload.update(debug_metadata)
+            payload.update(metadata)
             return payload
         if isinstance(response, dict):
             response.setdefault("client_secret", response.get("value"))
-            response.update(debug_metadata)
+            response.update(metadata)
             return response
         client_secret = getattr(response, "client_secret", getattr(response, "value", ""))
         return {
             "client_secret": client_secret,
             "value": getattr(response, "value", client_secret),
             "session_id": getattr(response, "session_id", ""),
-            **debug_metadata,
+            **metadata,
         }
+
+    try:
+        response = client.realtime.client_secrets.create(
+            expires_after={"anchor": "created_at", "seconds": 600},
+            session=_build_session(resolved_voice),
+        )
+        return _format_response(response, resolved_voice, debug_metadata)
+    except BadRequestError as exc:
+        # OpenAI still rejected the resolved voice (e.g. its supported-voice
+        # list changed again). Retry once with the safest possible voice
+        # before giving up, so a bad voice mapping never takes the whole
+        # call down.
+        logger.warning(
+            "Speaking buddy realtime token creation rejected resolved_voice=%s: %s",
+            resolved_voice,
+            exc,
+        )
+        if resolved_voice == DEFAULT_VOICE:
+            raise SpeakingBuddyError("realtime_token_failed") from exc
+        logger.warning("Speaking buddy realtime token retry voice=%s", DEFAULT_VOICE)
+        try:
+            response = client.realtime.client_secrets.create(
+                expires_after={"anchor": "created_at", "seconds": 600},
+                session=_build_session(DEFAULT_VOICE),
+            )
+            retry_metadata = {**debug_metadata, "voice_retry": True}
+            return _format_response(response, DEFAULT_VOICE, retry_metadata)
+        except Exception as retry_exc:
+            logger.warning("Speaking buddy realtime token retry also failed: %s", retry_exc)
+            raise SpeakingBuddyError("realtime_token_failed") from retry_exc
     except Exception as exc:
         logger.warning("Speaking buddy realtime token creation failed: %s", exc)
         raise SpeakingBuddyError("realtime_token_failed") from exc
