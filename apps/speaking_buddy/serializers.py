@@ -9,11 +9,15 @@ from .models import (
     BuddyMemory,
     BuddyMessage,
     BuddyMistake,
+    BuddyNextLesson,
     BuddyPracticeTopic,
     BuddyProfile,
+    BuddyScenario,
     BuddySession,
+    BuddySessionReport,
     BuddySettings,
     BuddyVocabulary,
+    BuddyWeakArea,
 )
 from .services.voice_mapping import resolve_voice
 
@@ -54,6 +58,7 @@ class BuddySettingsSerializer(serializers.ModelSerializer):
             "difficulty_level",
             "theme_color",
             "default_topic",
+            "kids_mode",
             "avatar_render_mode",
             "selected_3d_avatar_slug",
             "selected_generated_avatar",
@@ -319,6 +324,7 @@ class BuddySessionSerializer(serializers.ModelSerializer):
             "vocabulary_practiced",
             "improvement_notes",
             "selected_avatar",
+            "selected_scenario",
             "emotion_timeline",
             "usage_counted",
             "end_reason",
@@ -340,6 +346,7 @@ class BuddySessionSerializer(serializers.ModelSerializer):
             "vocabulary_practiced",
             "improvement_notes",
             "selected_avatar",
+            "selected_scenario",
             "emotion_timeline",
             "usage_counted",
             "end_reason",
@@ -399,6 +406,7 @@ class BuddyMistakeSerializer(serializers.ModelSerializer):
 class BuddySessionStartSerializer(serializers.Serializer):
     language = serializers.ChoiceField(choices=BuddyProfile._meta.get_field("native_language").choices, required=False)
     topic = serializers.CharField(required=False, allow_blank=True)
+    scenario_id = serializers.IntegerField(required=False)
 
 
 class BuddySessionMessageSerializer(serializers.Serializer):
@@ -421,3 +429,119 @@ class BuddyMemoryUpdateSerializer(serializers.Serializer):
     value = serializers.JSONField(required=False)
     importance = serializers.IntegerField(required=False, min_value=1, max_value=5)
     is_active = serializers.BooleanField(required=False)
+
+
+class BuddyScenarioSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BuddyScenario
+        fields = (
+            "id",
+            "title",
+            "slug",
+            "description",
+            "language",
+            "category",
+            "level",
+            "opening_message",
+            "expected_skills",
+            "vocabulary_focus",
+            "is_kids_safe",
+            "is_active",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = ("id", "created_at", "updated_at")
+
+
+class BuddySessionReportSerializer(serializers.ModelSerializer):
+    session_topic = serializers.CharField(source="session.topic", read_only=True)
+    session_language = serializers.CharField(source="session.language", read_only=True)
+    session_duration_seconds = serializers.IntegerField(source="session.duration_seconds", read_only=True)
+    session_started_at = serializers.DateTimeField(source="session.started_at", read_only=True)
+    scenario_title = serializers.CharField(source="session.selected_scenario.title", read_only=True, default=None)
+
+    class Meta:
+        model = BuddySessionReport
+        fields = (
+            "id",
+            "session",
+            "session_topic",
+            "session_language",
+            "session_duration_seconds",
+            "session_started_at",
+            "scenario_title",
+            "overall_score",
+            "fluency_score",
+            "grammar_score",
+            "vocabulary_score",
+            "confidence_score",
+            "completeness_score",
+            "strengths",
+            "improvement_points",
+            "corrected_sentences",
+            "vocabulary_learned",
+            "next_practice_recommendation",
+            "report_summary",
+            "is_fallback",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+
+class BuddyNextLessonSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BuddyNextLesson
+        fields = (
+            "id",
+            "title",
+            "description",
+            "target_language",
+            "level",
+            "focus_areas",
+            "recommended_scenarios",
+            "vocabulary_to_review",
+            "mistakes_to_fix",
+            "status",
+            "created_from_report",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = (
+            "id",
+            "title",
+            "description",
+            "target_language",
+            "level",
+            "focus_areas",
+            "recommended_scenarios",
+            "vocabulary_to_review",
+            "mistakes_to_fix",
+            "created_from_report",
+            "created_at",
+            "updated_at",
+        )
+
+
+class BuddyWeakAreaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BuddyWeakArea
+        fields = (
+            "id",
+            "area_type",
+            "title",
+            "description",
+            "language",
+            "severity",
+            "evidence",
+            "improvement_plan",
+            "status",
+            "last_seen_at",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+
+class BuddyVocabularyReviewResultSerializer(serializers.Serializer):
+    result = serializers.ChoiceField(choices=("known", "practice_again"))
