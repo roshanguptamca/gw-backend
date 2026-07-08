@@ -16,6 +16,7 @@ from .base import ScannerFinding
 from .container import ContainerScanner
 from .dast import DastScanner
 from .iac import IacScanner
+from .mode_labels import classify_raw_tool
 from .sast import SastScanner
 from .sca import ScaScanner
 from .secrets import SecretsScanner
@@ -137,6 +138,11 @@ class ScannerOrchestrator:
                             finding.scanner_type = engine_name
                         self._dedupe_and_collect(finding, all_findings, seen_fingerprints)
                 engine_result.raw_summary = result.metadata or {}
+                # Label how this engine actually produced its results (real tool vs
+                # fallback heuristic vs passive-only vs not configured), so the scan
+                # can never silently present a fallback/passive run as a full real
+                # scan. See scanners/mode_labels.py + docs/CURRENT_SECUREWISE_REVIEW.md.
+                engine_result.raw_summary["mode"] = classify_raw_tool(engine_result.raw_summary.get("raw_tool"))
                 engine_result.findings_count = len(result.findings)
 
             engine_result.started_at = started

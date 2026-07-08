@@ -215,9 +215,48 @@ class TestScanEngine:
             runner.run_scan(str(scan.id))
 
         scan.refresh_from_db()
-        assert scan.status in ("completed", "completed_with_warnings")
+        assert scan.status in ("completed", "completed_with_warnings", "completed_partial")
         assert scan.completed_at is not None
         assert scan.duration_seconds is not None
+
+    def test_scan_runner_reports_completed_partial_when_no_real_tool_ran(self, scan):
+        """
+        A SAST-only scan with no `semgrep` binary available runs entirely via
+        the fallback heuristic engine — SecureWise must never claim a plain
+        "Completed" in that case (see scanners/mode_labels.py,
+        docs/CURRENT_SECUREWISE_REVIEW.md).
+        """
+        with (
+            patch("apps.securewise.services.scanner.clone_repository", side_effect=_seed_vulnerable_repo),
+            patch("apps.securewise.scanners.sast.shutil.which", return_value=None),
+        ):
+            runner = ScannerRunner()
+            runner.run_scan(str(scan.id))
+
+        scan.refresh_from_db()
+        assert scan.status == "completed_partial"
+        engine_result = scan.engine_results.get(engine="sast")
+        assert engine_result.raw_summary["mode"] == "fallback_heuristic"
+
+    def test_scan_runner_reports_completed_when_real_tool_ran(self, scan):
+        """A SAST-only scan where semgrep genuinely ran should stay "completed"."""
+        import json
+        from unittest.mock import MagicMock
+
+        fake_output = json.dumps({"results": [], "paths": {"scanned": []}}).encode()
+        with (
+            patch("apps.securewise.services.scanner.clone_repository", side_effect=_seed_vulnerable_repo),
+            patch("apps.securewise.scanners.sast.shutil.which", return_value="/usr/bin/semgrep"),
+            patch("apps.securewise.scanners.sast.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(stdout=fake_output)
+            runner = ScannerRunner()
+            runner.run_scan(str(scan.id))
+
+        scan.refresh_from_db()
+        assert scan.status == "completed"
+        engine_result = scan.engine_results.get(engine="sast")
+        assert engine_result.raw_summary["mode"] == "real_tool"
 
     def test_scan_runner_creates_findings(self, scan):
         with patch("apps.securewise.services.scanner.clone_repository", side_effect=_seed_vulnerable_repo):

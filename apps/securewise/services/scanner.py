@@ -14,6 +14,7 @@ import logging
 import tempfile
 from pathlib import Path
 
+from apps.securewise.scanners.mode_labels import engine_ran_in_real_tool_mode
 from apps.securewise.scanners.orchestrator import ScannerOrchestrator
 from apps.securewise.scanners.repository import clone_repository
 
@@ -128,6 +129,17 @@ class ScannerRunner:
             final_status = "completed_with_warnings"
         else:
             final_status = "completed"
+            # Honesty check: never report a plain "Completed" if not a single
+            # engine actually ran a real external security tool (i.e. every
+            # engine that ran did so via a fallback heuristic, a passive-only
+            # check, or was skipped entirely). See scanners/mode_labels.py and
+            # docs/CURRENT_SECUREWISE_REVIEW.md — this prevents SecureWise from
+            # silently implying full tool coverage when it did not happen.
+            attempted_results = scan.engine_results.exclude(status__in=("pending", "running"))
+            if attempted_results.exists() and not any(
+                engine_ran_in_real_tool_mode(r.raw_summary) for r in attempted_results
+            ):
+                final_status = "completed_partial"
 
         scan.status = final_status
         scan.completed_at = completed_at
@@ -150,7 +162,11 @@ class ScannerRunner:
         SecureWiseAuditLog.objects.create(
             organization=scan.organization,
             user=scan.triggered_by,
-            event="scan_completed" if final_status in ("completed", "completed_with_warnings") else "scan_failed",
+            event=(
+                "scan_completed"
+                if final_status in ("completed", "completed_with_warnings", "completed_partial")
+                else "scan_failed"
+            ),
             target_type="SecureWiseScan",
             target_id=str(scan.id),
             detail={

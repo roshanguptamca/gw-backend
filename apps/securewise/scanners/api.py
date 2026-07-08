@@ -1,7 +1,18 @@
 """
-API security engine: parses an OpenAPI/Swagger spec (JSON or YAML) and
-checks for missing security schemes, unauthenticated sensitive paths, unsafe
-HTTP methods without auth, and missing error response schemas.
+API security engine — STATIC ANALYSIS ONLY.
+
+This engine parses an OpenAPI/Swagger spec (JSON or YAML) and checks for
+missing security schemes, unauthenticated sensitive paths, unsafe HTTP
+methods without auth, and missing error response schemas. It never sends a
+single request to a live API — there is no runtime/dynamic testing here.
+
+TODO(SW-401/SW-501, docs/FULL_SCAN_ORCHESTRATOR.md): once
+RuntimeEnvironmentManager can start the target application, extend this
+engine (or add a companion live-API engine) to actually exercise discovered
+endpoints against the running app, per docs/IMPLEMENTATION_ROADMAP.md
+Phases 3-4. Every finding/engine-result produced by this file is labeled
+`mode="passive_only"` (see scanners/mode_labels.py) so the UI never implies
+this is a live API scan.
 """
 
 from __future__ import annotations

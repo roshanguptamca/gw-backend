@@ -410,7 +410,12 @@ class TestScannerRunnerEdgeCases:
     def test_dast_scan_completes(self, scan_fixture):
         ScannerRunner().run_scan(str(scan_fixture.id))
         scan_fixture.refresh_from_db()
-        assert scan_fixture.status == "completed"
+        # DAST currently only ever runs in passive_only mode (see
+        # scanners/dast.py, scanners/mode_labels.py) so a scan consisting
+        # solely of DAST is correctly labeled "completed_partial", not a
+        # plain "completed" — see docs/CURRENT_SECUREWISE_REVIEW.md and
+        # docs/IMPLEMENTATION_ROADMAP.md Phase 1.
+        assert scan_fixture.status == "completed_partial"
 
     def test_invalid_scan_id_does_not_raise(self):
         """Runner should handle missing scan gracefully without raising."""

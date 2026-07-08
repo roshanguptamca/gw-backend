@@ -671,7 +671,7 @@ class ScanViewSet(viewsets.ModelViewSet):
         findings that no longer reproduce.
         """
         scan = self.get_object()
-        if scan.status not in ("failed", "cancelled", "completed_with_warnings", "completed"):
+        if scan.status not in ("failed", "cancelled", "completed_with_warnings", "completed", "completed_partial"):
             return Response(
                 {"detail": f"Cannot retry a scan with status '{scan.status}'."},
                 status=400,
