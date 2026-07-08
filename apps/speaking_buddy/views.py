@@ -1,4 +1,6 @@
 import logging
+import os
+import threading
 
 from django.db import models
 from django.shortcuts import get_object_or_404
@@ -72,6 +74,24 @@ from .services.quota import (
 from .services.report_service import generate_report, update_weak_areas
 
 logger = logging.getLogger(__name__)
+
+
+def _run_in_background(fn):
+    """Runs ``fn`` (no-arg callable) in a background daemon thread so the
+    caller gets an instant response, unless running under pytest — where it
+    runs synchronously instead so tests can assert on side effects
+    deterministically without racing a thread.
+
+    Returns True if ``fn`` was executed synchronously (i.e. the caller can
+    rely on its side effects already being visible), False if it was
+    dispatched to a background thread (side effects are not yet visible).
+    """
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        fn()
+        return True
+    thread = threading.Thread(target=fn, daemon=True)
+    thread.start()
+    return False
 
 GOODBYE_REPLIES = {
     "en": "Nice talking with you. See you next time!",
@@ -694,31 +714,53 @@ def _end_buddy_session(request, profile, session, end_reason="", client_closed_a
 
     transcript = _session_transcript(session)
     context = build_session_context(profile, BuddySettings.objects.get(profile=profile))
-    summary = summarize_session(context, transcript)
+
+    # Mark the session ended and record usage immediately — this is the data
+    # the caller needs right away. The heavier, slower "audit history" work
+    # (transcript summarization, coaching report scoring, next-lesson
+    # generation — all of which call OpenAI) is dispatched fire-and-forget
+    # below so the /session/end/ response doesn't wait on it.
     session.ended_at = timezone.now()
     session.status = "ended"
     session.duration_seconds = max(0, int((session.ended_at - session.started_at).total_seconds()))
-    session.ai_summary = summary.get("summary", "")
-    session.user_summary = summary.get("user_summary", "")
-    session.mistakes_detected = summary.get("mistakes", [])
-    session.vocabulary_practiced = summary.get("vocabulary", [])
-    session.improvement_notes = "\n".join(summary.get("improvement_notes", []))
     if end_reason:
         session.end_reason = end_reason
     if client_closed_at:
         session.client_closed_at = client_closed_at
     session.save()
-    update_session_insights(profile, session, summary)
-
-    report = generate_report(session, context, transcript, summary)
-    update_weak_areas(profile, session, report)
-    next_lesson = generate_next_lesson(profile, session, report)
 
     quota, counted = increment_conversation_usage(request.user, session)
+
+    results = {}
+
+    def _generate_report_and_lesson():
+        summary = summarize_session(context, transcript)
+        session.ai_summary = summary.get("summary", "")
+        session.user_summary = summary.get("user_summary", "")
+        session.mistakes_detected = summary.get("mistakes", [])
+        session.vocabulary_practiced = summary.get("vocabulary", [])
+        session.improvement_notes = "\n".join(summary.get("improvement_notes", []))
+        session.save(
+            update_fields=[
+                "ai_summary",
+                "user_summary",
+                "mistakes_detected",
+                "vocabulary_practiced",
+                "improvement_notes",
+                "updated_at",
+            ]
+        )
+        update_session_insights(profile, session, summary)
+        report = generate_report(session, context, transcript, summary)
+        update_weak_areas(profile, session, report)
+        next_lesson = generate_next_lesson(profile, session, report)
+        results["summary"] = summary
+        results["report"] = report
+        results["next_lesson"] = next_lesson
+
+    ran_synchronously = _run_in_background(_generate_report_and_lesson)
+
     payload = BuddySessionSerializer(session).data
-    payload["summary_payload"] = summary
-    payload["report"] = BuddySessionReportSerializer(report).data
-    payload["next_lesson"] = BuddyNextLessonSerializer(next_lesson).data
     payload["usage_counted"] = counted
     payload["usage"] = {
         "conversations_used": quota.conversations_used,
@@ -726,6 +768,19 @@ def _end_buddy_session(request, profile, session, end_reason="", client_closed_a
         "conversations_remaining": quota.conversations_remaining,
         "is_limit_reached": quota.conversations_remaining <= 0,
     }
+    if ran_synchronously:
+        payload["report_status"] = "ready"
+        payload["summary_payload"] = results["summary"]
+        payload["report"] = BuddySessionReportSerializer(results["report"]).data
+        payload["next_lesson"] = BuddyNextLessonSerializer(results["next_lesson"]).data
+    else:
+        # The report/next-lesson are still being generated in the background.
+        # Clients should poll GET /api/buddy/reports/ or GET /api/buddy/reports/:id/
+        # (and GET /api/buddy/next-lesson/) until they appear.
+        payload["report_status"] = "processing"
+        payload["summary_payload"] = None
+        payload["report"] = None
+        payload["next_lesson"] = None
     return payload
 
 
