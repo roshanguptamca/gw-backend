@@ -1,6 +1,15 @@
 from dataclasses import dataclass
 
+from django.db.models import Q
+from django.utils import timezone
+
 from ..models import BuddyProfile, BuddySettings
+
+
+def models_q_due(now):
+    """Vocabulary is 'due' when it has no scheduled review yet or the
+    scheduled review time has already passed."""
+    return Q(next_review_at__isnull=True) | Q(next_review_at__lte=now)
 
 
 @dataclass
@@ -40,6 +49,20 @@ def _unique_text_values(items):
     return values
 
 
+def _truncate_text(text, max_length=80):
+    """Trim a text snippet for inclusion in the realtime system prompt.
+
+    Realtime voice sessions resend the whole system prompt as the model's
+    "instructions" for every turn, so keeping these snippets short matters
+    for response latency across the whole conversation, not just at
+    session start.
+    """
+    text = (text or "").strip()
+    if len(text) <= max_length:
+        return text
+    return text[: max_length - 1].rstrip() + "…"
+
+
 def build_session_context(
     profile: BuddyProfile, settings_obj: BuddySettings | None = None, limit: int = 5
 ) -> BuddyContext:
@@ -47,15 +70,47 @@ def build_session_context(
     selected_avatar = getattr(settings_obj, "selected_avatar", None) if settings_obj else None
     recent_sessions = list(profile.sessions.order_by("-started_at")[:limit])
     recent_memories = list(profile.memories.filter(is_active=True).order_by("-updated_at")[:limit])
-    recent_vocab = list(profile.vocabulary.order_by("-last_practiced_at", "-updated_at")[:limit])
+    # Prefer vocabulary that is due for review (next_review_at in the past,
+    # or never reviewed / not yet mastered) so the buddy naturally reuses
+    # words the learner still needs to practice, falling back to recency.
+    now = timezone.now()
+    due_vocab = list(
+        profile.vocabulary.exclude(review_status="mastered")
+        .filter(models_q_due(now))
+        .order_by("next_review_at", "-updated_at")[:limit]
+    )
+    if len(due_vocab) < limit:
+        seen_ids = {item.id for item in due_vocab}
+        extra = [
+            item
+            for item in profile.vocabulary.order_by("-last_practiced_at", "-updated_at")[: limit * 2]
+            if item.id not in seen_ids
+        ][: limit - len(due_vocab)]
+        due_vocab.extend(extra)
+    recent_vocab = due_vocab
     recent_mistakes = list(profile.mistakes.order_by("-created_at")[:limit])
     weak_areas = _unique_text_values(profile.weak_areas)
     favorite_topics = _unique_text_values(profile.favorite_topics)
     learned_words = _unique_text_values([item.word for item in recent_vocab])
+    # Realtime voice sessions send this whole system prompt as the model's
+    # "instructions" for every turn, so keep it lean: dedupe near-identical
+    # memory values (e.g. the same session summary saved under several keys)
+    # and cap each snippet's length instead of dumping full raw payloads.
     memory_snippets = []
+    seen_snippet_values = set()
     for memory in recent_memories:
-        payload = memory.value if isinstance(memory.value, dict) else {"value": memory.value}
-        memory_snippets.append(f"{memory.memory_type}:{memory.key}={payload}")
+        if isinstance(memory.value, dict):
+            snippet_text = str(memory.value.get("text") or memory.value.get("value") or memory.value)
+        else:
+            snippet_text = str(memory.value)
+        snippet_text = _truncate_text(snippet_text, 80)
+        dedupe_key = snippet_text.strip().lower()
+        if not snippet_text or dedupe_key in seen_snippet_values:
+            continue
+        seen_snippet_values.add(dedupe_key)
+        memory_snippets.append(f"{memory.memory_type}:{memory.key}={snippet_text}")
+        if len(memory_snippets) >= 3:
+            break
     selected_avatar_name = (
         getattr(selected_avatar, "name", "")
         or getattr(settings_obj, "selected_3d_avatar_slug", "")
@@ -70,7 +125,7 @@ def build_session_context(
         recent_memories = []
         previous_summary = "none (memory disabled)"
     else:
-        previous_summary = profile.previous_conversation_summary or "none"
+        previous_summary = _truncate_text(profile.previous_conversation_summary or "none", 160)
 
     difficulty_level = getattr(settings_obj, "difficulty_level", "medium") if settings_obj else "medium"
     speaking_speed = getattr(settings_obj, "speaking_speed", 50) if settings_obj else 50
@@ -116,9 +171,9 @@ Speaking speed preference: {speaking_speed}/120. {speaking_speed_instruction}
 Correction level: {getattr(settings_obj, "correction_level", profile.preferred_correction_style)}.
 Topic: {getattr(settings_obj, "default_topic", "") if settings_obj else ""}.
 Memory: {"enabled" if memory_enabled else "disabled"}.
-Weak areas: {", ".join(weak_areas) or "none"}.
-Practice vocabulary: {", ".join(learned_words) or "none"}.
-Favorite topics: {", ".join(favorite_topics) or "none"}.
+Weak areas: {", ".join(weak_areas[:3]) or "none"}.
+Practice vocabulary: {", ".join(learned_words[:3]) or "none"}.
+Favorite topics: {", ".join(favorite_topics[:3]) or "none"}.
 Recent conversation summaries: {previous_summary}.
 Recent memory snippets: {memory_snippets and " | ".join(memory_snippets) or "none"}.
 Recent sessions: {len(recent_sessions)}.
@@ -126,6 +181,10 @@ Stored memories: {len(recent_memories)}.
 Recent mistakes: {len(recent_mistakes)}.
 Safety rule: never pretend to be human or the uploaded person.
 Safety rule: clearly remain an AI buddy/avatar.
+Goodbye rule: if the learner says goodbye/farewell in any language (e.g. "bye",
+"goodbye", "doei", "tot ziens", "अलविदा", "au revoir", "adiós", "tschüss", "ciao"),
+respond with one brief, warm goodbye line (e.g. "Nice talking with you. See you
+next time!") and do not ask another question.
 """.strip()
 
     prompt_data = {
@@ -188,6 +247,8 @@ Safety rule: clearly remain an AI buddy/avatar.
                 "translation": vocab.translation,
                 "example_sentence": vocab.example_sentence,
                 "language": vocab.language,
+                "review_status": vocab.review_status,
+                "next_review_at": vocab.next_review_at.isoformat() if vocab.next_review_at else None,
             }
             for vocab in recent_vocab
         ],

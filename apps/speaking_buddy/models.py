@@ -128,6 +128,55 @@ MEMORY_TYPE_CHOICES = [
     ("note", "Note"),
 ]
 
+NEXT_LESSON_STATUS_CHOICES = [
+    ("pending", "Pending"),
+    ("started", "Started"),
+    ("completed", "Completed"),
+    ("skipped", "Skipped"),
+]
+
+SCENARIO_CATEGORY_CHOICES = [
+    ("government", "Government / Gemeente"),
+    ("healthcare", "Healthcare"),
+    ("education", "Education"),
+    ("work", "Work"),
+    ("customer_service", "Customer Service"),
+    ("food", "Food & Dining"),
+    ("shopping", "Shopping"),
+    ("travel", "Travel"),
+    ("driving", "Driving"),
+    ("daily_life", "Daily Life"),
+    ("business", "Business"),
+    ("presentation", "Presentation"),
+]
+
+WEAK_AREA_TYPE_CHOICES = [
+    ("grammar", "Grammar"),
+    ("vocabulary", "Vocabulary"),
+    ("fluency", "Fluency"),
+    ("pronunciation", "Pronunciation"),
+    ("listening", "Listening"),
+    ("confidence", "Confidence"),
+]
+
+WEAK_AREA_SEVERITY_CHOICES = [
+    ("low", "Low"),
+    ("medium", "Medium"),
+    ("high", "High"),
+]
+
+WEAK_AREA_STATUS_CHOICES = [
+    ("active", "Active"),
+    ("improving", "Improving"),
+    ("resolved", "Resolved"),
+]
+
+VOCAB_REVIEW_STATUS_CHOICES = [
+    ("new", "New"),
+    ("learning", "Learning"),
+    ("mastered", "Mastered"),
+]
+
 
 class BuddyProfile(models.Model):
     user = models.OneToOneField(
@@ -166,6 +215,7 @@ class BuddySettings(models.Model):
     difficulty_level = models.CharField(max_length=20, choices=DIFFICULTY_LEVEL_CHOICES, default="medium")
     theme_color = models.CharField(max_length=24, default="#7c3aed")
     default_topic = models.CharField(max_length=255, blank=True)
+    kids_mode = models.BooleanField(default=False)
     avatar_render_mode = models.CharField(max_length=20, choices=AVATAR_RENDER_MODE_CHOICES, default="2d")
     selected_3d_avatar_slug = models.SlugField(max_length=120, blank=True)
     selected_generated_avatar = models.ForeignKey(
@@ -243,6 +293,8 @@ class Buddy3DAvatar(models.Model):
 class BuddyGeneratedAvatar(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="generated_buddy_avatars")
     source_image = models.ImageField(upload_to="speaking_buddy/generated_sources/", blank=True, null=True)
+    source_image_url = models.CharField(max_length=1000, blank=True)
+    source_image_public_id = models.CharField(max_length=300, blank=True)
     generated_glb_url = models.CharField(max_length=1000, blank=True)
     generated_thumbnail_url = models.CharField(max_length=1000, blank=True)
     generated_model_path = models.CharField(max_length=1000, blank=True)
@@ -292,6 +344,13 @@ class BuddySession(models.Model):
     improvement_notes = models.TextField(blank=True)
     selected_avatar = models.ForeignKey(
         Buddy3DAvatar,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="sessions",
+    )
+    selected_scenario = models.ForeignKey(
+        "BuddyScenario",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
@@ -389,6 +448,10 @@ class BuddyVocabulary(models.Model):
     confidence_score = models.PositiveSmallIntegerField(
         default=0, validators=[MinValueValidator(0), MaxValueValidator(100)]
     )
+    review_status = models.CharField(max_length=20, choices=VOCAB_REVIEW_STATUS_CHOICES, default="new")
+    next_review_at = models.DateTimeField(null=True, blank=True)
+    review_count = models.PositiveIntegerField(default=0)
+    last_result = models.CharField(max_length=20, blank=True)
     last_practiced_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -413,3 +476,116 @@ class BuddyMistake(models.Model):
 
     def __str__(self):
         return self.mistake_type or f"Mistake({self.profile_id})"
+
+
+class BuddyScenario(models.Model):
+    title = models.CharField(max_length=255)
+    slug = models.SlugField(max_length=160, unique=True)
+    description = models.TextField(blank=True)
+    language = models.CharField(max_length=20, choices=LANGUAGE_CHOICES, default="en")
+    category = models.CharField(max_length=40, choices=SCENARIO_CATEGORY_CHOICES, default="daily_life")
+    level = models.CharField(max_length=30, choices=SPEAKING_LEVEL_CHOICES, default="intermediate")
+    system_prompt = models.TextField(blank=True)
+    opening_message = models.TextField(blank=True)
+    expected_skills = models.JSONField(default=default_list, blank=True)
+    vocabulary_focus = models.JSONField(default=default_list, blank=True)
+    is_kids_safe = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["language", "category", "title"]
+
+    def __str__(self):
+        return f"{self.title} ({self.language})"
+
+
+class BuddySessionReport(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="buddy_session_reports")
+    session = models.OneToOneField(BuddySession, on_delete=models.CASCADE, related_name="report")
+    overall_score = models.PositiveSmallIntegerField(
+        default=0, validators=[MinValueValidator(0), MaxValueValidator(100)]
+    )
+    fluency_score = models.PositiveSmallIntegerField(
+        default=0, validators=[MinValueValidator(0), MaxValueValidator(100)]
+    )
+    grammar_score = models.PositiveSmallIntegerField(
+        default=0, validators=[MinValueValidator(0), MaxValueValidator(100)]
+    )
+    vocabulary_score = models.PositiveSmallIntegerField(
+        default=0, validators=[MinValueValidator(0), MaxValueValidator(100)]
+    )
+    confidence_score = models.PositiveSmallIntegerField(
+        default=0, validators=[MinValueValidator(0), MaxValueValidator(100)]
+    )
+    completeness_score = models.PositiveSmallIntegerField(
+        default=0, validators=[MinValueValidator(0), MaxValueValidator(100)]
+    )
+    strengths = models.JSONField(default=default_list, blank=True)
+    improvement_points = models.JSONField(default=default_list, blank=True)
+    corrected_sentences = models.JSONField(default=default_list, blank=True)
+    vocabulary_learned = models.JSONField(default=default_list, blank=True)
+    next_practice_recommendation = models.TextField(blank=True)
+    report_summary = models.TextField(blank=True)
+    is_fallback = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Report(session={self.session_id}, score={self.overall_score})"
+
+
+class BuddyNextLesson(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="buddy_next_lessons")
+    profile = models.ForeignKey(BuddyProfile, on_delete=models.CASCADE, related_name="next_lessons")
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    target_language = models.CharField(max_length=20, choices=LANGUAGE_CHOICES, default="en")
+    level = models.CharField(max_length=30, choices=SPEAKING_LEVEL_CHOICES, default="intermediate")
+    focus_areas = models.JSONField(default=default_list, blank=True)
+    recommended_scenarios = models.JSONField(default=default_list, blank=True)
+    vocabulary_to_review = models.JSONField(default=default_list, blank=True)
+    mistakes_to_fix = models.JSONField(default=default_list, blank=True)
+    status = models.CharField(max_length=20, choices=NEXT_LESSON_STATUS_CHOICES, default="pending")
+    created_from_report = models.ForeignKey(
+        BuddySessionReport,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="generated_lessons",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"NextLesson({self.user_id}, {self.status})"
+
+
+class BuddyWeakArea(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="buddy_weak_areas")
+    profile = models.ForeignKey(BuddyProfile, on_delete=models.CASCADE, related_name="weak_area_records")
+    area_type = models.CharField(max_length=30, choices=WEAK_AREA_TYPE_CHOICES, default="grammar")
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    language = models.CharField(max_length=20, choices=LANGUAGE_CHOICES, default="en")
+    severity = models.CharField(max_length=20, choices=WEAK_AREA_SEVERITY_CHOICES, default="medium")
+    evidence = models.JSONField(default=default_list, blank=True)
+    improvement_plan = models.TextField(blank=True)
+    status = models.CharField(max_length=20, choices=WEAK_AREA_STATUS_CHOICES, default="active")
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("profile", "area_type", "title", "language")]
+        ordering = ["-severity", "-updated_at"]
+
+    def __str__(self):
+        return f"{self.area_type}:{self.title}"

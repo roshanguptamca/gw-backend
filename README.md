@@ -53,6 +53,31 @@ AI-powered insurance policy analysis.
 AI voice-practice sessions with OpenAI Realtime audio, selectable 3D avatars, consent-based photo-inspired avatars, transcripts, history, vocabulary, mistakes, and account-scoped learning memory.
 The app enforces a free quota of 100 completed conversations per authenticated user account through `BuddyUsageQuota` and `/api/buddy/usage/`. New sessions are blocked after the limit is reached, but the user can still review history and memory.
 
+**Coaching, reports, and progress tracking:**
+- `BuddySessionReport`: generated automatically after every completed `BuddySession`. Contains overall/fluency/grammar/vocabulary/confidence/completeness scores (0-100), top strengths/improvement points, corrected sentences, vocabulary learned, and a next-practice recommendation. Uses OpenAI (`services/scoring_service.py`) when available; falls back to a heuristic scorer based on session length, word count, and detected mistakes when OpenAI is unavailable (`report.is_fallback=True`).
+- `BuddyNextLesson`: a personalized next lesson generated from each report's weak areas, mistakes, vocabulary, learning goal, and difficulty (`services/next_lesson_service.py`).
+- `BuddyWeakArea`: tracks grammar/vocabulary/fluency/pronunciation/listening/confidence weak areas per user, updated after every report (`services/report_service.update_weak_areas`).
+- `BuddyScenario`: real-life practice scenarios (gemeente appointment, doctor visit, job interview, customer support, etc.) seeded for Dutch and English via `python manage.py seed_buddy_scenarios` (`services/scenario_seed.py`). Scenarios can be marked kids-safe; `BuddySettings.kids_mode` filters scenario lists and adjusts AI behavior.
+- `BuddyContinuityService` (`services/continuity_service.py`): builds a personalized greeting that references the last session summary and a recommended continuation area when memory is enabled; explains that memory is off otherwise.
+- `BuddyVocabulary` was extended with `review_status`, `next_review_at`, `review_count`, and `last_result` for spaced-repetition-style flashcard review.
+- Progress dashboard aggregate stats (`services/progress_service.py`): total conversations, minutes practiced, average score, score trend, weekly practice chart, strongest/weakest skill, vocabulary learned, mistakes reduced, current streak, and next recommended lesson.
+
+**Goodbye detection, proactive greeting, and personalization:**
+- `BuddyIntentDetector` (`services/intent_detector.py`): detects goodbye/farewell intent across English, Dutch, Hindi, French, Spanish, German, and Italian phrases (plus a light heuristic fallback for unmatched leave-taking sentences). Wired into `buddy_session_message_view`: when a goodbye is detected, the session ends automatically with `end_reason="user_goodbye"` and the response includes `should_end_session: true`.
+- `BuddyGreetingService` (`services/greeting_service.py`): builds a deterministic session-start greeting (buddy name, target language, one simple question), plus `instructions` text used to make the realtime voice model speak the greeting first, without waiting for the learner to talk. The frontend sends a `response.create` event over the WebRTC data channel as soon as it opens.
+- `BuddyPersonalizationService` (`services/personalization_service.py`): a thin, testable wrapper over `context_builder.build_session_context` exposing the continuity data (last session summary, recommended continuation) and a personalization summary (recent sessions/vocabulary/mistakes/weak areas), respecting `BuddyProfile.is_memory_enabled`.
+- `context_builder.py` now prioritizes vocabulary due for review (`next_review_at`/`review_status`) and instructs the AI to reply with a brief warm goodbye line when the learner signs off in any language.
+
+**New API endpoints (all under `/api/buddy/`, authenticated, owner-scoped):**
+- `GET /scenarios/` (filter by `?language=` and kids mode), `GET /scenarios/:id/`
+- `GET /progress/`
+- `GET /reports/`, `GET /reports/:id/`, `POST /reports/:id/regenerate/`
+- `GET /next-lesson/`, `POST /next-lesson/:id/complete/`
+- `GET /vocabulary/review/`, `POST /vocabulary/:id/review-result/`
+- `GET /weak-areas/`
+
+`BuddySessionReport`, `BuddyNextLesson`, `BuddyScenario`, and `BuddyWeakArea` are all registered in Django admin with list/search/filter and date hierarchy where relevant.
+
 ### Career Suite
 Self-hosted resume building, parsing, ATS analysis, job matching, AI optimization, and PDF/DOCX export.
 
@@ -322,6 +347,7 @@ python manage.py makemigrations --check
 python manage.py migrate --check
 python manage.py showmigrations speaking_buddy
 python manage.py test tests.speaking_buddy
+python manage.py seed_buddy_scenarios   # idempotent Dutch/English scenario catalog
 black --check .
 isort --check-only .
 flake8

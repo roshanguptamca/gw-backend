@@ -7,12 +7,16 @@ from .models import (
     BuddyMemory,
     BuddyMessage,
     BuddyMistake,
+    BuddyNextLesson,
     BuddyPracticeTopic,
     BuddyProfile,
+    BuddyScenario,
     BuddySession,
+    BuddySessionReport,
     BuddySettings,
     BuddyUsageQuota,
     BuddyVocabulary,
+    BuddyWeakArea,
 )
 
 
@@ -251,5 +255,87 @@ class BuddyMessageAdmin(admin.ModelAdmin):
     list_display = ("id", "session", "role", "created_at", "updated_at")
     search_fields = ("session__profile__user__username", "session__profile__user__email", "text")
     list_filter = ("role", "created_at")
+    date_hierarchy = "created_at"
+    readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(BuddyScenario)
+class BuddyScenarioAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "title",
+        "slug",
+        "language",
+        "category",
+        "level",
+        "is_kids_safe",
+        "is_active",
+        "created_at",
+        "updated_at",
+    )
+    search_fields = ("title", "slug", "description")
+    list_filter = ("language", "category", "level", "is_kids_safe", "is_active")
+    readonly_fields = ("created_at", "updated_at")
+    prepopulated_fields = {"slug": ("title",)}
+
+
+@admin.register(BuddySessionReport)
+class BuddySessionReportAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "user",
+        "session",
+        "overall_score",
+        "fluency_score",
+        "grammar_score",
+        "vocabulary_score",
+        "confidence_score",
+        "completeness_score",
+        "is_fallback",
+        "created_at",
+        "updated_at",
+    )
+    search_fields = ("user__username", "user__email", "report_summary")
+    list_filter = ("is_fallback", "created_at")
+    date_hierarchy = "created_at"
+    readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(BuddyNextLesson)
+class BuddyNextLessonAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "user",
+        "profile",
+        "title",
+        "target_language",
+        "level",
+        "status",
+        "created_at",
+        "updated_at",
+    )
+    search_fields = ("user__username", "user__email", "title", "description")
+    list_filter = ("target_language", "level", "status", "created_at")
+    date_hierarchy = "created_at"
+    readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(BuddyWeakArea)
+class BuddyWeakAreaAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "user",
+        "profile",
+        "area_type",
+        "title",
+        "language",
+        "severity",
+        "status",
+        "last_seen_at",
+        "created_at",
+        "updated_at",
+    )
+    search_fields = ("user__username", "user__email", "title", "description")
+    list_filter = ("area_type", "language", "severity", "status")
     date_hierarchy = "created_at"
     readonly_fields = ("created_at", "updated_at")

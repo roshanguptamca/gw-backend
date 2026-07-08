@@ -1,5 +1,8 @@
 import logging
+import os
+import threading
 
+from django.db import models
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -16,10 +19,14 @@ from .models import (
     BuddyMemory,
     BuddyMessage,
     BuddyMistake,
+    BuddyNextLesson,
     BuddyProfile,
+    BuddyScenario,
     BuddySession,
+    BuddySessionReport,
     BuddySettings,
     BuddyVocabulary,
+    BuddyWeakArea,
 )
 from .serializers import (
     Buddy3DAvatarSelectSerializer,
@@ -30,24 +37,34 @@ from .serializers import (
     BuddyGeneratedAvatarSerializer,
     BuddyMemorySerializer,
     BuddyMistakeSerializer,
+    BuddyNextLessonSerializer,
     BuddyProfileSerializer,
     BuddyRealtimeTokenSerializer,
+    BuddyScenarioSerializer,
     BuddySessionEndSerializer,
     BuddySessionMessageSerializer,
+    BuddySessionReportSerializer,
     BuddySessionSerializer,
     BuddySessionStartSerializer,
     BuddySettingsSerializer,
+    BuddyVocabularyReviewResultSerializer,
     BuddyVocabularySerializer,
+    BuddyWeakAreaSerializer,
 )
 from .services.avatar_generation import AvatarGenerationService, BuddyAvatarGenerationError, request_generated_avatar
-from .services.context_builder import build_session_context, language_name
+from .services.cloudinary_service import delete_avatar_source_photo
+from .services.context_builder import build_session_context
+from .services.greeting_service import BuddyGreetingService
+from .services.intent_detector import BuddyIntentDetector
 from .services.memory_service import update_session_insights
+from .services.next_lesson_service import generate_next_lesson
 from .services.openai_buddy import (
     SpeakingBuddyError,
     create_realtime_client_secret,
     generate_buddy_reply,
     summarize_session,
 )
+from .services.progress_service import get_progress
 from .services.quota import (
     can_start_conversation,
     end_session_reason,
@@ -55,8 +72,43 @@ from .services.quota import (
     get_usage_quota,
     increment_conversation_usage,
 )
+from .services.report_service import generate_report, update_weak_areas
 
 logger = logging.getLogger(__name__)
+
+
+def _run_in_background(fn):
+    """Runs ``fn`` (no-arg callable) in a background daemon thread so the
+    caller gets an instant response, unless running under pytest — where it
+    runs synchronously instead so tests can assert on side effects
+    deterministically without racing a thread.
+
+    Returns True if ``fn`` was executed synchronously (i.e. the caller can
+    rely on its side effects already being visible), False if it was
+    dispatched to a background thread (side effects are not yet visible).
+    """
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        fn()
+        return True
+    thread = threading.Thread(target=fn, daemon=True)
+    thread.start()
+    return False
+
+
+GOODBYE_REPLIES = {
+    "en": "Nice talking with you. See you next time!",
+    "nl": "Leuk om met je te praten. Tot de volgende keer!",
+    "hi": "आपसे बात करके अच्छा लगा। फिर मिलेंगे!",
+    "ur": "آپ سے بات کر کے اچھا لگا۔ پھر ملیں گے!",
+    "ar": "سررت بالحديث معك. أراك في المرة القادمة!",
+    "es": "Fue un placer hablar contigo. ¡Hasta la próxima!",
+    "fr": "Ravi d'avoir discuté avec toi. À la prochaine !",
+    "de": "Schön, mit dir gesprochen zu haben. Bis zum nächsten Mal!",
+}
+
+
+def _goodbye_reply(language):
+    return GOODBYE_REPLIES.get(language, GOODBYE_REPLIES["en"])
 
 
 def _ensure_profile(user):
@@ -416,6 +468,13 @@ def buddy_generated_avatar_detail_view(request, pk):
         profile.buddy_settings.selected_generated_avatar = None
         profile.buddy_settings.avatar_render_mode = "2d"
         profile.buddy_settings.save(update_fields=["selected_generated_avatar", "avatar_render_mode", "updated_at"])
+    if avatar.source_image_public_id:
+        try:
+            delete_avatar_source_photo(avatar.source_image_public_id)
+        except Exception:
+            logger.warning(
+                "Could not delete Cloudinary asset %s for avatar %s", avatar.source_image_public_id, avatar.id
+            )
     avatar.delete()
     return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -537,6 +596,10 @@ def buddy_session_start_view(request):
         payload = BuddySessionSerializer(active_session).data
         payload["transcript"] = _session_transcript(active_session)
         payload["reused_session"] = True
+        greeting = BuddyGreetingService(profile, settings_obj).build_greeting(
+            topic=active_session.topic, scenario=active_session.selected_scenario
+        )
+        payload["greeting_instructions"] = greeting["instructions"]
         return Response(payload)
     if not can_start_conversation(request.user):
         return Response(
@@ -548,6 +611,16 @@ def buddy_session_start_view(request):
         )
     language = serializer.validated_data.get("language") or profile.target_language
     topic = serializer.validated_data.get("topic") or settings_obj.default_topic or "General speaking practice"
+    scenario = None
+    scenario_id = serializer.validated_data.get("scenario_id")
+    if scenario_id:
+        scenario_qs = BuddyScenario.objects.filter(id=scenario_id, is_active=True)
+        if settings_obj.kids_mode:
+            scenario_qs = scenario_qs.filter(is_kids_safe=True)
+        scenario = scenario_qs.first()
+        if scenario:
+            topic = scenario.title
+            language = scenario.language
     session = BuddySession.objects.create(
         profile=profile,
         language=language,
@@ -555,14 +628,23 @@ def buddy_session_start_view(request):
         status="active",
         transcript=[],
         selected_voice=settings_obj.selected_voice,
+        selected_scenario=scenario,
     )
     context = build_session_context(profile, settings_obj)
-    welcome = generate_buddy_reply(context, f"Start a short {language_name(language)} conversation about {topic}.", [])
+    if scenario:
+        context.system_prompt = f"{context.system_prompt}\n\nScenario instructions: {scenario.system_prompt}"
+    greeting = BuddyGreetingService(profile, settings_obj).build_greeting(topic=topic, scenario=scenario)
+    # The greeting text is deterministic (always available, even without an
+    # OpenAI call) so the buddy reliably greets first with the buddy name,
+    # target language, and one simple question. `instructions` is handed to
+    # the realtime voice model so it speaks an equivalent greeting live.
+    welcome = greeting["text"]
     BuddyMessage.objects.create(session=session, role="assistant", text=welcome, metadata={"kind": "welcome"})
     session.transcript = [{"role": "assistant", "text": welcome, "metadata": {"kind": "welcome"}}]
     session.save(update_fields=["transcript", "updated_at"])
     payload = BuddySessionSerializer(session).data
     payload["welcome_message"] = welcome
+    payload["greeting_instructions"] = greeting["instructions"]
     payload["context"] = context.prompt_data
     return Response(payload, status=status.HTTP_201_CREATED)
 
@@ -579,6 +661,18 @@ def buddy_session_message_view(request):
 
     user_text = serializer.validated_data["text"]
     BuddyMessage.objects.create(session=session, role="user", text=user_text, metadata={})
+
+    if BuddyIntentDetector.is_goodbye(user_text):
+        farewell = _goodbye_reply(session.language or profile.target_language)
+        BuddyMessage.objects.create(session=session, role="assistant", text=farewell, metadata={"kind": "goodbye"})
+        transcript = _session_transcript(session)
+        end_payload = _end_buddy_session(request, profile, session, end_reason="user_goodbye")
+        end_payload["assistant_reply"] = farewell
+        end_payload["transcript"] = transcript
+        end_payload["should_end_session"] = True
+        end_payload["end_reason"] = "user_goodbye"
+        return Response(end_payload)
+
     transcript = _session_transcript(session)
     context = build_session_context(profile, BuddySettings.objects.get(profile=profile))
     reply = generate_buddy_reply(context, user_text, transcript)
@@ -591,6 +685,7 @@ def buddy_session_message_view(request):
             "session_id": session.id,
             "assistant_reply": reply,
             "transcript": transcript,
+            "should_end_session": False,
         }
     )
 
@@ -605,6 +700,14 @@ def buddy_session_end_view(request):
     session = get_object_or_404(BuddySession, id=serializer.validated_data["session_id"], profile=profile)
     end_reason = serializer.validated_data.get("reason") or ""
     client_closed_at = serializer.validated_data.get("client_closed_at")
+    return Response(_end_buddy_session(request, profile, session, end_reason, client_closed_at))
+
+
+def _end_buddy_session(request, profile, session, end_reason="", client_closed_at=None):
+    """Shared session-end logic used by both the explicit end endpoint and
+    the goodbye-detection flow in ``buddy_session_message_view``. Generates
+    the session summary/report/next-lesson/weak-area updates exactly once,
+    and is idempotent if the session was already ended."""
     end_session_reason(session, end_reason, client_closed_at)
     if session.status == "ended":
         quota = get_usage_quota(request.user)
@@ -616,28 +719,57 @@ def buddy_session_end_view(request):
             "conversations_remaining": quota.conversations_remaining,
             "is_limit_reached": quota.conversations_remaining <= 0,
         }
-        return Response(payload)
+        return payload
 
     transcript = _session_transcript(session)
     context = build_session_context(profile, BuddySettings.objects.get(profile=profile))
-    summary = summarize_session(context, transcript)
+
+    # Mark the session ended and record usage immediately — this is the data
+    # the caller needs right away. The heavier, slower "audit history" work
+    # (transcript summarization, coaching report scoring, next-lesson
+    # generation — all of which call OpenAI) is dispatched fire-and-forget
+    # below so the /session/end/ response doesn't wait on it.
     session.ended_at = timezone.now()
     session.status = "ended"
     session.duration_seconds = max(0, int((session.ended_at - session.started_at).total_seconds()))
-    session.ai_summary = summary.get("summary", "")
-    session.user_summary = summary.get("user_summary", "")
-    session.mistakes_detected = summary.get("mistakes", [])
-    session.vocabulary_practiced = summary.get("vocabulary", [])
-    session.improvement_notes = "\n".join(summary.get("improvement_notes", []))
     if end_reason:
         session.end_reason = end_reason
     if client_closed_at:
         session.client_closed_at = client_closed_at
     session.save()
-    update_session_insights(profile, session, summary)
+
     quota, counted = increment_conversation_usage(request.user, session)
+
+    results = {}
+
+    def _generate_report_and_lesson():
+        summary = summarize_session(context, transcript)
+        session.ai_summary = summary.get("summary", "")
+        session.user_summary = summary.get("user_summary", "")
+        session.mistakes_detected = summary.get("mistakes", [])
+        session.vocabulary_practiced = summary.get("vocabulary", [])
+        session.improvement_notes = "\n".join(summary.get("improvement_notes", []))
+        session.save(
+            update_fields=[
+                "ai_summary",
+                "user_summary",
+                "mistakes_detected",
+                "vocabulary_practiced",
+                "improvement_notes",
+                "updated_at",
+            ]
+        )
+        update_session_insights(profile, session, summary)
+        report = generate_report(session, context, transcript, summary)
+        update_weak_areas(profile, session, report)
+        next_lesson = generate_next_lesson(profile, session, report)
+        results["summary"] = summary
+        results["report"] = report
+        results["next_lesson"] = next_lesson
+
+    ran_synchronously = _run_in_background(_generate_report_and_lesson)
+
     payload = BuddySessionSerializer(session).data
-    payload["summary_payload"] = summary
     payload["usage_counted"] = counted
     payload["usage"] = {
         "conversations_used": quota.conversations_used,
@@ -645,7 +777,20 @@ def buddy_session_end_view(request):
         "conversations_remaining": quota.conversations_remaining,
         "is_limit_reached": quota.conversations_remaining <= 0,
     }
-    return Response(payload)
+    if ran_synchronously:
+        payload["report_status"] = "ready"
+        payload["summary_payload"] = results["summary"]
+        payload["report"] = BuddySessionReportSerializer(results["report"]).data
+        payload["next_lesson"] = BuddyNextLessonSerializer(results["next_lesson"]).data
+    else:
+        # The report/next-lesson are still being generated in the background.
+        # Clients should poll GET /api/buddy/reports/ or GET /api/buddy/reports/:id/
+        # (and GET /api/buddy/next-lesson/) until they appear.
+        payload["report_status"] = "processing"
+        payload["summary_payload"] = None
+        payload["report"] = None
+        payload["next_lesson"] = None
+    return payload
 
 
 @api_view(["GET"])
@@ -689,3 +834,141 @@ def buddy_realtime_token_view(request):
         )
         return Response({"error": code}, status=status_code)
     return Response(token)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def buddy_scenario_list_view(request):
+    profile = _ensure_profile(request.user)
+    settings_obj = BuddySettings.objects.filter(profile=profile).first()
+    scenarios = BuddyScenario.objects.filter(is_active=True)
+    language = request.query_params.get("language")
+    if language:
+        scenarios = scenarios.filter(language=language)
+    category = request.query_params.get("category")
+    if category:
+        scenarios = scenarios.filter(category=category)
+    kids_mode = (settings_obj.kids_mode if settings_obj else False) or request.query_params.get("kids_mode") == "true"
+    if kids_mode:
+        scenarios = scenarios.filter(is_kids_safe=True)
+    return Response(BuddyScenarioSerializer(scenarios, many=True).data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def buddy_scenario_detail_view(request, pk):
+    scenario = get_object_or_404(BuddyScenario, id=pk, is_active=True)
+    return Response(BuddyScenarioSerializer(scenario).data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def buddy_progress_view(request):
+    profile = _ensure_profile(request.user)
+    return Response(get_progress(profile))
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def buddy_report_list_view(request):
+    profile = _ensure_profile(request.user)
+    reports = BuddySessionReport.objects.filter(user=request.user, session__profile=profile).order_by("-created_at")
+    return Response(BuddySessionReportSerializer(reports, many=True).data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def buddy_report_detail_view(request, pk):
+    profile = _ensure_profile(request.user)
+    report = get_object_or_404(BuddySessionReport, id=pk, user=request.user, session__profile=profile)
+    return Response(BuddySessionReportSerializer(report).data)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def buddy_report_regenerate_view(request, pk):
+    profile = _ensure_profile(request.user)
+    report = get_object_or_404(BuddySessionReport, id=pk, user=request.user, session__profile=profile)
+    session = report.session
+    transcript = _session_transcript(session)
+    context = build_session_context(profile, BuddySettings.objects.get(profile=profile))
+    summary = {
+        "mistakes": session.mistakes_detected,
+        "vocabulary": session.vocabulary_practiced,
+    }
+    report = generate_report(session, context, transcript, summary)
+    update_weak_areas(profile, session, report)
+    return Response(BuddySessionReportSerializer(report).data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def buddy_next_lesson_view(request):
+    profile = _ensure_profile(request.user)
+    lesson = (
+        BuddyNextLesson.objects.filter(user=request.user, profile=profile)
+        .exclude(status="skipped")
+        .order_by("-created_at")
+        .first()
+    )
+    if not lesson:
+        return Response({"lesson": None})
+    return Response(BuddyNextLessonSerializer(lesson).data)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def buddy_next_lesson_complete_view(request, pk):
+    profile = _ensure_profile(request.user)
+    lesson = get_object_or_404(BuddyNextLesson, id=pk, user=request.user, profile=profile)
+    new_status = request.data.get("status", "completed")
+    if new_status not in {"completed", "skipped", "started"}:
+        return Response({"error": "invalid_status"}, status=status.HTTP_400_BAD_REQUEST)
+    lesson.status = new_status
+    lesson.save(update_fields=["status", "updated_at"])
+    return Response(BuddyNextLessonSerializer(lesson).data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def buddy_vocabulary_review_view(request):
+    profile = _ensure_profile(request.user)
+    now = timezone.now()
+    items = (
+        BuddyVocabulary.objects.filter(profile=profile)
+        .filter(models.Q(next_review_at__isnull=True) | models.Q(next_review_at__lte=now))
+        .order_by("review_status", "-updated_at")
+    )
+    return Response(BuddyVocabularySerializer(items, many=True).data)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def buddy_vocabulary_review_result_view(request, pk):
+    profile = _ensure_profile(request.user)
+    item = get_object_or_404(BuddyVocabulary, id=pk, profile=profile)
+    serializer = BuddyVocabularyReviewResultSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    result = serializer.validated_data["result"]
+    item.review_count += 1
+    item.last_result = result
+    item.last_practiced_at = timezone.now()
+    if result == "known":
+        item.confidence_score = min(100, item.confidence_score + 20)
+        interval_days = min(30, max(1, item.review_count * 2))
+        item.review_status = "mastered" if item.confidence_score >= 90 else "learning"
+    else:
+        item.confidence_score = max(0, item.confidence_score - 10)
+        interval_days = 1
+        item.review_status = "learning"
+    item.next_review_at = timezone.now() + timezone.timedelta(days=interval_days)
+    item.save()
+    return Response(BuddyVocabularySerializer(item).data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def buddy_weak_area_list_view(request):
+    profile = _ensure_profile(request.user)
+    areas = BuddyWeakArea.objects.filter(user=request.user, profile=profile).order_by("-severity", "-updated_at")
+    return Response(BuddyWeakAreaSerializer(areas, many=True).data)

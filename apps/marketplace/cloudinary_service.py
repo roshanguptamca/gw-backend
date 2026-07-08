@@ -1,11 +1,11 @@
-import logging
 import re
-from pathlib import Path
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 
-logger = logging.getLogger(__name__)
+from apps.common.cloudinary_service import delete_image as _shared_delete_image
+from apps.common.cloudinary_service import upload_image as _shared_upload_image
+from apps.common.cloudinary_service import validate_image_file
 
 ALLOWED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
 ALLOWED_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
@@ -16,44 +16,14 @@ SHOP_BANNER_MAX_BYTES = BANNER_IMAGE_MAX_BYTES
 _SAFE_SKU = re.compile(r"^[A-Za-z0-9_-]+$")
 _SAFE_SLUG = re.compile(r"^[a-z0-9_-]+$")
 
-
-def validate_image_file(image_file, *, max_bytes=PRODUCT_IMAGE_MAX_BYTES):
-    if not image_file:
-        raise ValidationError("An image file is required.")
-
-    extension = Path(getattr(image_file, "name", "")).suffix.lower().lstrip(".")
-    content_type = getattr(image_file, "content_type", "").lower()
-    if extension not in ALLOWED_IMAGE_EXTENSIONS or content_type not in ALLOWED_IMAGE_CONTENT_TYPES:
-        raise ValidationError("Only jpg, jpeg, png, and webp images are allowed.")
-
-    if image_file.size > max_bytes:
-        max_mb = max_bytes // (1024 * 1024)
-        raise ValidationError(f"Image must be {max_mb} MB or smaller.")
-    return image_file
-
-
-def _cloudinary_uploader():
-    missing = [
-        name
-        for name in ("CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET")
-        if not getattr(settings, name, "")
-    ]
-    if missing:
-        raise ValidationError("Cloudinary image uploads are not configured.")
-
-    try:
-        import cloudinary
-        import cloudinary.uploader
-    except ImportError as exc:  # pragma: no cover - deployment dependency guard
-        raise ValidationError("Cloudinary image uploads are unavailable.") from exc
-
-    cloudinary.config(
-        cloud_name=settings.CLOUDINARY_CLOUD_NAME,
-        api_key=settings.CLOUDINARY_API_KEY,
-        api_secret=settings.CLOUDINARY_API_SECRET,
-        secure=True,
-    )
-    return cloudinary.uploader
+__all__ = [
+    "validate_image_file",
+    "upload_product_main_image",
+    "upload_product_gallery_image",
+    "upload_shop_logo",
+    "upload_shop_banner",
+    "delete_cloudinary_image",
+]
 
 
 def _product_public_id(product, suffix):
@@ -82,28 +52,7 @@ def _shop_public_id(shop, suffix):
 
 
 def _upload(image_file, public_id, *, max_bytes=PRODUCT_IMAGE_MAX_BYTES):
-    validate_image_file(image_file, max_bytes=max_bytes)
-    try:
-        result = _cloudinary_uploader().upload(
-            image_file,
-            public_id=public_id,
-            overwrite=True,
-            invalidate=True,
-            resource_type="image",
-            type="upload",
-            format="webp",
-            quality="auto:good",
-        )
-    except ValidationError:
-        raise
-    except Exception as exc:
-        logger.exception("Cloudinary upload failed for %s", public_id)
-        raise ValidationError("Image upload failed. Please try again.") from exc
-
-    secure_url = result.get("secure_url")
-    uploaded_public_id = result.get("public_id") or public_id
-    if not secure_url or not secure_url.startswith("https://"):
-        raise ValidationError("Cloudinary did not return a secure image URL.")
+    uploaded_public_id, secure_url, _eager = _shared_upload_image(image_file, public_id, max_bytes=max_bytes)
     return uploaded_public_id, secure_url
 
 
@@ -160,12 +109,4 @@ def upload_shop_banner(shop, image_file):
 
 
 def delete_cloudinary_image(public_id):
-    if not public_id:
-        return None
-    try:
-        return _cloudinary_uploader().destroy(public_id, resource_type="image", invalidate=True)
-    except ValidationError:
-        raise
-    except Exception as exc:
-        logger.exception("Cloudinary deletion failed for %s", public_id)
-        raise ValidationError("Image deletion failed. Please try again.") from exc
+    return _shared_delete_image(public_id, resource_type="image")
