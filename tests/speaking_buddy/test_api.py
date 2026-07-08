@@ -467,6 +467,8 @@ class SpeakingBuddyApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["client_secret"], "token-123")
         self.assertEqual(response.data["selected_voice"], "marin")
+        self.assertEqual(response.data["resolved_voice"], "marin")
+        self.assertEqual(response.data["requested_voice"], "marin")
         self.assertEqual(response.data["audio_source"], "openai_realtime")
         client.realtime.client_secrets.create.assert_called_once_with(
             expires_after={"anchor": "created_at", "seconds": 600},
@@ -492,6 +494,115 @@ class SpeakingBuddyApiTests(TestCase):
                 "instructions": ANY,
             },
         )
+
+    @patch("apps.speaking_buddy.services.openai_buddy.OpenAI")
+    def test_realtime_token_sanitizes_unsupported_voice_to_female_voice(self, openai_client_cls):
+        """Regression test for the production incident: selected_voice='nova'
+        must never reach OpenAI (it isn't Realtime-supported) — it must be
+        resolved to a Realtime-supported, female-sounding voice instead."""
+        client = Mock()
+        client.realtime.client_secrets.create.return_value = {"value": "token-456"}
+        openai_client_cls.return_value = client
+        self.auth(self.user1)
+        settings_obj, _ = BuddySettings.objects.get_or_create(profile=self.profile1)
+        # Force a legacy/unsupported value directly at the DB layer, bypassing
+        # the serializer's choices validation, to simulate old data.
+        BuddySettings.objects.filter(pk=settings_obj.pk).update(
+            selected_voice="nova", voice_gender="female", voice_style="warm"
+        )
+
+        response = self.client.post("/api/buddy/realtime-token/", {}, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["requested_voice"], "nova")
+        self.assertEqual(response.data["resolved_voice"], "coral")
+        self.assertEqual(response.data["selected_voice"], "coral")
+        sent_voice = client.realtime.client_secrets.create.call_args.kwargs["session"]["audio"]["output"]["voice"]
+        self.assertEqual(sent_voice, "coral")
+        self.assertNotIn(
+            sent_voice,
+            {"nova", "onyx", "fable"},
+            "An unsupported Realtime voice must never be sent to OpenAI",
+        )
+
+    @patch("apps.speaking_buddy.services.openai_buddy.OpenAI")
+    def test_realtime_token_retries_with_alloy_when_openai_rejects_voice(self, openai_client_cls):
+        """If OpenAI still rejects the resolved voice (e.g. its supported-voice
+        list changes again), retry once with alloy instead of failing the
+        whole call."""
+        from httpx import Response as HttpxResponse
+        from openai import BadRequestError
+
+        client = Mock()
+        bad_request = BadRequestError(
+            "Invalid value: 'coral'.",
+            response=HttpxResponse(400, request=Mock()),
+            body=None,
+        )
+        client.realtime.client_secrets.create.side_effect = [
+            bad_request,
+            {"value": "token-789"},
+        ]
+        openai_client_cls.return_value = client
+        self.auth(self.user1)
+        settings_obj, _ = BuddySettings.objects.get_or_create(profile=self.profile1)
+        settings_obj.selected_voice = "coral"
+        settings_obj.save(update_fields=["selected_voice", "updated_at"])
+
+        response = self.client.post("/api/buddy/realtime-token/", {}, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["resolved_voice"], "alloy")
+        self.assertTrue(response.data.get("voice_retry"))
+        self.assertEqual(client.realtime.client_secrets.create.call_count, 2)
+        second_call_voice = client.realtime.client_secrets.create.call_args_list[1].kwargs["session"]["audio"][
+            "output"
+        ]["voice"]
+        self.assertEqual(second_call_voice, "alloy")
+
+    @patch("apps.speaking_buddy.services.openai_buddy.OpenAI")
+    def test_realtime_token_fails_only_if_alloy_retry_also_fails(self, openai_client_cls):
+        from httpx import Response as HttpxResponse
+        from openai import BadRequestError
+
+        client = Mock()
+        bad_request = BadRequestError(
+            "Invalid value.",
+            response=HttpxResponse(400, request=Mock()),
+            body=None,
+        )
+        client.realtime.client_secrets.create.side_effect = [bad_request, bad_request]
+        openai_client_cls.return_value = client
+        self.auth(self.user1)
+        settings_obj, _ = BuddySettings.objects.get_or_create(profile=self.profile1)
+        settings_obj.selected_voice = "coral"
+        settings_obj.save(update_fields=["selected_voice", "updated_at"])
+
+        response = self.client.post("/api/buddy/realtime-token/", {}, format="json")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(client.realtime.client_secrets.create.call_count, 2)
+
+    def test_resolve_realtime_voice_never_returns_unsupported_voice(self):
+        from apps.speaking_buddy.services.voice_mapping import SUPPORTED_REALTIME_VOICES, resolve_realtime_voice
+
+        self.assertEqual(resolve_realtime_voice("nova", "female", "warm"), "coral")
+        self.assertEqual(resolve_realtime_voice("nova", "female", "calm"), "sage")
+        self.assertEqual(resolve_realtime_voice("nova", "female", None), "shimmer")
+        self.assertEqual(resolve_realtime_voice("onyx", "male", "warm"), "ash")
+        self.assertEqual(resolve_realtime_voice("onyx", "male", None), "echo")
+        self.assertEqual(resolve_realtime_voice("fable", "neutral", None), "alloy")
+        self.assertEqual(resolve_realtime_voice(None, None, None), "alloy")
+        self.assertEqual(resolve_realtime_voice("marin", "female", "warm"), "marin")
+        self.assertEqual(resolve_realtime_voice("shimmer", None, None), "shimmer")
+
+        for requested, gender, style in [
+            ("nova", "female", "warm"),
+            ("onyx", "male", None),
+            ("unknown-voice", "neutral", None),
+            (None, "female", "calm"),
+        ]:
+            self.assertIn(resolve_realtime_voice(requested, gender, style), SUPPORTED_REALTIME_VOICES)
 
     def test_semantic_vad_eagerness_mapping_is_stable(self):
         """Regression test for the human-like Semantic VAD turn detection:
@@ -607,30 +718,30 @@ class SpeakingBuddyApiTests(TestCase):
             "/api/buddy/settings/", {"voice_gender": "female", "voice_age": "adult"}, format="json"
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["selected_voice"], "nova")
-        self.assertIn(response.data["selected_voice"], {"nova", "shimmer"})
+        self.assertEqual(response.data["selected_voice"], "shimmer")
 
         response = self.client.patch(
             "/api/buddy/settings/", {"voice_gender": "male", "voice_age": "senior"}, format="json"
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["selected_voice"], "onyx")
-        self.assertIn(response.data["selected_voice"], {"onyx", "echo"})
+        self.assertEqual(response.data["selected_voice"], "ash")
 
-    def test_female_voice_gender_never_resolves_to_a_non_female_voice(self):
-        """Regression test: female previously mapped to 'alloy' for adult voice
-        age, which sounds male/neutral on the Realtime API and caused calls to
-        still sound male even after selecting Female. Female must always
-        resolve to nova or shimmer, never alloy/echo/onyx."""
-        from apps.speaking_buddy.services.voice_mapping import resolve_voice
+    def test_female_voice_gender_never_resolves_to_a_non_realtime_voice(self):
+        """Regression test: female previously mapped to 'nova'/'alloy', neither
+        of which the OpenAI Realtime API accepts ('nova' isn't Realtime-
+        supported at all, and 'alloy' reads as male/neutral). Female must
+        always resolve to a Realtime-supported, female-sounding voice."""
+        from apps.speaking_buddy.services.voice_mapping import SUPPORTED_REALTIME_VOICES, resolve_voice
 
         for age in ["young", "adult", "senior"]:
             voice = resolve_voice("female", age)
-            self.assertIn(voice, {"nova", "shimmer"}, f"female/{age} resolved to {voice}")
+            self.assertIn(voice, {"shimmer", "coral"}, f"female/{age} resolved to {voice}")
+            self.assertIn(voice, SUPPORTED_REALTIME_VOICES)
 
         for age in ["young", "adult", "senior"]:
             voice = resolve_voice("male", age)
-            self.assertIn(voice, {"echo", "onyx"}, f"male/{age} resolved to {voice}")
+            self.assertIn(voice, {"echo", "ash"}, f"male/{age} resolved to {voice}")
+            self.assertIn(voice, SUPPORTED_REALTIME_VOICES)
 
         for age in ["young", "adult", "senior"]:
             self.assertEqual(resolve_voice("neutral", age), "alloy")

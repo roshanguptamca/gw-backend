@@ -823,6 +823,8 @@ def buddy_realtime_token_view(request):
         token = create_realtime_client_secret(
             context,
             selected_voice=selected_voice,
+            voice_gender=settings_obj.voice_gender,
+            voice_style=settings_obj.voice_style,
             buddy_session_id=session.id if session else None,
         )
     except SpeakingBuddyError as exc:
@@ -833,6 +835,11 @@ def buddy_realtime_token_view(request):
             else status.HTTP_400_BAD_REQUEST
         )
         return Response({"error": code}, status=status_code)
+    if session and token.get("resolved_voice"):
+        resolved_voice = token["resolved_voice"]
+        if session.resolved_voice != resolved_voice:
+            session.resolved_voice = resolved_voice
+            session.save(update_fields=["resolved_voice", "updated_at"])
     return Response(token)
 
 

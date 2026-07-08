@@ -59,13 +59,16 @@ VOICE_AGE_CHOICES = [
 ]
 
 OPENAI_VOICE_CHOICES = [
-    ("marin", "Female Adult (legacy)"),
-    ("cedar", "Male Adult (legacy)"),
-    ("alloy", "Alloy (Neutral/Female Adult)"),
+    ("marin", "Marin (Female Adult)"),
+    ("cedar", "Cedar (Male Adult)"),
+    ("alloy", "Alloy (Neutral)"),
     ("shimmer", "Shimmer (Female Young)"),
-    ("nova", "Nova (Female Senior)"),
+    ("coral", "Coral (Female Warm)"),
+    ("sage", "Sage (Female Calm)"),
     ("echo", "Echo (Male Adult/Young)"),
-    ("onyx", "Onyx (Male Senior)"),
+    ("ash", "Ash (Male Warm)"),
+    ("ballad", "Ballad"),
+    ("verse", "Verse"),
 ]
 
 CORRECTION_LEVEL_CHOICES = [
@@ -335,6 +338,16 @@ class BuddySession(models.Model):
     topic = models.CharField(max_length=255, blank=True)
     status = models.CharField(max_length=20, choices=SESSION_STATUS_CHOICES, default="active")
     selected_voice = models.CharField(max_length=20, choices=OPENAI_VOICE_CHOICES, default="marin")
+    resolved_voice = models.CharField(
+        max_length=20,
+        blank=True,
+        help_text=(
+            "The actual Realtime-API-supported voice sent to OpenAI for this "
+            "session, after resolve_realtime_voice() sanitization. May differ "
+            "from selected_voice if selected_voice was a legacy/unsupported "
+            "value (e.g. 'nova')."
+        ),
+    )
     duration_seconds = models.PositiveIntegerField(default=0)
     transcript = models.JSONField(default=default_list, blank=True)
     ai_summary = models.TextField(blank=True)
