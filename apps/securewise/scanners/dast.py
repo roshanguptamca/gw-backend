@@ -42,11 +42,17 @@ class DastScanner(BaseScanner):
     def run(self, repo_path: Path, scan_id: str, metadata: dict) -> ScannerResult:
         target_url = metadata.get("target_url")
         if not target_url:
+            # The orchestrator's smart-discovery/runtime path may have
+            # already attempted to auto-start the application and produced a
+            # specific, honest reason it couldn't (e.g. "Docker is not
+            # available", "did not become reachable"). Prefer that reason
+            # when present; otherwise fall back to the generic message.
+            skipped_reason = metadata.get("dast_skip_reason") or "no target URL configured"
             return ScannerResult(
                 success=True,
                 findings=[],
                 status="skipped",
-                skipped_reason="no target URL configured",
+                skipped_reason=skipped_reason,
                 metadata={"raw_tool": "none"},
             )
 

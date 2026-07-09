@@ -57,6 +57,7 @@ class ScannerRunner:
         all_findings = []
         engine_meta: dict = {}
         any_engine_failed = False
+        any_engine_skipped = False
         error_msg = ""
 
         try:
@@ -71,8 +72,8 @@ class ScannerRunner:
                     repo_path.mkdir(parents=True, exist_ok=True)
 
                 orchestrator = ScannerOrchestrator()
-                all_findings, engine_meta, any_engine_failed = orchestrator.run(scan, repo_path)
-                scan.scanner_metadata = engine_meta
+                all_findings, engine_meta, any_engine_failed, any_engine_skipped = orchestrator.run(scan, repo_path)
+                scan.scanner_metadata = {**(scan.scanner_metadata or {}), **engine_meta}
             # tempdir is cleaned up here automatically
 
         except Exception as exc:
@@ -140,6 +141,13 @@ class ScannerRunner:
                 engine_ran_in_real_tool_mode(r.raw_summary) for r in attempted_results
             ):
                 final_status = "completed_partial"
+            elif any_engine_skipped:
+                # Some engine (e.g. DAST auto-discovery could not safely start
+                # the app) was skipped with a clear reason while other engines
+                # ran real tools successfully — the scan is genuinely useful
+                # but incomplete, so it must not be reported as a plain
+                # "Completed". See docs/SMART_REPO_SCAN.md.
+                final_status = "completed_with_warnings"
 
         scan.status = final_status
         scan.completed_at = completed_at
