@@ -33,7 +33,7 @@ from apps.securewise.models import (
     SecureWiseScanEngineResult,
 )
 from apps.securewise.runtime import docker_runner
-from apps.securewise.runtime.manager import RuntimeEnvironmentManager, RuntimeResult
+from apps.securewise.runtime.manager import RuntimeEnvironmentManager
 from apps.securewise.scanners.orchestrator import ScannerOrchestrator
 
 User = get_user_model()
