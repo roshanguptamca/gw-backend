@@ -1,6 +1,18 @@
 """
 DAST engine — PASSIVE ONLY.
 
+This engine currently only performs a passive HTTP request/header/cookie
+inspection against `target_url`. It does NOT spider, does NOT run active
+scan rules, and does NOT invoke OWASP ZAP despite ZAP being referenced in
+comments below — those are aspirational, not implemented.
+
+TODO(SW-401, docs/ZAP_DAST_ENGINE.md): replace this with a real ZAP-based
+DAST engine (passive + spider + optional opt-in active scan) per the
+SecureWise implementation roadmap (docs/IMPLEMENTATION_ROADMAP.md, Phase 4).
+Every finding/engine-result produced by this file is labeled
+`mode="passive_only"` (see scanners/mode_labels.py) so the UI never implies
+this is a full dynamic scan.
+
 Security warning: DAST must only be run against targets you own or are
 explicitly authorized to test. No destructive payloads, fuzzing, or auth
 bypass attempts are ever sent by this engine.

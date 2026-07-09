@@ -48,6 +48,10 @@ SCAN_STATUS_CHOICES = [
     ("normalizing", "Normalizing Results"),
     ("completed", "Completed"),
     ("completed_with_warnings", "Completed with Warnings"),
+    (
+        "completed_partial",
+        "Completed (Partial Coverage — fallback/passive engines only)",
+    ),
     ("failed", "Failed"),
     ("cancelled", "Cancelled"),
 ]
@@ -582,10 +586,10 @@ class SecureWiseFinding(models.Model):
     evidence = models.JSONField(default=dict, blank=True)
     fingerprint = models.CharField(max_length=128, blank=True, db_index=True)
 
-    # AI placeholder
+    # Populated on demand via services/ai_recommendation.py (POST /findings/{id}/ai-suggestion/).
     ai_fix_suggestion = models.TextField(
         blank=True,
-        help_text="AI-generated fix recommendation. TODO: integrate LLM.",
+        help_text="AI-generated fix recommendation (see services/ai_recommendation.py).",
     )
 
     reviewed_by = models.ForeignKey(
