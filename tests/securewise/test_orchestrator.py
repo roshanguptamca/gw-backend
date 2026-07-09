@@ -105,7 +105,7 @@ class TestOrchestratorRun:
         owner, org, project = org_project
         scan = _make_scan(org, project, owner, scan_type="secrets")
         with patch("apps.securewise.scanners.secrets.shutil.which", return_value=None):
-            findings, engine_meta, any_failed = ScannerOrchestrator().run(scan, tmp_path)
+            findings, engine_meta, any_failed, any_skipped = ScannerOrchestrator().run(scan, tmp_path)
         assert any_failed is False
         assert "secrets" in engine_meta
         results = list(SecureWiseScanEngineResult.objects.filter(scan=scan))
@@ -119,7 +119,7 @@ class TestOrchestratorRun:
     def test_run_marks_engine_skipped(self, org_project, tmp_path):
         owner, org, project = org_project
         scan = _make_scan(org, project, owner, scan_type="dast")
-        findings, engine_meta, any_failed = ScannerOrchestrator().run(scan, tmp_path)
+        findings, engine_meta, any_failed, any_skipped = ScannerOrchestrator().run(scan, tmp_path)
         result = SecureWiseScanEngineResult.objects.get(scan=scan)
         assert result.status == "skipped"
         assert result.skipped_reason == "no target URL configured"
@@ -165,7 +165,7 @@ class TestOrchestratorRun:
                 ),
             ),
         ):
-            findings, engine_meta, any_failed = ScannerOrchestrator().run(scan, tmp_path)
+            findings, engine_meta, any_failed, any_skipped = ScannerOrchestrator().run(scan, tmp_path)
 
         assert len(findings) == 1
         assert findings[0].confidence == "high"  # bumped from low by the sca duplicate
@@ -217,7 +217,7 @@ class TestOrchestratorRun:
                 return_value=ScannerResult(success=True, findings=[dast_finding], metadata={}),
             ),
         ):
-            findings, engine_meta, any_failed = ScannerOrchestrator().run(scan, tmp_path)
+            findings, engine_meta, any_failed, any_skipped = ScannerOrchestrator().run(scan, tmp_path)
 
         sast_result = next(f for f in findings if f.scanner_type == "sast")
         assert sast_result.confidence == "very_high"
@@ -227,7 +227,7 @@ class TestOrchestratorRun:
         owner, org, project = org_project
         scan = _make_scan(org, project, owner, scan_type="sast")
         with patch("apps.securewise.scanners.sast.SastScanner.run", side_effect=RuntimeError("boom")):
-            findings, engine_meta, any_failed = ScannerOrchestrator().run(scan, tmp_path)
+            findings, engine_meta, any_failed, any_skipped = ScannerOrchestrator().run(scan, tmp_path)
         assert any_failed is True
         result = SecureWiseScanEngineResult.objects.get(scan=scan)
         assert result.status == "failed"

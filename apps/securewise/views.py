@@ -496,6 +496,39 @@ class RepositoryViewSet(viewsets.ModelViewSet):
         repo.save(update_fields=["last_access_check_at", "last_access_status"])
         return Response({"accessible": accessible, "message": msg})
 
+    @action(detail=True, methods=["post"], url_path="discovery-preview", throttle_classes=[RepositoryValidateThrottle])
+    def discovery_preview(self, request, pk=None):
+        """
+        Clone the repository into a temporary, isolated workspace and run
+        ApplicationDiscoveryEngine — no engines run and no scan is created.
+        Used by the "Run Scan" wizard to show a live preview of detected
+        language/framework, whether a runtime can be auto-started, and
+        whether DAST will be possible before the user commits to a scan.
+        """
+        import tempfile
+        import types
+        from pathlib import Path
+
+        from .discovery.engine import ApplicationDiscoveryEngine
+        from .scanners.repository import clone_repository
+
+        repo = self.get_object()
+
+        try:
+            with tempfile.TemporaryDirectory(prefix="sw_preview_") as tmpdir:
+                repo_path = Path(tmpdir) / "repo"
+                fake_scan = types.SimpleNamespace(repository=repo)
+                clone_repository(fake_scan, repo_path, allowed_root=Path(tmpdir))
+                plan = ApplicationDiscoveryEngine().discover(repo_path)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Discovery preview failed for repository %s: %s", repo.id, exc)
+            return Response(
+                {"error": "Could not clone or analyze this repository for a preview.", "detail": str(exc)},
+                status=422,
+            )
+
+        return Response(plan.to_dict())
+
 
 # ---------------------------------------------------------------------------
 # Scan Policy
