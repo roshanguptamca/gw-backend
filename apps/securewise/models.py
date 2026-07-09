@@ -138,6 +138,7 @@ VISIBILITY_CHOICES = [
 ACCESS_MODE_CHOICES = [
     ("public", "Public"),
     ("integration", "Integration"),
+    ("local_path", "Local Path"),
 ]
 
 LAST_ACCESS_STATUS_CHOICES = [
@@ -341,7 +342,12 @@ class SecureWiseRepository(models.Model):
     )
     name = models.CharField(max_length=200)
     provider = models.CharField(max_length=30, choices=GIT_PROVIDER_CHOICES, blank=True)
-    repository_url = models.CharField(max_length=500, validators=[URLValidator()])
+    repository_url = models.CharField(max_length=500, blank=True, validators=[URLValidator()])
+    local_path = models.CharField(
+        max_length=1000,
+        blank=True,
+        help_text="Server-local repository path used when access_mode='local_path'.",
+    )
     clone_url = models.CharField(max_length=500, blank=True)
     default_branch = models.CharField(max_length=100, default="main")
     visibility = models.CharField(max_length=20, choices=VISIBILITY_CHOICES, default="public")
@@ -431,6 +437,36 @@ class SecureWiseScanPolicy(models.Model):
             SecureWiseScanPolicy.objects.filter(organization=self.organization, is_default=True).exclude(
                 pk=self.pk
             ).update(is_default=False)
+
+
+class SecureWiseScanPolicyTemplate(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    key = models.SlugField(unique=True, max_length=80)
+    name = models.CharField(max_length=150)
+    description = models.TextField(blank=True)
+    recommended_for = models.CharField(max_length=150, blank=True)
+    scan_types = models.JSONField(default=list)
+    fail_on_severity = models.CharField(max_length=20, choices=SEVERITY_CHOICES, default="high")
+    max_critical = models.IntegerField(default=0)
+    max_high = models.IntegerField(default=5)
+    max_medium = models.IntegerField(default=-1, help_text="-1 = unlimited.")
+    fail_on_secrets = models.BooleanField(default=True)
+    fail_on_new_findings_only = models.BooleanField(default=False)
+    allow_accepted_risks = models.BooleanField(default=True)
+    allow_false_positives = models.BooleanField(default=True)
+    is_recommended = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    sort_order = models.PositiveIntegerField(default=100)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["sort_order", "name"]
+        verbose_name = "Scan Policy Template"
+        verbose_name_plural = "Scan Policy Templates"
+
+    def __str__(self):
+        return self.name
 
 
 # ---------------------------------------------------------------------------

@@ -2,14 +2,10 @@
 
 ## Purpose
 
-Replace the current passive-only "DAST" (`scanners/dast.py:30-78` — literally just `requests.get()` and
-header/cookie inspection) with a real OWASP ZAP integration. This is the single highest-priority gap called
-out in `CURRENT_SECUREWISE_REVIEW.md` (§3, §6) — SecureWise cannot honestly claim "DAST" without this.
-
-New module: `apps/securewise/scanners/zap_dast.py`, replacing the body of the current `dast.py` scanner
-(the existing scanner's interface/registration in the orchestrator stays the same — only the
-implementation changes; this keeps the change additive/backward compatible for anything relying on
-`scanner_type="dast"`).
+Extend the current OWASP ZAP baseline DAST implementation (`scanners/dast.py`) into a fuller
+ZAP integration with spidering, authentication/context support, and optional active scanning.
+The scanner's interface/registration in the orchestrator stays the same, keeping the change
+backward compatible for anything relying on `scanner_type="dast"`.
 
 ## Why ZAP, and how it runs
 

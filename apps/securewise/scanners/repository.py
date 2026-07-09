@@ -124,6 +124,10 @@ def clone_repository(scan, repo_path: Path, allowed_root: Path | None = None, ti
     and never logs it. `finally` blocks scrub sensitive locals.
     """
     repo = scan.repository
+    if repo.access_mode == "local_path":
+        copy_local_repository(repo.local_path, repo_path, allowed_root=allowed_root)
+        return
+
     clone_url = repo.repository_url if repo.repository_url.endswith(".git") else repo.repository_url + ".git"
 
     if repo.access_mode == "integration" and repo.integration:
@@ -140,3 +144,45 @@ def clone_repository(scan, repo_path: Path, allowed_root: Path | None = None, ti
                 del authed_url
 
     safe_clone(clone_url, repo_path, allowed_root=allowed_root, timeout=timeout)
+
+
+def validate_local_repository_path(path: str | Path) -> tuple[bool, str, Path | None]:
+    repo_path = Path(path).expanduser()
+    try:
+        repo_path = repo_path.resolve()
+    except OSError as exc:
+        return False, f"Local path cannot be resolved: {exc}", None
+    if not repo_path.exists():
+        return False, "Local path does not exist.", None
+    if not repo_path.is_dir():
+        return False, "Local path is not a directory.", None
+    if not os_access_readable(repo_path):
+        return False, "Local path is not readable by the SecureWise backend process.", None
+    try:
+        if not any(repo_path.iterdir()):
+            return False, "Local repository path is empty.", None
+    except OSError:
+        return False, "Local path cannot be read by the SecureWise backend process.", None
+    return True, "Local repository path is accessible.", repo_path
+
+
+def copy_local_repository(local_path: str | Path, dest: Path, allowed_root: Path | None = None) -> None:
+    valid, message, source = validate_local_repository_path(local_path)
+    if not valid or source is None:
+        raise RuntimeError(message)
+    allowed_root = allowed_root or dest.parent
+    safe_dest = _resolve_safe_dest(dest, allowed_root)
+    shutil.copytree(
+        source,
+        safe_dest,
+        symlinks=False,
+        ignore=shutil.ignore_patterns(".git", "node_modules", ".venv", "venv", "__pycache__", ".pytest_cache"),
+    )
+
+
+def os_access_readable(path: Path) -> bool:
+    try:
+        path.iterdir()
+        return True
+    except OSError:
+        return False

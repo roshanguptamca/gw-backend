@@ -16,10 +16,9 @@ It is closer to **"static analysis SaaS with an honest fallback mode"** than a f
 
 The single most important fact for planning purposes:
 
-> **SecureWise does not clone-build-run applications today.** There is no dockerization engine, no runtime
-> environment manager, and no active DAST/pentest execution. DAST is passive-only (HTTP header/cookie
-> checks against a URL the user already has running somewhere). This is the single biggest gap between
-> current state and the vision.
+> **SecureWise has started moving toward clone-build-run scanning, but advanced runtime testing is still limited.**
+> DAST now supports OWASP ZAP baseline scanning when ZAP is available and falls back to passive HTTP
+> header/cookie checks. Authenticated spidering, opt-in active scanning, and AI pentest execution remain gaps.
 
 ---
 
@@ -81,7 +80,7 @@ The single most important fact for planning purposes:
 ## 6. What is NOT production-ready
 
 - Scan execution model (raw daemon threads, no queue, no worker autoscaling, no crash recovery, no retry).
-- DAST (passive-only; would fail any credible security audit if labeled "DAST").
+- DAST beyond baseline ZAP/passive checks (authenticated spidering and active scanning are not implemented).
 - API security testing (static-only).
 - No dockerization / runtime execution of the target application at all.
 - No pen-test capability, AI-planned or otherwise.
@@ -121,7 +120,7 @@ Entirely absent, need to be designed and built from scratch:
 - **FullScanOrchestrator** that sequences pre-runtime (SAST/SCA/secrets/IaC) → build/runtime (container scan, start app) → runtime testing (real DAST via ZAP, API testing against the live app, Playwright flows, AI pen-test scenarios) → post-processing (correlate, score, remediate, report)
 - **AI Pen-Test Planner** (structured `PenTestPlan` JSON generation from code/routes/OpenAPI/auth flow understanding)
 - **PlaywrightEngine** (AI-generated authenticated flow tests, evidence capture)
-- **Real ZAP-based DAST engine** (automation YAML, passive+spider+optional active, normalized findings — not an attached HTML report)
+- **Advanced ZAP-based DAST engine** (automation YAML, authenticated spider+optional active, normalized findings)
 - **Unified finding model extensions** (exploitability, cvss, correlation_group, retest_status — some fields already exist, some don't)
 - **FindingCorrelationEngine** (generalized, not just DAST↔SAST fingerprint matching)
 - Proper async job execution (Celery/RQ + broker) to replace daemon threads

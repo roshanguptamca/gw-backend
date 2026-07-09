@@ -1,0 +1,977 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SecureWise User Manual</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f6f8fb;
+        --panel: #ffffff;
+        --panel-soft: #fbfcfe;
+        --text: #172033;
+        --muted: #5b667a;
+        --border: #dce4ee;
+        --primary: #155eef;
+        --primary-dark: #0f3ea8;
+        --primary-soft: #e8f0ff;
+        --success: #087443;
+        --success-soft: #ecfdf3;
+        --warning: #b54708;
+        --warning-soft: #fff7ed;
+        --danger: #b42318;
+        --danger-soft: #fef3f2;
+        --ink: #101828;
+        --topbar-bg: rgba(255, 255, 255, 0.92);
+        --hero-bg: #eef4ff;
+        --button-bg: #ffffff;
+        --metric-bg: rgba(255, 255, 255, 0.72);
+        --workflow-bg: #fbfdff;
+        --workflow-border: #e6edf6;
+        --code-bg: #eef2f7;
+        --shadow: 0 18px 45px rgba(18, 29, 56, 0.1);
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0b1220;
+          --panel: #111827;
+          --panel-soft: #151f2f;
+          --text: #eef4ff;
+          --muted: #a8b4c7;
+          --border: #263244;
+          --primary: #73a7ff;
+          --primary-dark: #a9c8ff;
+          --primary-soft: #11294d;
+          --success: #6ee7b7;
+          --success-soft: #0f2a22;
+          --warning: #fbbf24;
+          --warning-soft: #2c2111;
+          --danger: #fca5a5;
+          --danger-soft: #301918;
+          --ink: #f8fafc;
+          --topbar-bg: rgba(11, 18, 32, 0.92);
+          --hero-bg: #0f1f3a;
+          --button-bg: #111827;
+          --metric-bg: rgba(17, 24, 39, 0.78);
+          --workflow-bg: #101b2d;
+          --workflow-border: #273549;
+          --code-bg: #1f2937;
+          --shadow: 0 20px 50px rgba(0, 0, 0, 0.32);
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: var(--text);
+        background: var(--bg);
+        line-height: 1.6;
+      }
+
+      a {
+        color: var(--primary);
+        text-decoration: none;
+      }
+
+      a:hover {
+        text-decoration: underline;
+      }
+
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        border-bottom: 1px solid rgba(220, 228, 238, 0.85);
+        background: var(--topbar-bg);
+        backdrop-filter: blur(14px);
+      }
+
+      .nav-inner {
+        width: min(1120px, calc(100% - 32px));
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        min-height: 68px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--ink);
+        font-weight: 800;
+      }
+
+      .brand-mark {
+        width: 34px;
+        height: 34px;
+        border-radius: 8px;
+        display: grid;
+        place-items: center;
+        color: #ffffff;
+        background: var(--primary);
+        font-weight: 900;
+      }
+
+      .nav-links {
+        display: none;
+        align-items: center;
+        gap: 18px;
+        font-size: 0.94rem;
+      }
+
+      .nav-links a {
+        color: var(--muted);
+        font-weight: 650;
+      }
+
+      .nav-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 42px;
+        padding: 0 16px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        color: var(--ink);
+        background: var(--button-bg);
+        font-weight: 800;
+        font-size: 0.94rem;
+        text-decoration: none;
+      }
+
+      .button.primary {
+        border-color: var(--primary);
+        color: #ffffff;
+        background: var(--primary);
+      }
+
+      .hero-wrap {
+        background: var(--hero-bg);
+        border-bottom: 1px solid var(--border);
+      }
+
+      .hero {
+        width: min(1120px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 48px 0 26px;
+      }
+
+      .hero-grid {
+        display: grid;
+        gap: 24px;
+        align-items: center;
+      }
+
+      .hero-copy {
+        max-width: 740px;
+      }
+
+      .hero-panel {
+        padding: 18px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+      }
+
+      .workflow-card {
+        display: grid;
+        gap: 10px;
+      }
+
+      .workflow-row {
+        display: grid;
+        grid-template-columns: 32px minmax(0, 1fr);
+        gap: 10px;
+        align-items: start;
+        padding: 12px;
+        border: 1px solid var(--workflow-border);
+        border-radius: 8px;
+        background: var(--workflow-bg);
+      }
+
+      .workflow-row span {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        display: grid;
+        place-items: center;
+        color: #ffffff;
+        background: var(--primary);
+        font-weight: 850;
+      }
+
+      .workflow-row strong {
+        display: block;
+        line-height: 1.25;
+      }
+
+      .workflow-row small {
+        color: var(--muted);
+      }
+
+      main {
+        padding: 26px 0 56px;
+      }
+
+      .content {
+        width: min(1120px, calc(100% - 32px));
+        margin: 0 auto;
+      }
+
+      .toc {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        padding: 0 0 16px;
+        margin-bottom: 10px;
+        scrollbar-width: thin;
+      }
+
+      .toc a {
+        flex: 0 0 auto;
+        padding: 8px 12px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        color: var(--ink);
+        background: var(--button-bg);
+        font-size: 0.9rem;
+        font-weight: 750;
+      }
+
+      .eyebrow {
+        margin: 0 0 10px;
+        color: var(--primary);
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        font-size: 0.78rem;
+      }
+
+      h1 {
+        margin: 0 0 16px;
+        font-size: clamp(2.25rem, 9vw, 4.25rem);
+        line-height: 1.05;
+        letter-spacing: 0;
+      }
+
+      h2 {
+        margin: 0 0 18px;
+        font-size: 1.65rem;
+        line-height: 1.2;
+        letter-spacing: 0;
+      }
+
+      h3 {
+        margin: 24px 0 8px;
+        font-size: 1.08rem;
+      }
+
+      p {
+        margin: 0 0 14px;
+      }
+
+      .summary {
+        max-width: 760px;
+        color: var(--muted);
+        font-size: 1.08rem;
+      }
+
+      section {
+        margin: 18px 0;
+        padding: 24px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--panel);
+      }
+
+      .hero-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 24px;
+      }
+
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 20px;
+      }
+
+      .metric {
+        padding: 14px;
+        border: 1px solid rgba(21, 94, 239, 0.18);
+        border-radius: 10px;
+        background: var(--metric-bg);
+      }
+
+      .metric strong {
+        display: block;
+        color: var(--ink);
+        font-size: 1.2rem;
+      }
+
+      .metric span {
+        color: var(--muted);
+        font-size: 0.88rem;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+        gap: 14px;
+        margin-top: 18px;
+      }
+
+      .tile {
+        padding: 18px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--panel-soft);
+      }
+
+      .tile strong {
+        display: block;
+        margin-bottom: 6px;
+      }
+
+      ol,
+      ul {
+        margin: 10px 0 0;
+        padding-left: 1.35rem;
+      }
+
+      li {
+        margin: 7px 0;
+      }
+
+      .callout {
+        margin: 18px 0 0;
+        padding: 16px 18px;
+        border-left: 4px solid var(--primary);
+        border-radius: 8px;
+        background: var(--primary-soft);
+      }
+
+      .warning {
+        border-left-color: var(--warning);
+        background: var(--warning-soft);
+      }
+
+      .success {
+        border-left-color: var(--success);
+        background: var(--success-soft);
+      }
+
+      .danger {
+        border-left-color: var(--danger);
+        background: var(--danger-soft);
+      }
+
+      .steps {
+        counter-reset: step;
+        display: grid;
+        gap: 14px;
+      }
+
+      .step {
+        position: relative;
+        padding: 18px 18px 18px 56px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--panel-soft);
+      }
+
+      .step::before {
+        counter-increment: step;
+        content: counter(step);
+        position: absolute;
+        left: 18px;
+        top: 18px;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        color: #ffffff;
+        background: var(--primary);
+        font-size: 0.85rem;
+        font-weight: 700;
+      }
+
+      .severity {
+        display: inline-block;
+        margin: 2px 4px 2px 0;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 0.82rem;
+        font-weight: 700;
+      }
+
+      .critical {
+        color: #ffffff;
+        background: #7a271a;
+      }
+
+      .high {
+        color: #ffffff;
+        background: #b42318;
+      }
+
+      .medium {
+        color: #7a2e0e;
+        background: #fedf89;
+      }
+
+      .low {
+        color: #064e3b;
+        background: #a7f3d0;
+      }
+
+      code {
+        padding: 2px 6px;
+        border-radius: 6px;
+        background: var(--code-bg);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 0.92em;
+      }
+
+      .footer {
+        margin: 26px 0 0;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      @media (min-width: 760px) {
+        .nav-links {
+          display: flex;
+        }
+
+        .hero {
+          padding: 70px 0 34px;
+        }
+
+        .hero-grid {
+          grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+        }
+
+        .metrics {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 520px) {
+        .nav-actions .secondary {
+          display: none;
+        }
+
+        .button {
+          min-height: 40px;
+          padding: 0 12px;
+        }
+
+        section {
+          padding: 20px;
+        }
+
+        .step {
+          padding-right: 14px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="nav-inner">
+        <a class="brand" href="#top" aria-label="SecureWise User Manual">
+          <span class="brand-mark">S</span>
+          <span>SecureWise</span>
+        </a>
+        <nav class="nav-links" aria-label="Documentation sections">
+          <a href="#organization">Organization</a>
+          <a href="#first-scan">First Scan</a>
+          <a href="#local-repository">Local Repo</a>
+          <a href="#results">Results</a>
+          <a href="#troubleshooting">Help</a>
+        </nav>
+        <div class="nav-actions">
+          <a class="button secondary" href="/documentation/">Developer Docs</a>
+          <a class="button primary" href="#first-scan">Start Guide</a>
+        </div>
+      </div>
+    </header>
+
+    <div id="top" class="hero-wrap">
+      <div class="hero">
+        <div class="hero-grid">
+          <div class="hero-copy">
+          <p class="eyebrow">SecureWise Portal</p>
+          <h1>SecureWise User Manual</h1>
+          <p class="summary">
+            This guide explains how a non-technical user can add a project,
+            scan source code or a local repository, review security findings,
+            and download reports without needing to understand the internal API.
+          </p>
+            <div class="hero-actions">
+              <a class="button primary" href="#first-scan">Run Your First Scan</a>
+              <a class="button" href="#local-repository">Scan Local Repo</a>
+            </div>
+            <div class="metrics" aria-label="SecureWise capabilities">
+              <div class="metric"><strong>8+</strong><span>scan areas</span></div>
+              <div class="metric"><strong>HTML</strong><span>reports</span></div>
+              <div class="metric"><strong>JSON</strong><span>automation</span></div>
+              <div class="metric"><strong>CI/CD</strong><span>pipeline use</span></div>
+            </div>
+          </div>
+          <div class="hero-panel" aria-label="SecureWise quick workflow">
+            <div class="workflow-card">
+              <div class="workflow-row">
+                <span>1</span>
+                <div><strong>Choose organization</strong><small>Work inside the correct company or team.</small></div>
+              </div>
+              <div class="workflow-row">
+                <span>2</span>
+                <div><strong>Add project</strong><small>Create the application workspace.</small></div>
+              </div>
+              <div class="workflow-row">
+                <span>3</span>
+                <div><strong>Connect repository</strong><small>Use Git URL or local path.</small></div>
+              </div>
+              <div class="workflow-row">
+                <span>4</span>
+                <div><strong>Run scan</strong><small>Choose policy, review findings, and download reports.</small></div>
+              </div>
+            </div>
+          </div>
+        </div>
+          <div class="callout success">
+            Start with <strong>Projects</strong>, add a <strong>Repository</strong>,
+            choose a <strong>Scan Policy</strong>, then run a <strong>Scan</strong>.
+          </div>
+      </div>
+    </div>
+
+    <main>
+      <div class="content">
+        <nav class="toc" aria-label="Manual contents">
+          <a href="#what-it-does">Overview</a>
+          <a href="#before-you-start">Before You Start</a>
+          <a href="#organization">Organization</a>
+          <a href="#first-scan">First Scan</a>
+          <a href="#local-repository">Local Repository</a>
+          <a href="#policies">Policies</a>
+          <a href="#scan-types">Scan Types</a>
+          <a href="#results">Results</a>
+          <a href="#reports">Reports</a>
+          <a href="#integrations">Integrations</a>
+          <a href="#troubleshooting">Troubleshooting</a>
+        </nav>
+
+        <section id="what-it-does">
+          <h2>What SecureWise Does</h2>
+          <p>
+            SecureWise checks software projects for security issues before and
+            after release. It can review source code, dependencies, secrets,
+            infrastructure files, container images, API definitions, and running
+            web applications when a safe test URL is provided.
+          </p>
+          <div class="grid">
+            <div class="tile">
+              <strong>Find risks early</strong>
+              Identify risky code patterns, vulnerable packages, leaked secrets,
+              and unsafe configuration before release.
+            </div>
+            <div class="tile">
+              <strong>Use ready-made policies</strong>
+              Pick a default policy such as OWASP Web Baseline or copy it and
+              adjust rules for your team.
+            </div>
+            <div class="tile">
+              <strong>Create shareable reports</strong>
+              Generate HTML, PDF, and JSON report outputs for audits, teams, or
+              CI/CD pipelines.
+            </div>
+          </div>
+        </section>
+
+        <section id="before-you-start">
+          <h2>Before You Start</h2>
+          <ul>
+            <li>You need a SecureWise account and access to an organization.</li>
+            <li>You need permission to add projects, repositories, and scans.</li>
+            <li>For a Git repository, have the repository URL ready.</li>
+            <li>For a private Git repository, ask an administrator to connect the Git provider first.</li>
+            <li>For a local repository, know the folder path on the machine where the backend runs.</li>
+            <li>Only scan systems and repositories you are authorized to test.</li>
+          </ul>
+          <div class="callout warning">
+            Dynamic web scans send test traffic to a running application. Use a
+            staging or test environment unless your team has approved production
+            scanning.
+          </div>
+        </section>
+
+        <section id="organization">
+          <h2>Organization Setup</h2>
+          <p>
+            SecureWise keeps projects, repositories, scan policies, findings,
+            and reports inside an organization. Before scanning, make sure you
+            are working in the correct organization so the right team can see
+            the results.
+          </p>
+          <div class="steps">
+            <div class="step">
+              <h3>Open Organizations</h3>
+              <p>
+                Use <strong>Organizations</strong> in the SecureWise menu to
+                view the organizations where your account is a member.
+              </p>
+            </div>
+            <div class="step">
+              <h3>Create or choose the organization</h3>
+              <p>
+                If your company or team already exists, select it. If you have
+                permission, create a new organization for the team that owns the
+                repositories you want to scan.
+              </p>
+            </div>
+            <div class="step">
+              <h3>Invite the right people</h3>
+              <p>
+                Add owners, administrators, security reviewers, developers, and
+                auditors based on who should manage repositories, start scans,
+                or only review reports.
+              </p>
+            </div>
+            <div class="step">
+              <h3>Confirm permissions</h3>
+              <p>
+                If you cannot add a project, repository, scan policy, or scan,
+                ask an organization owner or administrator to update your role.
+              </p>
+            </div>
+          </div>
+          <div class="callout">
+            For most users, the organization is selected once and then reused.
+            After that, your normal workflow is Projects, Repositories, Scan
+            Policies, Scans, Findings, and Reports.
+          </div>
+        </section>
+
+        <section id="first-scan">
+          <h2>Run Your First Scan</h2>
+          <div class="steps">
+            <div class="step">
+              <h3>Sign in</h3>
+              <p>Open the SecureWise portal and sign in with your account.</p>
+            </div>
+            <div class="step">
+              <h3>Choose the organization</h3>
+              <p>
+                Confirm you are in the organization that owns the application
+                you want to scan. This controls who can access the scan results.
+              </p>
+            </div>
+            <div class="step">
+              <h3>Create or choose a project</h3>
+              <p>
+                Go to <strong>Projects</strong>. Create a project for the
+                application you want to scan, or open an existing project.
+              </p>
+            </div>
+            <div class="step">
+              <h3>Add the repository</h3>
+              <p>
+                Go to <strong>Repositories</strong>, choose <strong>Add
+                Repository</strong>, enter the repository details, then use
+                <strong>Validate</strong> before saving.
+              </p>
+            </div>
+            <div class="step">
+              <h3>Select a scan policy</h3>
+              <p>
+                Go to <strong>Scan Policies</strong>. Use a default template,
+                make it the organization default, or copy it if your team needs
+                a custom version.
+              </p>
+            </div>
+            <div class="step">
+              <h3>Create the scan</h3>
+              <p>
+                Go to <strong>Scans</strong>, choose the project and repository,
+                select the scan type, then create the scan.
+              </p>
+            </div>
+            <div class="step">
+              <h3>Start and monitor</h3>
+              <p>
+                Start the scan and watch the status. When it finishes, open the
+                scan to review findings and report outputs.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section id="local-repository">
+          <h2>Scan a Local Repository</h2>
+          <p>
+            A local repository scan lets you scan code from a folder path instead
+            of a Git URL. This is useful when the code is on your machine, not
+            pushed to a remote provider, or not ready to share.
+          </p>
+          <div class="steps">
+            <div class="step">
+              <h3>Open Repositories</h3>
+              <p>Choose <strong>Add Repository</strong>.</p>
+            </div>
+            <div class="step">
+              <h3>Select local access</h3>
+              <p>
+                Set <strong>Access Type</strong> to <strong>Local path on this
+                machine</strong>.
+              </p>
+            </div>
+            <div class="step">
+              <h3>Enter the folder path</h3>
+              <p>
+                Enter a path such as <code>/Users/you/projects/my-app</code> or
+                another readable project folder.
+              </p>
+            </div>
+            <div class="step">
+              <h3>Validate and save</h3>
+              <p>
+                SecureWise checks that the path exists, is readable, is not
+                empty, and looks like a supported project.
+              </p>
+            </div>
+            <div class="step">
+              <h3>Run the scan</h3>
+              <p>
+                Go to <strong>Scans</strong> and select the saved local
+                repository from the repository list.
+              </p>
+            </div>
+          </div>
+          <div class="callout">
+            In local development, the backend usually runs on your computer, so
+            the path is your computer's path. In Docker or production, the path
+            must exist inside the backend container or server.
+          </div>
+        </section>
+
+        <section id="policies">
+          <h2>Use Scan Policies</h2>
+          <p>
+            A scan policy controls what SecureWise checks and when a scan should
+            be considered failed. Policies help teams run consistent scans.
+          </p>
+          <div class="grid">
+            <div class="tile">
+              <strong>Use as default</strong>
+              Makes the selected template the normal policy for new scans in the
+              organization.
+            </div>
+            <div class="tile">
+              <strong>Copy template</strong>
+              Creates a new policy from a template so your team can adjust
+              thresholds without changing the original template.
+            </div>
+            <div class="tile">
+              <strong>Latest market scan</strong>
+              Uses the latest bundled SecureWise template set for broad coverage.
+            </div>
+          </div>
+          <p>
+            If you are unsure, start with <strong>OWASP Web Baseline</strong> for
+            web applications and APIs.
+          </p>
+        </section>
+
+        <section id="scan-types">
+          <h2>Supported Scan Types</h2>
+          <div class="grid">
+            <div class="tile">
+              <strong>SAST</strong>
+              Reviews source code for risky patterns.
+            </div>
+            <div class="tile">
+              <strong>SCA</strong>
+              Checks third-party dependencies for known vulnerabilities.
+            </div>
+            <div class="tile">
+              <strong>Secrets</strong>
+              Looks for accidentally committed passwords, keys, or tokens.
+            </div>
+            <div class="tile">
+              <strong>IaC</strong>
+              Reviews infrastructure files such as Terraform, Kubernetes, and
+              cloud configuration.
+            </div>
+            <div class="tile">
+              <strong>API</strong>
+              Checks API definitions and routes where available.
+            </div>
+            <div class="tile">
+              <strong>DAST</strong>
+              Tests a running web application from the outside using an approved
+              target URL.
+            </div>
+            <div class="tile">
+              <strong>Container</strong>
+              Checks container images and Docker-related files.
+            </div>
+            <div class="tile">
+              <strong>Full scan</strong>
+              Runs the broadest available set of checks for the repository and
+              target information provided.
+            </div>
+          </div>
+        </section>
+
+        <section id="results">
+          <h2>Understand Results</h2>
+          <p>
+            Scan results are shown as findings. Each finding explains what was
+            detected, where it was found, how serious it is, and what action the
+            team should take.
+          </p>
+          <p>
+            Severity usually appears as
+            <span class="severity critical">Critical</span>
+            <span class="severity high">High</span>
+            <span class="severity medium">Medium</span>
+            <span class="severity low">Low</span>
+          </p>
+          <ul>
+            <li><strong>Critical:</strong> Treat as urgent. These can represent serious exposure.</li>
+            <li><strong>High:</strong> Fix soon, especially before release.</li>
+            <li><strong>Medium:</strong> Review and plan remediation.</li>
+            <li><strong>Low:</strong> Track or fix as part of normal cleanup.</li>
+          </ul>
+          <h3>Finding actions</h3>
+          <ul>
+            <li><strong>Open:</strong> Needs review or action.</li>
+            <li><strong>Accepted risk:</strong> The team understands the issue and accepts it for now.</li>
+            <li><strong>False positive:</strong> The finding does not apply after review.</li>
+            <li><strong>Fixed:</strong> The issue has been corrected and should be verified by a new scan.</li>
+          </ul>
+          <div class="callout">
+            Use AI suggestions as a starting point. A project owner or developer
+            should still review the fix before applying it.
+          </div>
+        </section>
+
+        <section id="reports">
+          <h2>Download Reports</h2>
+          <p>
+            After a scan completes, open <strong>Reports</strong> or the scan
+            details page to generate and download outputs.
+          </p>
+          <ul>
+            <li><strong>HTML report:</strong> Easy to read in a browser and share with stakeholders.</li>
+            <li><strong>PDF report:</strong> Useful for audits, approvals, and offline sharing.</li>
+            <li><strong>JSON report:</strong> Useful for automation and CI/CD systems.</li>
+          </ul>
+          <div class="callout danger">
+            Reports can include file paths, package names, code locations, and
+            vulnerability details. Share them only with authorized people.
+          </div>
+        </section>
+
+        <section id="integrations">
+          <h2>GitHub and Jenkins</h2>
+          <p>
+            SecureWise can be used from CI/CD pipelines so scans run during a
+            release process. Your administrator or DevOps team can use the
+            provided GitHub Actions and Jenkins examples to install dependencies,
+            run scans, store reports, and fail builds when severity thresholds
+            are exceeded.
+          </p>
+          <ul>
+            <li>Use the portal for day-to-day scan review and reporting.</li>
+            <li>Use GitHub Actions when scans should run automatically on pull requests or branches.</li>
+            <li>Use Jenkins when your organization already manages builds through Jenkins jobs.</li>
+          </ul>
+          <p>
+            For technical setup details, open the <a href="/documentation/">Developer Documentation</a>.
+          </p>
+        </section>
+
+        <section id="troubleshooting">
+          <h2>Troubleshooting</h2>
+          <h3>The repository will not validate</h3>
+          <p>
+            Check that the URL or local path is correct, the repository is not
+            empty, and the SecureWise backend has permission to read it.
+          </p>
+          <h3>The local path cannot be found</h3>
+          <p>
+            The path must exist on the machine or container running the backend.
+            A path on your laptop will not work if the backend is running on a
+            separate server unless that path is mounted there.
+          </p>
+          <h3>The scan finished with no findings</h3>
+          <p>
+            This can mean no supported issue was found, or the repository type
+            has limited scanner coverage. Review scan logs and the selected scan
+            type.
+          </p>
+          <h3>The DAST scan was skipped or failed</h3>
+          <p>
+            Confirm the target URL is reachable from the backend or scanner
+            container and that your team has approved testing that application.
+          </p>
+          <h3>The scan failed because of severity threshold</h3>
+          <p>
+            Open the findings list, review Critical and High issues first, then
+            fix, accept risk, or mark false positives based on your team's
+            approval process.
+          </p>
+          <h3>I am not sure what to choose</h3>
+          <p>
+            Use the default scan policy, run a full scan for broad coverage, and
+            ask a project owner or security reviewer to help triage the findings.
+          </p>
+        </section>
+
+        <section id="glossary">
+          <h2>Short Glossary</h2>
+          <ul>
+            <li><strong>Project:</strong> The application or service you want to protect.</li>
+            <li><strong>Repository:</strong> The source code location for a project.</li>
+            <li><strong>Scan:</strong> A SecureWise check run against a repository or target.</li>
+            <li><strong>Finding:</strong> A security issue or warning found by a scan.</li>
+            <li><strong>Policy:</strong> The rules and thresholds used during a scan.</li>
+            <li><strong>Artifact:</strong> A generated file such as an HTML, PDF, or JSON report.</li>
+          </ul>
+        </section>
+
+        <p class="footer">
+          This manual intentionally avoids secrets, tokens, and sensitive
+          environment values. Use it as a user guide for portal workflows.
+        </p>
+      </div>
+    </main>
+  </body>
+</html>

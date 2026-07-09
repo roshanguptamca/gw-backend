@@ -17,6 +17,7 @@ REAL_TOOL_MARKERS = {
     "trivy",
     "gitleaks",
     "docker+trivy",
+    "zap",
 }
 
 # `raw_tool` values that indicate a deterministic-but-weaker, non-external-tool

@@ -5,6 +5,8 @@ from django.urls import include, path
 
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
+from apps.securewise.views import SecureWiseDocumentationView, SecureWiseUserManualView
+
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/accounts/", include("apps.accounts.urls")),
@@ -22,6 +24,15 @@ urlpatterns = [
     path("api/", include("apps.marketplace.urls")),
     path("api/buddy/", include("apps.speaking_buddy.urls")),
     path("api/securewise/", include("apps.securewise.urls")),
+    path("user-manual/", SecureWiseUserManualView.as_view(), name="securewise-user-manual"),
+    path(
+        "documentation/user-manual/",
+        SecureWiseUserManualView.as_view(),
+        name="securewise-user-manual-alt",
+    ),
+    path("docs/user-manual/", SecureWiseUserManualView.as_view(), name="securewise-docs-user-manual"),
+    path("documentation/", SecureWiseDocumentationView.as_view(), name="securewise-documentation"),
+    path("docs/html/", SecureWiseDocumentationView.as_view(), name="securewise-docs-html"),
     # OpenAPI schema + UI
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),

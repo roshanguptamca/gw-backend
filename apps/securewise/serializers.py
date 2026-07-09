@@ -18,6 +18,7 @@ from .models import (
     SecureWiseScan,
     SecureWiseScanEngineResult,
     SecureWiseScanPolicy,
+    SecureWiseScanPolicyTemplate,
 )
 
 User = get_user_model()
@@ -233,6 +234,7 @@ class SecureWiseRepositorySerializer(serializers.ModelSerializer):
             "name",
             "provider",
             "repository_url",
+            "local_path",
             "clone_url",
             "default_branch",
             "visibility",
@@ -291,6 +293,33 @@ class SecureWiseScanPolicySerializer(serializers.ModelSerializer):
             "updated_at",
         )
         read_only_fields = ("id", "created_by", "created_by_detail", "created_at", "updated_at")
+
+
+class SecureWiseScanPolicyTemplateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SecureWiseScanPolicyTemplate
+        fields = (
+            "id",
+            "key",
+            "name",
+            "description",
+            "recommended_for",
+            "scan_types",
+            "fail_on_severity",
+            "max_critical",
+            "max_high",
+            "max_medium",
+            "fail_on_secrets",
+            "fail_on_new_findings_only",
+            "allow_accepted_risks",
+            "allow_false_positives",
+            "is_recommended",
+            "is_active",
+            "sort_order",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
 
 
 # ---------------------------------------------------------------------------

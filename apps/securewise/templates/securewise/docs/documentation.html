@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SecureWise Developer Documentation</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f8fafc;
+            --panel: #ffffff;
+            --border: #dbe2ea;
+            --text: #0f172a;
+            --muted: #475569;
+            --accent: #166534;
+            --code: #111827;
+        }
+        * { box-sizing: border-box; }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            line-height: 1.55;
+            margin: 0;
+        }
+        header {
+            background: #0f172a;
+            color: #f8fafc;
+            padding: 40px 24px;
+        }
+        header .inner, main {
+            margin: 0 auto;
+            max-width: 1120px;
+        }
+        h1 { font-size: 34px; margin: 0 0 8px; }
+        h2 { border-bottom: 1px solid var(--border); margin-top: 34px; padding-bottom: 8px; }
+        h3 { margin-top: 22px; }
+        a { color: #0369a1; }
+        main { padding: 24px; }
+        section {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin: 18px 0;
+            padding: 24px;
+        }
+        .muted { color: var(--muted); }
+        .grid {
+            display: grid;
+            gap: 12px;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        }
+        .tile {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 14px;
+        }
+        code, pre {
+            background: #0f172a;
+            color: #e5e7eb;
+            font-family: "SFMono-Regular", Consolas, monospace;
+            font-size: 13px;
+        }
+        code {
+            border-radius: 4px;
+            padding: 2px 5px;
+        }
+        pre {
+            border-radius: 8px;
+            overflow-x: auto;
+            padding: 14px;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+        th, td {
+            border: 1px solid var(--border);
+            padding: 8px;
+            text-align: left;
+            vertical-align: top;
+        }
+        th { background: #f1f5f9; }
+        .note {
+            background: #ecfdf5;
+            border-left: 4px solid var(--accent);
+            padding: 12px 14px;
+        }
+    </style>
+</head>
+<body>
+<header>
+    <div class="inner">
+        <h1>SecureWise Developer Documentation</h1>
+        <p class="muted">Public, sanitized reference for SecureWise architecture, setup, scanning, APIs, CI/CD, and local repository usage.</p>
+    </div>
+</header>
+<main>
+    <section>
+        <h2>Project Overview</h2>
+        <p>SecureWise is the application security platform inside the GuideWisey Django backend. It provides organization-scoped projects, repositories, scan policies, scans, findings, reports, Git integrations, and audit logs. The scanner layer supports SAST, SCA, secrets, IaC, container, API, and DAST engines with real-tool execution where available and transparent fallback modes where not.</p>
+        <div class="grid">
+            <div class="tile"><strong>Control Plane</strong><br>Organizations, memberships, projects, repositories, policies, scans, reports, findings, audit logs.</div>
+            <div class="tile"><strong>Scanner Layer</strong><br>Semgrep, Trivy, Gitleaks, OWASP ZAP baseline, OpenAPI checks, and Python fallback scanners.</div>
+            <div class="tile"><strong>Reports</strong><br>JSON, HTML, and PDF report generation with OWASP, CWE, severity, remediation, and quality-gate sections.</div>
+            <div class="tile"><strong>Developer Workflows</strong><br>GitHub issue/PR creation, CI/CD examples, and local repository scanning via CLI.</div>
+        </div>
+    </section>
+
+    <section>
+        <h2>Architecture</h2>
+        <p>The SecureWise backend is organized around explicit service boundaries:</p>
+        <table>
+            <thead><tr><th>Area</th><th>Modules</th><th>Purpose</th></tr></thead>
+            <tbody>
+            <tr><td>API and RBAC</td><td><code>apps/securewise/views.py</code>, <code>serializers.py</code>, <code>permissions.py</code></td><td>Authenticated REST API, organization membership checks, scan/report/finding actions.</td></tr>
+            <tr><td>Data Model</td><td><code>models.py</code></td><td>Organizations, policies, policy templates, scans, engine results, findings, reports, integrations.</td></tr>
+            <tr><td>Scanner Orchestration</td><td><code>services/scanner.py</code>, <code>scanners/orchestrator.py</code></td><td>Repository clone, engine selection, engine execution, finding persistence, quality gate evaluation.</td></tr>
+            <tr><td>Discovery and Runtime</td><td><code>discovery/</code>, <code>runtime/</code></td><td>Language/framework detection, Dockerfile/Compose detection, runtime startup support for DAST when safe.</td></tr>
+            <tr><td>Reports</td><td><code>services/report.py</code>, <code>services/report_render.py</code>, <code>templates/securewise/reports/</code></td><td>Structured report payloads plus branded HTML/PDF rendering.</td></tr>
+            <tr><td>CI and Local CLI</td><td><code>services/pipeline.py</code>, <code>services/local_scan.py</code>, <code>cli.py</code></td><td>Pipeline examples and filesystem-based scanning for developer machines and CI agents.</td></tr>
+            </tbody>
+        </table>
+    </section>
+
+    <section>
+        <h2>Setup Steps</h2>
+        <pre><code>cd gw-backend
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py runserver</code></pre>
+        <p>Optional external tools improve scan fidelity:</p>
+        <pre><code>pip install semgrep
+brew install trivy gitleaks
+docker pull ghcr.io/zaproxy/zaproxy:stable</code></pre>
+    </section>
+
+    <section>
+        <h2>Scan Workflow</h2>
+        <ol>
+            <li>User creates or selects an organization, project, repository, and scan policy.</li>
+            <li>A scan is created through <code>/api/securewise/scans/</code>.</li>
+            <li><code>ScannerRunner</code> clones the configured repository into a temporary directory.</li>
+            <li><code>ScannerOrchestrator</code> resolves engines from scan type and repository contents.</li>
+            <li>Each engine writes a <code>SecureWiseScanEngineResult</code> with mode metadata: real tool, fallback, passive only, or skipped.</li>
+            <li>Findings are normalized, deduplicated by fingerprint, persisted, and used for quality-gate evaluation.</li>
+            <li>Reports can be generated as JSON, HTML, or PDF.</li>
+        </ol>
+    </section>
+
+    <section>
+        <h2>API Overview</h2>
+        <table>
+            <thead><tr><th>Endpoint</th><th>Purpose</th></tr></thead>
+            <tbody>
+            <tr><td><code>/api/securewise/organizations/</code></td><td>Organizations and membership scope.</td></tr>
+            <tr><td><code>/api/securewise/projects/</code></td><td>Application or service grouping.</td></tr>
+            <tr><td><code>/api/securewise/repositories/</code></td><td>Git repository records and access tests.</td></tr>
+            <tr><td><code>/api/securewise/scan-policies/</code></td><td>Quality gate and engine scope policies.</td></tr>
+            <tr><td><code>/api/securewise/scan-policy-templates/</code></td><td>Read-only starter templates that can be copied into an organization.</td></tr>
+            <tr><td><code>/api/securewise/scans/</code></td><td>Create scans, retry, cancel, progress, and engine results.</td></tr>
+            <tr><td><code>/api/securewise/findings/</code></td><td>Finding list, status workflow, AI suggestions, tickets, and PRs.</td></tr>
+            <tr><td><code>/api/securewise/reports/</code></td><td>Report generation plus <code>/html/</code> and <code>/pdf/</code> render actions.</td></tr>
+            </tbody>
+        </table>
+        <p>OpenAPI schema and Swagger UI are available at <code>/api/schema/</code> and <code>/api/docs/</code>.</p>
+    </section>
+
+    <section>
+        <h2>Supported Scan Types</h2>
+        <table>
+            <thead><tr><th>Type</th><th>Primary Tool</th><th>Fallback/Notes</th></tr></thead>
+            <tbody>
+            <tr><td><code>sast</code></td><td>Semgrep</td><td>Offline rules and Python heuristics when Semgrep is absent.</td></tr>
+            <tr><td><code>sca</code></td><td>Trivy</td><td>Lockfile parser with curated CVE checks when Trivy is absent.</td></tr>
+            <tr><td><code>secrets</code></td><td>Gitleaks</td><td>Regex fallback for common secret patterns.</td></tr>
+            <tr><td><code>iac</code></td><td>Trivy config</td><td>Dockerfile, Kubernetes, Terraform, and Helm checks.</td></tr>
+            <tr><td><code>container</code></td><td>Trivy image</td><td>Requires image or Dockerfile plus Docker/Trivy.</td></tr>
+            <tr><td><code>api</code></td><td>Built-in OpenAPI parser</td><td>Finds missing security schemes, insecure methods, and sensitive routes.</td></tr>
+            <tr><td><code>dast</code></td><td>OWASP ZAP baseline</td><td>Passive requests-based checks if ZAP is unavailable. Active scans are not enabled by default.</td></tr>
+            <tr><td><code>full</code></td><td>Engine resolver</td><td>Runs base static engines and conditionally adds container/API/DAST where inputs exist.</td></tr>
+            </tbody>
+        </table>
+    </section>
+
+    <section>
+        <h2>Configuration and Environment Variables</h2>
+        <p>This page intentionally lists variable names only. Never publish token values or secrets in documentation, CI logs, or report artifacts.</p>
+        <table>
+            <thead><tr><th>Name</th><th>Purpose</th></tr></thead>
+            <tbody>
+            <tr><td><code>SECRET_KEY</code></td><td>Django signing key.</td></tr>
+            <tr><td><code>DATABASE_URL</code></td><td>Production database connection.</td></tr>
+            <tr><td><code>SECUREWISE_ENCRYPTION_KEY</code></td><td>Encrypts stored Git integration tokens.</td></tr>
+            <tr><td><code>OPENAI_API_KEY</code></td><td>Optional AI remediation support.</td></tr>
+            <tr><td><code>GEMINI_API_KEY</code></td><td>Optional AI provider support elsewhere in the backend.</td></tr>
+            <tr><td><code>FRONTEND_BASE_URL</code></td><td>Frontend URL used in links and redirects.</td></tr>
+            <tr><td><code>CORS_ALLOWED_ORIGINS</code></td><td>Allowed browser origins.</td></tr>
+            <tr><td><code>CSRF_TRUSTED_ORIGINS</code></td><td>Trusted origins for mutating requests.</td></tr>
+            </tbody>
+        </table>
+    </section>
+
+    <section>
+        <h2>GitHub Actions Integration Guide</h2>
+        <p>Use the local CLI in CI to scan the checked-out repository. The example writes both JSON and HTML reports and fails the job when the configured severity threshold is met.</p>
+        <pre><code>name: SecureWise Scan
+on: [push, pull_request]
+jobs:
+  securewise:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - run: python manage.py migrate --noinput
+      - run: python -m apps.securewise.cli scan --path . --output securewise-report --fail-on high
+      - uses: actions/upload-artifact@v4
+        with:
+          name: securewise-report
+          path: securewise-report/</code></pre>
+    </section>
+
+    <section>
+        <h2>Jenkins Integration Guide</h2>
+        <pre><code>pipeline {
+  agent any
+  stages {
+    stage('SecureWise Scan') {
+      steps {
+        sh 'python3 -m venv .venv'
+        sh '. .venv/bin/activate && pip install -r requirements.txt'
+        sh '. .venv/bin/activate && python manage.py migrate --noinput'
+        sh '. .venv/bin/activate && python -m apps.securewise.cli scan --path . --output securewise-report --fail-on high'
+        archiveArtifacts artifacts: 'securewise-report/**', fingerprint: true
+      }
+    }
+  }
+}</code></pre>
+    </section>
+
+    <section>
+        <h2>Local Repository Scan Guide</h2>
+        <h3>Scan a path from the SecureWise UI</h3>
+        <ol>
+            <li>Open <strong>Repositories</strong> and choose <strong>Add Repository</strong>.</li>
+            <li>Set <strong>Access Type</strong> to <strong>Local path on this machine</strong>.</li>
+            <li>Enter a readable path such as <code>/Users/you/projects/my-app</code> or another path visible to the backend process.</li>
+            <li>Validate and save the repository.</li>
+            <li>Open <strong>Scans</strong>, create a scan, and select the saved local repository from the repository dropdown.</li>
+        </ol>
+        <p class="note">In local development, the backend usually runs on your machine, so local paths are your local filesystem. In production, the path must exist inside the backend server/container.</p>
+
+        <h3>Scan a path from the CLI</h3>
+        <pre><code>python -m apps.securewise.cli scan --path /path/to/repository
+python -m apps.securewise.cli scan --path . --output securewise-report --fail-on high</code></pre>
+        <p>The UI and CLI validate path existence, directory access, empty repositories, and recognizable project signatures. CLI scans write <code>securewise-report.json</code> and <code>securewise-report.html</code>.</p>
+    </section>
+
+    <section>
+        <h2>Troubleshooting</h2>
+        <table>
+            <thead><tr><th>Symptom</th><th>Likely Cause</th><th>Action</th></tr></thead>
+            <tbody>
+            <tr><td>Scan is <code>completed_partial</code></td><td>No real external scanner ran successfully.</td><td>Install Semgrep, Trivy, Gitleaks, Docker, or ZAP depending on needed engines.</td></tr>
+            <tr><td>DAST is skipped</td><td>No target URL and runtime could not be safely started.</td><td>Provide <code>target_url</code> or add Dockerfile/Compose/start command and health endpoint.</td></tr>
+            <tr><td>Container scan is skipped</td><td>No image configured or Docker/Trivy unavailable.</td><td>Set <code>docker_image</code> or install Docker and Trivy.</td></tr>
+            <tr><td>Local CLI says unsupported project</td><td>No supported language/framework or scannable files detected.</td><td>Confirm the path points to the repository root and includes source/dependency/config files.</td></tr>
+            <tr><td>CI job fails on severity</td><td>Findings met or exceeded <code>--fail-on</code>.</td><td>Fix findings, adjust policy threshold, or explicitly accept risk in your governance process.</td></tr>
+            </tbody>
+        </table>
+        <div class="note">Security note: local and CI reports may contain file paths, finding descriptions, and code snippets. Treat report artifacts as internal security data.</div>
+    </section>
+</main>
+</body>
+</html>

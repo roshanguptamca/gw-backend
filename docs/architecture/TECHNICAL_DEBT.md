@@ -87,10 +87,10 @@
 - **Problem:** Only 5 packages with hardcoded CVE ranges. No live vulnerability database integration (OSV, NVD, GitHub Advisory).
 - **Recommendation:** Integrate OSV.dev API with timeout fallback; keep static list as offline fallback.
 
-### TD-16: DAST scanner doesn't invoke ZAP even when available
-- **Location:** `apps/securewise/scanners/dast.py:47-51`
-- **Problem:** ZAP baseline is detected but explicitly not invoked. DAST is passive-only HTTP header/cookie checks.
-- **Recommendation:** Add ZAP integration with configurable time limit; keep passive scan as minimal fallback.
+### TD-16: DAST scanner is baseline/passive only
+- **Location:** `apps/securewise/scanners/dast.py`
+- **Problem:** DAST can run OWASP ZAP baseline scans, but authenticated spidering and active scan rules are not enabled.
+- **Recommendation:** Add explicit opt-in policy controls for authenticated/context-aware ZAP scans with strict target scoping and time limits.
 
 ### TD-17: No API versioning
 - **Location:** `apps/securewise/urls.py`
