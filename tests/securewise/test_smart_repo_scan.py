@@ -19,7 +19,11 @@ from rest_framework.test import APIClient
 from apps.securewise.discovery.detectors import detect_node, detect_python
 from apps.securewise.discovery.engine import ApplicationDiscoveryEngine
 from apps.securewise.discovery.health import probe_health
-from apps.securewise.discovery.ports import find_free_host_port, parse_compose_host_ports, parse_dockerfile_exposed_ports
+from apps.securewise.discovery.ports import (
+    find_free_host_port,
+    parse_compose_host_ports,
+    parse_dockerfile_exposed_ports,
+)
 from apps.securewise.models import (
     SecureWiseMembership,
     SecureWiseOrganization,
@@ -67,7 +71,9 @@ def repository(org_project):
 def _make_django_repo(tmp_path: Path) -> Path:
     (tmp_path / "manage.py").write_text("#!/usr/bin/env python\n")
     (tmp_path / "requirements.txt").write_text("django\n")
-    (tmp_path / "Dockerfile").write_text("FROM python:3.11-slim\nEXPOSE 8000\nCMD python manage.py runserver 0.0.0.0:8000\n")
+    (tmp_path / "Dockerfile").write_text(
+        "FROM python:3.11-slim\nEXPOSE 8000\nCMD python manage.py runserver 0.0.0.0:8000\n"
+    )
     return tmp_path
 
 
@@ -107,7 +113,9 @@ class TestDiscoveryDetectors:
         assert "main:app" in result["start_command"]
 
     def test_detect_node_express(self, tmp_path):
-        (tmp_path / "package.json").write_text('{"dependencies": {"express": "^4.0.0"}, "scripts": {"start": "node index.js"}}')
+        (tmp_path / "package.json").write_text(
+            '{"dependencies": {"express": "^4.0.0"}, "scripts": {"start": "node index.js"}}'
+        )
         result = detect_node(tmp_path)
         assert result is not None
         assert result["framework"] == "express"
@@ -123,7 +131,7 @@ class TestDiscoveryDetectors:
         assert parse_dockerfile_exposed_ports("FROM python\n") == []
 
     def test_parse_compose_host_ports(self):
-        compose_text = "services:\n  web:\n    ports:\n      - \"8000:8000\"\n"
+        compose_text = 'services:\n  web:\n    ports:\n      - "8000:8000"\n'
         assert parse_compose_host_ports(compose_text) == [8000]
 
     def test_find_free_host_port_returns_usable_port(self):
@@ -134,6 +142,7 @@ class TestDiscoveryDetectors:
 class TestHealthProbe:
     def test_probe_health_dedicated_endpoint_reachable(self):
         with patch("apps.securewise.discovery.health.requests.get") as mock_get:
+
             def side_effect(url, timeout=None, allow_redirects=True):
                 resp = MagicMock()
                 resp.status_code = 200 if url.endswith("/health") else 404
@@ -147,6 +156,7 @@ class TestHealthProbe:
 
     def test_probe_health_falls_back_to_root(self):
         with patch("apps.securewise.discovery.health.requests.get") as mock_get:
+
             def side_effect(url, timeout=None, allow_redirects=True):
                 resp = MagicMock()
                 resp.status_code = 200 if url.rstrip("/").endswith(":8000") or url.endswith("/") else 404
@@ -286,7 +296,12 @@ class TestRuntimeEnvironmentManager:
             patch("apps.securewise.runtime.manager.docker_runner.get_logs", return_value="boot error"),
             patch(
                 "apps.securewise.runtime.manager.probe_health",
-                return_value={"reachable": False, "selected_endpoint": "", "has_dedicated_health_endpoint": False, "status_code": None},
+                return_value={
+                    "reachable": False,
+                    "selected_endpoint": "",
+                    "has_dedicated_health_endpoint": False,
+                    "status_code": None,
+                },
             ),
             patch("apps.securewise.runtime.manager._HEALTH_WAIT_TIMEOUT_SECONDS", 0),
         ):
@@ -300,6 +315,28 @@ class TestRuntimeEnvironmentManager:
         with patch("apps.securewise.runtime.manager.docker_runner.stop_and_remove") as mock_stop:
             manager.stop()
         mock_stop.assert_called_once_with("securewise-runtime-test")
+
+    def test_stop_also_removes_temporary_build_image(self):
+        """Regression test: build images must be cleaned up alongside containers so scan
+        hosts don't accumulate disk usage over repeated scans (found via live Docker test)."""
+        manager = RuntimeEnvironmentManager()
+        manager._container_name = "securewise-runtime-test"
+        manager._image_tag = "securewise-scan-tmp:12345"
+        with (
+            patch("apps.securewise.runtime.manager.docker_runner.stop_and_remove") as mock_stop,
+            patch("apps.securewise.runtime.manager.docker_runner.remove_image") as mock_rmi,
+        ):
+            manager.stop()
+        mock_stop.assert_called_once_with("securewise-runtime-test")
+        mock_rmi.assert_called_once_with("securewise-scan-tmp:12345")
+        assert manager._container_name is None
+        assert manager._image_tag is None
+
+    def test_stop_does_not_call_remove_image_when_no_image_was_built(self):
+        manager = RuntimeEnvironmentManager()
+        with patch("apps.securewise.runtime.manager.docker_runner.remove_image") as mock_rmi:
+            manager.stop()
+        mock_rmi.assert_not_called()
 
     def test_is_docker_available_detects_missing_daemon(self):
         """Real (not mocked) check — validates the actual subprocess wrapper logic."""
@@ -349,7 +386,9 @@ class TestOrchestratorSmartDast:
 
         with contextlib.ExitStack() as stack:
             for cls in ("SastScanner", "ScaScanner", "SecretsScanner", "IacScanner"):
-                stack.enter_context(patch(f"apps.securewise.scanners.orchestrator.{cls}.run", return_value=_ok_result()))
+                stack.enter_context(
+                    patch(f"apps.securewise.scanners.orchestrator.{cls}.run", return_value=_ok_result())
+                )
             stack.enter_context(
                 patch(
                     "apps.securewise.runtime.manager.docker_runner.is_docker_available",
@@ -379,10 +418,16 @@ class TestOrchestratorSmartDast:
 
         with contextlib.ExitStack() as stack:
             for cls in ("SastScanner", "ScaScanner", "SecretsScanner", "IacScanner", "ContainerScanner"):
-                stack.enter_context(patch(f"apps.securewise.scanners.orchestrator.{cls}.run", return_value=_ok_result()))
+                stack.enter_context(
+                    patch(f"apps.securewise.scanners.orchestrator.{cls}.run", return_value=_ok_result())
+                )
             stack.enter_context(patch("apps.securewise.scanners.orchestrator.DastScanner.run", _fake_dast_run))
-            stack.enter_context(patch("apps.securewise.runtime.manager.docker_runner.is_docker_available", return_value=(True, "")))
-            stack.enter_context(patch("apps.securewise.runtime.manager.docker_runner.build_image", return_value=(True, "")))
+            stack.enter_context(
+                patch("apps.securewise.runtime.manager.docker_runner.is_docker_available", return_value=(True, ""))
+            )
+            stack.enter_context(
+                patch("apps.securewise.runtime.manager.docker_runner.build_image", return_value=(True, ""))
+            )
             stack.enter_context(
                 patch(
                     "apps.securewise.runtime.manager.docker_runner.run_container",
@@ -401,6 +446,7 @@ class TestOrchestratorSmartDast:
                 )
             )
             mock_stop = stack.enter_context(patch("apps.securewise.runtime.manager.docker_runner.stop_and_remove"))
+            stack.enter_context(patch("apps.securewise.runtime.manager.docker_runner.remove_image"))
             findings, engine_meta, any_failed, any_skipped = ScannerOrchestrator().run(scan, tmp_path)
 
         assert any_skipped is False
@@ -421,10 +467,18 @@ class TestOrchestratorSmartDast:
 
         with contextlib.ExitStack() as stack:
             for cls in ("SastScanner", "ScaScanner", "SecretsScanner", "IacScanner", "ContainerScanner"):
-                stack.enter_context(patch(f"apps.securewise.scanners.orchestrator.{cls}.run", return_value=_ok_result()))
-            stack.enter_context(patch("apps.securewise.scanners.orchestrator.DastScanner.run", return_value=_ok_result()))
-            stack.enter_context(patch("apps.securewise.runtime.manager.docker_runner.is_docker_available", return_value=(True, "")))
-            stack.enter_context(patch("apps.securewise.runtime.manager.docker_runner.build_image", return_value=(True, "")))
+                stack.enter_context(
+                    patch(f"apps.securewise.scanners.orchestrator.{cls}.run", return_value=_ok_result())
+                )
+            stack.enter_context(
+                patch("apps.securewise.scanners.orchestrator.DastScanner.run", return_value=_ok_result())
+            )
+            stack.enter_context(
+                patch("apps.securewise.runtime.manager.docker_runner.is_docker_available", return_value=(True, ""))
+            )
+            stack.enter_context(
+                patch("apps.securewise.runtime.manager.docker_runner.build_image", return_value=(True, ""))
+            )
             stack.enter_context(
                 patch(
                     "apps.securewise.runtime.manager.docker_runner.run_container",
@@ -443,6 +497,7 @@ class TestOrchestratorSmartDast:
                 )
             )
             stack.enter_context(patch("apps.securewise.runtime.manager.docker_runner.stop_and_remove"))
+            stack.enter_context(patch("apps.securewise.runtime.manager.docker_runner.remove_image"))
             findings, engine_meta, any_failed, any_skipped = ScannerOrchestrator().run(scan, tmp_path)
 
         titles = [f.title for f in findings]

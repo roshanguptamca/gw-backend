@@ -26,7 +26,9 @@ def redact_secrets(text: str) -> str:
         return text
     redacted = text
     for pattern in _SECRET_PATTERNS:
-        redacted = pattern.sub(lambda m: m.group(1) + _REDACTED + (m.group(3) if m.lastindex and m.lastindex >= 3 else ""), redacted)
+        redacted = pattern.sub(
+            lambda m: m.group(1) + _REDACTED + (m.group(3) if m.lastindex and m.lastindex >= 3 else ""), redacted
+        )
     return redacted
 
 

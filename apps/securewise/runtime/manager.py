@@ -46,6 +46,7 @@ class RuntimeEnvironmentManager:
 
     def __init__(self):
         self._container_name: str | None = None
+        self._image_tag: str | None = None
 
     def try_start(self, repo_path: Path, run_plan: ApplicationRunPlan) -> RuntimeResult:
         if not run_plan.requires_runtime:
@@ -93,6 +94,8 @@ class RuntimeEnvironmentManager:
                 logs=redact_secrets(tail_lines(build_error)),
             )
 
+        self._image_tag = image_tag
+
         run_ok, container_name, run_error = docker_runner.run_container(image_tag, host_port, container_port)
         self._container_name = container_name
         if not run_ok:
@@ -130,6 +133,9 @@ class RuntimeEnvironmentManager:
         if self._container_name:
             docker_runner.stop_and_remove(self._container_name)
             self._container_name = None
+        if self._image_tag:
+            docker_runner.remove_image(self._image_tag)
+            self._image_tag = None
 
     # ------------------------------------------------------------------
     def _resolve_dockerfile(self, repo_path: Path, run_plan: ApplicationRunPlan):
@@ -150,7 +156,12 @@ class RuntimeEnvironmentManager:
 
     def _wait_for_health(self, runtime_url: str, preferred_endpoint: str) -> dict:
         deadline = time.time() + _HEALTH_WAIT_TIMEOUT_SECONDS
-        last_result = {"reachable": False, "selected_endpoint": "", "has_dedicated_health_endpoint": False, "status_code": None}
+        last_result = {
+            "reachable": False,
+            "selected_endpoint": "",
+            "has_dedicated_health_endpoint": False,
+            "status_code": None,
+        }
         while time.time() < deadline:
             last_result = probe_health(runtime_url, preferred_endpoint)
             if last_result["reachable"]:

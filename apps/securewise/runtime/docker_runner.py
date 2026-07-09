@@ -53,7 +53,7 @@ GENERATED_DOCKERFILE_TEMPLATES = {
         "COPY . /app\n"
         "RUN go build -o /app/bin/service . || true\n"
         "EXPOSE {port}\n"
-        "CMD [\"/app/bin/service\"]\n"
+        'CMD ["/app/bin/service"]\n'
     ),
 }
 
@@ -119,7 +119,9 @@ def build_image(context_path: Path, dockerfile_path: Path, tag: str) -> tuple[bo
     return True, ""
 
 
-def run_container(image: str, host_port: int, container_port: int, env_vars: dict[str, str] | None = None) -> tuple[bool, str, str]:
+def run_container(
+    image: str, host_port: int, container_port: int, env_vars: dict[str, str] | None = None
+) -> tuple[bool, str, str]:
     """
     Start a container in the background.
 
@@ -178,3 +180,11 @@ def stop_and_remove(container_name: str) -> None:
             subprocess.run(args, capture_output=True, timeout=_STOP_TIMEOUT)
         except (subprocess.TimeoutExpired, OSError):  # pragma: no cover - best-effort cleanup
             logger.warning("Failed to run cleanup command: %s", " ".join(args))
+
+
+def remove_image(image_tag: str) -> None:
+    """Best-effort removal of a temporary build image so scan hosts don't accumulate disk usage."""
+    try:
+        subprocess.run(["docker", "rmi", "-f", image_tag], capture_output=True, timeout=_STOP_TIMEOUT)
+    except (subprocess.TimeoutExpired, OSError):  # pragma: no cover - best-effort cleanup
+        logger.warning("Failed to remove temporary image: %s", image_tag)
