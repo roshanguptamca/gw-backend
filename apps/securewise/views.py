@@ -15,6 +15,7 @@ from django.db.models import Q
 from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.text import slugify
+from django.views.generic import TemplateView
 
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
@@ -34,8 +35,10 @@ from .models import (
     SecureWiseRepository,
     SecureWiseScan,
     SecureWiseScanPolicy,
+    SecureWiseScanPolicyTemplate,
 )
 from .permissions import ADMIN_ROLES, WRITE_ROLES, _membership
+from .scanners.repository import validate_local_repository_path
 from .serializers import (
     ScanEngineResultSerializer,
     SecureWiseAuditLogSerializer,
@@ -48,6 +51,7 @@ from .serializers import (
     SecureWiseReportSerializer,
     SecureWiseRepositorySerializer,
     SecureWiseScanPolicySerializer,
+    SecureWiseScanPolicyTemplateSerializer,
     SecureWiseScanSerializer,
 )
 from .services.ai_recommendation import generate_ai_fix_suggestion
@@ -64,6 +68,14 @@ from .services.repository import (
 from .services.scanner import ScannerRunner
 
 logger = logging.getLogger(__name__)
+
+
+class SecureWiseDocumentationView(TemplateView):
+    template_name = "securewise/docs/documentation.html"
+
+
+class SecureWiseUserManualView(TemplateView):
+    template_name = "securewise/docs/user_manual.html"
 
 
 def _get_user_org_ids(user):
@@ -419,23 +431,42 @@ class RepositoryViewSet(viewsets.ModelViewSet):
             from rest_framework.exceptions import PermissionDenied
 
             raise PermissionDenied("You do not have permission to add repositories.")
-        raw_url = serializer.validated_data.get("repository_url", "")
-        url = normalize_url(raw_url)
-        provider = detect_provider(url)
-        clone_url = url + ".git"
-        instance = serializer.save(
-            created_by=self.request.user,
-            repository_url=url,
-            clone_url=clone_url,
-            provider=provider,
-        )
+        access_mode = serializer.validated_data.get("access_mode", "public")
+        if access_mode == "local_path":
+            local_path = serializer.validated_data.get("local_path", "")
+            valid, message, resolved_path = validate_local_repository_path(local_path)
+            if not valid or resolved_path is None:
+                from rest_framework.exceptions import ValidationError
+
+                raise ValidationError({"local_path": message})
+            instance = serializer.save(
+                created_by=self.request.user,
+                repository_url="",
+                clone_url="",
+                local_path=str(resolved_path),
+                provider="",
+                visibility="private",
+            )
+            audit_detail = {"access_mode": "local_path", "name": instance.name}
+        else:
+            raw_url = serializer.validated_data.get("repository_url", "")
+            url = normalize_url(raw_url)
+            provider = detect_provider(url)
+            clone_url = url + ".git"
+            instance = serializer.save(
+                created_by=self.request.user,
+                repository_url=url,
+                clone_url=clone_url,
+                provider=provider,
+            )
+            audit_detail = {"url": url}
         _audit(
             self.request.user,
             "repository_added",
             org=org,
             target_type="SecureWiseRepository",
             target_id=instance.id,
-            detail={"url": url},
+            detail=audit_detail,
             request=self.request,
         )
 
@@ -443,8 +474,21 @@ class RepositoryViewSet(viewsets.ModelViewSet):
     def validate(self, request):
         """Pre-flight URL validation before saving a repository."""
         url_raw = request.data.get("repository_url", "").strip()
+        local_path = request.data.get("local_path", "").strip()
         access_mode = request.data.get("access_mode", "public")
         integration_id = request.data.get("integration_id")
+
+        if access_mode == "local_path":
+            valid, msg, resolved_path = validate_local_repository_path(local_path)
+            return Response(
+                {
+                    "accessible": valid,
+                    "message": msg,
+                    "provider": "",
+                    "local_path": str(resolved_path) if resolved_path else "",
+                },
+                status=200 if valid else 400,
+            )
 
         valid, err = validate_url_format(url_raw)
         if not valid:
@@ -482,7 +526,9 @@ class RepositoryViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="test-access")
     def test_access(self, request, pk=None):
         repo = self.get_object()
-        if repo.access_mode == "public":
+        if repo.access_mode == "local_path":
+            accessible, msg, _resolved_path = validate_local_repository_path(repo.local_path)
+        elif repo.access_mode == "public":
             accessible, msg = check_public_access(repo.repository_url)
         elif repo.integration:
             token = repo.integration.get_token()
@@ -608,6 +654,73 @@ class ScanPolicyViewSet(viewsets.ModelViewSet):
         policy.is_default = True
         policy.save(update_fields=["is_default"])  # save() demotes any other default for this org
         return Response(self.get_serializer(policy).data)
+
+
+class ScanPolicyTemplateViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = SecureWiseScanPolicyTemplateSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return SecureWiseScanPolicyTemplate.objects.filter(is_active=True)
+
+    @action(detail=True, methods=["post"], url_path="create-policy")
+    def create_policy(self, request, pk=None):
+        template = self.get_object()
+        org_id = request.data.get("organization")
+        if not org_id:
+            return Response({"organization": "This field is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            org = SecureWiseOrganization.objects.get(id=org_id, id__in=_get_user_org_ids(request.user))
+        except SecureWiseOrganization.DoesNotExist:
+            return Response({"organization": "Organization not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        m = _membership(request.user, org)
+        if m is None or m.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to create scan policies.")
+
+        project = None
+        project_id = request.data.get("project")
+        if project_id:
+            try:
+                project = SecureWiseProject.objects.get(id=project_id, organization=org)
+            except SecureWiseProject.DoesNotExist:
+                return Response(
+                    {"project": "Project not found in this organization."}, status=status.HTTP_400_BAD_REQUEST
+                )
+
+        set_as_default = bool(request.data.get("set_as_default", False))
+        name = (request.data.get("name") or template.name).strip()
+        name = self._unique_policy_name(org, name)
+        policy = SecureWiseScanPolicy.objects.create(
+            organization=org,
+            project=project,
+            name=name,
+            description=template.description,
+            scan_types=template.scan_types,
+            fail_on_severity=template.fail_on_severity,
+            max_critical=template.max_critical,
+            max_high=template.max_high,
+            max_medium=template.max_medium,
+            fail_on_secrets=template.fail_on_secrets,
+            fail_on_new_findings_only=template.fail_on_new_findings_only,
+            allow_accepted_risks=template.allow_accepted_risks,
+            allow_false_positives=template.allow_false_positives,
+            is_default=set_as_default,
+            is_active=True,
+            created_by=request.user,
+        )
+        return Response(SecureWiseScanPolicySerializer(policy, context={"request": request}).data, status=201)
+
+    def _unique_policy_name(self, org, base_name: str) -> str:
+        if not SecureWiseScanPolicy.objects.filter(organization=org, name=base_name).exists():
+            return base_name
+        n = 2
+        while SecureWiseScanPolicy.objects.filter(organization=org, name=f"{base_name} ({n})").exists():
+            n += 1
+        return f"{base_name} ({n})"
 
 
 # ---------------------------------------------------------------------------

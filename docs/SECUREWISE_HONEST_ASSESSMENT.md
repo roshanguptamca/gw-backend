@@ -10,8 +10,8 @@ and next-step recommendations. It complements `CURRENT_SECUREWISE_REVIEW.md` (de
 model, report generation, admin) is genuinely production-grade. The scanning capability itself is
 production-grade **only for static analysis, and only when the underlying tools (semgrep/trivy/gitleaks) are
 actually installed in the deployment image** — which the current Dockerfile does not guarantee for
-trivy/gitleaks. DAST and API scanning are not production-grade by any reasonable definition (passive-only,
-no active testing). There is zero runtime/dockerization/pentest capability, so the platform cannot deliver on
+trivy/gitleaks. DAST and API scanning are not production-grade by any reasonable definition (baseline/passive only,
+no authenticated spidering or active testing). There is zero runtime/dockerization/pentest capability, so the platform cannot deliver on
 roughly half of the stated product vision today.
 
 ## 2. What percentage is currently real vs mock?

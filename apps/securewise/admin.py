@@ -13,6 +13,7 @@ from .models import (
     SecureWiseScan,
     SecureWiseScanEngineResult,
     SecureWiseScanPolicy,
+    SecureWiseScanPolicyTemplate,
 )
 
 
@@ -71,6 +72,14 @@ class ScanPolicyAdmin(admin.ModelAdmin):
     list_display = ("name", "organization", "fail_on_severity", "is_active", "created_at")
     list_filter = ("fail_on_severity", "is_active")
     search_fields = ("name",)
+    readonly_fields = ("id", "created_at", "updated_at")
+
+
+@admin.register(SecureWiseScanPolicyTemplate)
+class ScanPolicyTemplateAdmin(admin.ModelAdmin):
+    list_display = ("name", "key", "recommended_for", "is_recommended", "is_active", "sort_order")
+    list_filter = ("is_recommended", "is_active", "fail_on_severity")
+    search_fields = ("name", "key", "description", "recommended_for")
     readonly_fields = ("id", "created_at", "updated_at")
 
 

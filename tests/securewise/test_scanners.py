@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -365,10 +366,85 @@ class TestDastScanner:
         fake_resp.headers = {}
         fake_resp.status_code = 200
         fake_resp.raw.headers.getlist.return_value = []
-        with patch("apps.securewise.scanners.dast.requests.get", return_value=fake_resp):
-            result = DastScanner().run(tmp_path, "scan-12", {"target_url": "https://example.test"})
+        with patch("apps.securewise.scanners.dast.shutil.which", return_value=None):
+            with patch("apps.securewise.scanners.dast.requests.get", return_value=fake_resp):
+                result = DastScanner().run(tmp_path, "scan-12", {"target_url": "https://example.test"})
         assert result.status == "completed"
         assert any("Content-Security-Policy" in f.title for f in result.findings)
+        assert result.metadata["raw_tool"] == "requests-passive-dast"
+
+    def test_runs_zap_baseline_cli_when_available(self, tmp_path):
+        def fake_run(command, cwd, capture_output, timeout):
+            assert command[:3] == ["zap-baseline.py", "-t", "https://example.test"]
+            assert "-I" in command
+            assert timeout == 180
+            Path(cwd, "zap-report.json").write_text(
+                json.dumps(
+                    {
+                        "site": [
+                            {
+                                "alerts": [
+                                    {
+                                        "name": "Missing Anti-clickjacking Header",
+                                        "riskdesc": "Medium (High)",
+                                        "desc": "desc",
+                                        "solution": "add header",
+                                        "pluginid": "10020",
+                                        "instances": [{"uri": "https://example.test/"}],
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                )
+            )
+            return MagicMock(returncode=1, stdout=b"zap stdout", stderr=b"zap stderr")
+
+        with patch("apps.securewise.scanners.dast.shutil.which", return_value="/usr/local/bin/zap-baseline.py"):
+            with patch("apps.securewise.scanners.dast.subprocess.run", side_effect=fake_run):
+                result = DastScanner().run(tmp_path, "scan-12b", {"target_url": "https://example.test"})
+
+        assert result.status == "completed"
+        assert result.metadata["raw_tool"] == "zap"
+        assert result.metadata["runner"] == "zap-baseline.py"
+        assert result.findings[0].title == "Missing Anti-clickjacking Header"
+
+    def test_runs_zap_docker_when_cli_is_unavailable(self, tmp_path):
+        def fake_which(binary):
+            return None if binary == "zap-baseline.py" else "/usr/local/bin/docker"
+
+        def fake_run(command, cwd, capture_output, timeout):
+            assert command[:3] == ["docker", "run", "--rm"]
+            assert "ghcr.io/zaproxy/zaproxy:stable" in command
+            assert "http://host.docker.internal:8000" in command
+            Path(cwd, "zap-report.json").write_text(json.dumps({"site": []}))
+            return MagicMock(returncode=0, stdout=b"", stderr=b"")
+
+        with patch("apps.securewise.scanners.dast.shutil.which", side_effect=fake_which):
+            with patch("apps.securewise.scanners.dast.subprocess.run", side_effect=fake_run):
+                result = DastScanner().run(tmp_path, "scan-12c", {"target_url": "http://127.0.0.1:8000"})
+
+        assert result.status == "completed"
+        assert result.metadata["raw_tool"] == "zap"
+        assert result.metadata["runner"] == "docker-zap-baseline"
+        assert result.findings == []
+
+    def test_falls_back_to_passive_scan_when_zap_report_is_missing(self, tmp_path):
+        fake_resp = MagicMock()
+        fake_resp.headers = {}
+        fake_resp.status_code = 200
+        fake_resp.raw.headers.getlist.return_value = []
+
+        with patch("apps.securewise.scanners.dast.shutil.which", return_value="/usr/local/bin/zap-baseline.py"):
+            with patch(
+                "apps.securewise.scanners.dast.subprocess.run",
+                return_value=MagicMock(returncode=3, stdout=b"", stderr=b"boom"),
+            ):
+                with patch("apps.securewise.scanners.dast.requests.get", return_value=fake_resp):
+                    result = DastScanner().run(tmp_path, "scan-12d", {"target_url": "https://example.test"})
+
+        assert result.status == "completed"
+        assert result.metadata["raw_tool"] == "requests-passive-dast"
 
 
 class TestParsers:

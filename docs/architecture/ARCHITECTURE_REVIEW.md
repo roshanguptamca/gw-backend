@@ -180,9 +180,9 @@ Every week you delay the plugin SDK, you're writing bespoke integration code tha
 
 The relational model is a dead end for the kind of reasoning SecureWise needs to be differentiated. "All findings in projects that depend on this compromised library" is a simple graph query but requires N sequential SQL queries with manual JOIN logic today. The knowledge graph is not a nice-to-have — it's the foundation that makes AI agents useful. Without it, your AI agents are operating on individual findings with no context about the broader security posture.
 
-### 7. Accept that DAST is immature and don't oversell it
+### 7. Accept that DAST is baseline-level and don't oversell it
 
-The DAST scanner checks HTTP headers and cookies. That's it. It doesn't invoke ZAP even when ZAP is available (the code explicitly says "detected but not invoked by default"). Don't call this "DAST scanning" in marketing — call it "passive security header analysis." Real DAST is ZAP/Burp Suite, and integrating those properly (with authentication, session management, scope control, and time limits) is a substantial engineering effort. Either commit to it or be honest about what you have.
+The DAST scanner can run OWASP ZAP baseline scanning and falls back to HTTP header/cookie checks when ZAP is unavailable. Don't market this as deep authenticated DAST yet. Real production-grade DAST needs spidering, authentication/session management, scope control, and opt-in active rules with strict time limits.
 
 ### 8. The quality gate system is actually quite good — don't break it
 

@@ -539,15 +539,15 @@ about fidelity.
 | `iac`      | trivy              | ✅ Yes | Dockerfile / Kubernetes YAML / Terraform / Helm static checks |
 | `container`| trivy (image scan) | ✅ Yes | skipped unless a `docker_image` is configured (optional best-effort `docker build` + `trivy image` if both binaries exist) |
 | `api`      | n/a (spec parsing) | — | always uses built-in OpenAPI/Swagger parser (json/yaml) |
-| `dast`     | OWASP ZAP          | ❌ No  | passive `requests`-based header/cookie/CORS/disclosure checks only — **no active/destructive scanning** |
+| `dast`     | OWASP ZAP          | Docker-dependent | `zap-baseline.py` when installed, otherwise ZAP Docker image when Docker is available; falls back to passive `requests`-based header/cookie/CORS/disclosure checks — **no active/destructive scanning** |
 
-Install the real tools to upgrade fidelity (all except ZAP are already installed in this environment):
+Install the real tools to upgrade fidelity:
 
 ```bash
 brew install gitleaks   # already installed in this environment
 brew install trivy      # already installed in this environment
 pip install semgrep     # already installed in the project venv
-docker pull zaproxy/zap-stable   # ZAP via Docker; zap-baseline.py path is auto-detected if present
+docker pull ghcr.io/zaproxy/zaproxy:stable   # ZAP via Docker
 ```
 
 **SAST determinism note:** `semgrep` is run with a curated, offline rule pack bundled at
@@ -675,6 +675,81 @@ GET  /api/securewise/reports/{id}/pdf/          # branded PDF report download
 GET  /api/securewise/dashboard/summary/         # org-wide security posture
 ```
 
+Public user and developer documentation is available without authentication at:
+
+```text
+/user-manual/
+/documentation/user-manual/
+/docs/user-manual/
+/documentation/
+/docs/html/
+```
+
+The user manual is written for portal users and explains the end-to-end workflow
+for adding repositories, running scans, reviewing findings, and downloading
+reports. The developer documentation covers architecture, APIs, scan flow, CI/CD,
+and configuration. Documentation pages are sanitized and never publish secret
+values.
+
+### Local repository scanning
+
+SecureWise supports local repository paths in two ways:
+
+1. **UI/API repository source:** Repositories → Add Repository → Access Type
+   **Local path on this machine** → enter a path readable by the backend process
+   (for example `/Users/you/projects/my-app`) → Validate → Save. The saved local
+   repository then appears in the normal Scan repository dropdown and can be used
+   with SAST/SCA/secrets/IaC/container/full scans.
+2. **Standalone CLI:** run a one-off local scan and write local report artifacts,
+   without creating SecureWise API records.
+
+In local development, the backend usually runs on your machine, so local paths are
+your local filesystem. In production, the path must exist inside the backend
+server/container filesystem.
+
+### Local repository scanning CLI
+
+SecureWise can scan a repository directly from a developer machine or CI workspace without
+creating API records:
+
+```bash
+python -m apps.securewise.cli scan --path /path/to/repository
+python -m apps.securewise.cli scan --path . --output securewise-report --fail-on high
+
+# From this backend repository, the executable launcher also works:
+./securewise scan --path . --output securewise-report --fail-on high
+```
+
+The CLI validates that the path exists, is readable, is non-empty, and contains supported
+source/dependency/API/IaC/Docker files. It detects project type where possible, runs available
+engines, and writes:
+
+```text
+securewise-report/securewise-report.json
+securewise-report/securewise-report.html
+```
+
+The process exits with code `1` when findings meet or exceed `--fail-on` severity, making it
+suitable for CI quality gates. Validation errors exit with code `2`.
+
+### CI/CD examples
+
+Example pipeline files are checked in at:
+
+```text
+docs/ci/github-actions-securewise.yml
+docs/ci/Jenkinsfile.securewise
+```
+
+Both examples install dependencies, prepare the database, run:
+
+```bash
+python -m apps.securewise.cli scan --path . --output securewise-report --fail-on high
+```
+
+and archive the generated JSON/HTML reports as build artifacts. Adjust `--fail-on` to
+`critical`, `high`, `medium`, `low`, or `info` depending on your gate policy.
+
 ### Step-by-step: using SecureWise from the UI
 
 This is the intended end-to-end flow for a new user, from the frontend (`securewise-frontend`,
@@ -733,11 +808,12 @@ separate SecureWise account system.
 
 ### ⚠️ DAST authorization warning
 
-`DastScanner` only ever runs **passive** checks (response headers, cookies, CORS, informational
-`robots.txt`/`sitemap.xml` requests) — it never sends destructive payloads, performs auth
-bypass attempts, or fuzzes inputs. Nonetheless, **only run DAST scans against targets you own
-or are explicitly authorized to test.** Scanning third-party systems without authorization may
-be illegal in your jurisdiction.
+`DastScanner` runs OWASP ZAP baseline/passive scanning when ZAP is available and otherwise
+falls back to passive HTTP checks (response headers, cookies, CORS, informational
+`robots.txt`/`sitemap.xml` requests). It never enables active/destructive payloads, auth
+bypass attempts, or fuzzing by default. Nonetheless, **only run DAST scans against targets
+you own or are explicitly authorized to test.** Scanning third-party systems without
+authorization may be illegal in your jurisdiction.
 
 ### Known limitations
 
@@ -746,9 +822,8 @@ be illegal in your jurisdiction.
   an optional best-effort OSV query could be added later behind a short timeout.
 - Container and API scanning require explicit configuration (`docker_image` / `api_spec_url`,
   or discoverable Dockerfile/spec files) — they cannot infer a target on their own.
-- ZAP is not installed in this environment, so DAST is passive-only; installing ZAP
-  (`docker pull zaproxy/zap-stable`) does not currently wire up active scanning automatically —
-  it is detected but not invoked by default.
+- DAST uses OWASP ZAP baseline scanning when `zap-baseline.py` is installed or Docker can run
+  `ghcr.io/zaproxy/zaproxy:stable`; otherwise it falls back to passive HTTP checks.
 - The bundled offline semgrep rule pack (`apps/securewise/scanners/rules/semgrep/`) is a curated,
   high-precision starter set (SQLi, command injection, unsafe deserialization, weak crypto, XXE,
   etc. across Python/JS/Java/Go) — it is intentionally not a full copy of Semgrep's registry, so

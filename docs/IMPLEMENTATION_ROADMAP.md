@@ -49,11 +49,11 @@ thread-based execution, stale comments). Fixing these first is cheap and de-risk
 access from the worker; must be validated in the actual deployment environment, e.g. Render, before
 committing to this design).
 
-## Phase 4 — ZAP DAST integration
+## Phase 4 — Advanced ZAP DAST integration
 
-- Build the real `ZAP_DAST_ENGINE.md` integration, replacing the current passive-only `dast.py`.
-- Passive scan + spider on by default once a target is healthy (from Phase 3); active scan opt-in only.
-- This is the single highest product-honesty fix — "DAST" becomes real.
+- Extend the current ZAP baseline implementation with the fuller `ZAP_DAST_ENGINE.md` design.
+- Passive baseline scan is available today; spidering/authenticated context support should be added once a target is healthy (from Phase 3); active scan opt-in only.
+- This keeps "DAST" honest while adding deeper coverage in controlled policy modes.
 
 **Effort:** Medium (~2-3 weeks). **Risk:** Medium (ZAP container orchestration, auth flow configuration).
 

@@ -12,7 +12,7 @@ from apps.securewise.scanners.mode_labels import classify_raw_tool, engine_ran_i
 
 class TestClassifyRawTool:
     def test_real_tools_are_classified_correctly(self):
-        for tool in ("semgrep", "trivy", "gitleaks", "docker+trivy"):
+        for tool in ("semgrep", "trivy", "gitleaks", "docker+trivy", "zap"):
             assert classify_raw_tool(tool) == "real_tool"
 
     def test_fallback_heuristics_are_classified_correctly(self):

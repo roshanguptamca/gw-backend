@@ -24,6 +24,7 @@ from apps.securewise.models import (
     SecureWiseRepository,
     SecureWiseScan,
     SecureWiseScanPolicy,
+    SecureWiseScanPolicyTemplate,
 )
 from apps.securewise.services.scanner import ScannerRunner
 from apps.securewise.views import AIRecommendationThrottle
@@ -165,6 +166,25 @@ class TestUnauthenticated:
         resp = anon_client.get("/api/securewise/organizations/")
         assert resp.status_code in (401, 403)
 
+    def test_documentation_page_is_public(self, anon_client):
+        resp = anon_client.get("/documentation/")
+        assert resp.status_code == 200
+        assert b"SecureWise Developer Documentation" in resp.content
+        assert b"OPENAI_API_KEY" in resp.content
+        assert b"sk-" not in resp.content.lower()
+        assert b"ghp_" not in resp.content.lower()
+
+    def test_user_manual_page_is_public(self, anon_client):
+        resp = anon_client.get("/user-manual/")
+        assert resp.status_code == 200
+        assert b"SecureWise User Manual" in resp.content
+        assert b"Organization Setup" in resp.content
+        assert b"Run Your First Scan" in resp.content
+        assert b"Scan a Local Repository" in resp.content
+        assert b"OPENAI_API_KEY" not in resp.content
+        assert b"sk-" not in resp.content.lower()
+        assert b"ghp_" not in resp.content.lower()
+
     def test_projects_requires_auth(self, anon_client):
         resp = anon_client.get("/api/securewise/projects/")
         assert resp.status_code in (401, 403)
@@ -305,6 +325,29 @@ class TestRepositoryAPI:
         )
         assert resp.status_code == 201
 
+    def test_create_local_path_repository(self, auth_client, org, project, tmp_path):
+        local_repo = tmp_path / "local-repo"
+        local_repo.mkdir()
+        (local_repo / "app.py").write_text("print('hello')\n", encoding="utf-8")
+
+        resp = auth_client.post(
+            "/api/securewise/repositories/",
+            {
+                "organization": str(org.id),
+                "project": str(project.id),
+                "name": "local-repo",
+                "local_path": str(local_repo),
+                "access_mode": "local_path",
+            },
+            format="json",
+        )
+
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["access_mode"] == "local_path"
+        assert data["repository_url"] == ""
+        assert data["local_path"] == str(local_repo.resolve())
+
     def test_retrieve_repository(self, auth_client, repository):
         resp = auth_client.get(f"/api/securewise/repositories/{repository.id}/")
         assert resp.status_code == 200
@@ -326,10 +369,43 @@ class TestRepositoryAPI:
         )
         assert resp.status_code == 400
 
+    def test_validate_local_path_endpoint(self, auth_client, tmp_path):
+        local_repo = tmp_path / "local-repo"
+        local_repo.mkdir()
+        (local_repo / "app.py").write_text("print('hello')\n", encoding="utf-8")
+
+        resp = auth_client.post(
+            "/api/securewise/repositories/validate/",
+            {"local_path": str(local_repo), "access_mode": "local_path"},
+            format="json",
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["accessible"] is True
+
     def test_test_access_endpoint(self, auth_client, repository):
         resp = auth_client.post(f"/api/securewise/repositories/{repository.id}/test-access/")
         # Returns 200 or 400 depending on network; just check it responds
         assert resp.status_code in (200, 400)
+
+    def test_test_access_local_path_endpoint(self, auth_client, org, project, owner, tmp_path):
+        local_repo = tmp_path / "local-repo"
+        local_repo.mkdir()
+        (local_repo / "app.py").write_text("print('hello')\n", encoding="utf-8")
+        repo = SecureWiseRepository.objects.create(
+            organization=org,
+            project=project,
+            name="local-repo",
+            access_mode="local_path",
+            local_path=str(local_repo),
+            repository_url="",
+            created_by=owner,
+        )
+
+        resp = auth_client.post(f"/api/securewise/repositories/{repo.id}/test-access/")
+
+        assert resp.status_code == 200
+        assert resp.json()["accessible"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -418,6 +494,70 @@ class TestScanPolicyAPI:
         resp = client.delete(f"/api/securewise/scan-policies/{policy.id}/")
         assert resp.status_code == 403
         assert SecureWiseScanPolicy.objects.filter(id=policy.id).exists()
+
+
+class TestScanPolicyTemplateAPI:
+    @pytest.fixture
+    def template(self):
+        return SecureWiseScanPolicyTemplate.objects.create(
+            key="latest-market-standard-test",
+            name="Latest Market Standard Scan",
+            description="Broad market baseline.",
+            recommended_for="Default organization policy",
+            scan_types=["full"],
+            fail_on_severity="high",
+            max_critical=0,
+            max_high=0,
+            max_medium=10,
+            fail_on_secrets=True,
+            is_recommended=True,
+            sort_order=1,
+        )
+
+    def test_list_templates(self, auth_client, template):
+        resp = auth_client.get("/api/securewise/scan-policy-templates/")
+        assert resp.status_code == 200
+        results = _results(resp.json())
+        assert any(t["key"] == template.key for t in results)
+
+    def test_create_policy_from_template_as_default(self, auth_client, org, template):
+        resp = auth_client.post(
+            f"/api/securewise/scan-policy-templates/{template.id}/create-policy/",
+            {"organization": str(org.id), "set_as_default": True},
+            format="json",
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["name"] == "Latest Market Standard Scan"
+        assert data["scan_types"] == ["full"]
+        assert data["is_default"] is True
+        assert SecureWiseScanPolicy.objects.filter(organization=org, is_default=True, name=template.name).exists()
+
+    def test_copy_template_uses_unique_name(self, auth_client, org, template):
+        SecureWiseScanPolicy.objects.create(
+            organization=org,
+            name=template.name,
+            scan_types=["sast"],
+            created_by=org.owner,
+        )
+        resp = auth_client.post(
+            f"/api/securewise/scan-policy-templates/{template.id}/create-policy/",
+            {"organization": str(org.id), "set_as_default": False},
+            format="json",
+        )
+        assert resp.status_code == 201
+        assert resp.json()["name"] == "Latest Market Standard Scan (2)"
+
+    def test_create_policy_from_template_denied_for_read_role(self, org, template, other_user):
+        SecureWiseMembership.objects.create(organization=org, user=other_user, role="auditor")
+        client = APIClient()
+        client.force_authenticate(user=other_user)
+        resp = client.post(
+            f"/api/securewise/scan-policy-templates/{template.id}/create-policy/",
+            {"organization": str(org.id), "set_as_default": True},
+            format="json",
+        )
+        assert resp.status_code == 403
 
 
 # ---------------------------------------------------------------------------

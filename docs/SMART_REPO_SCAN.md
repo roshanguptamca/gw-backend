@@ -26,7 +26,7 @@ Runtime Plan (ApplicationRunPlan: language, framework, build/start commands,
   ↓
 Auto Run if possible (RuntimeEnvironmentManager — isolated Docker container)
   ↓
-DAST if reachable (passive-only, against the discovered local runtime URL)
+DAST if reachable (OWASP ZAP baseline when available, passive fallback otherwise)
   ↓
 Skip with clear reason if not (Docker unavailable, build failed, unreachable,
                                  unrecognized stack, etc.)

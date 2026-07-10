@@ -154,7 +154,7 @@ _ENGINE_CLASSES = {
 | `secrets.py` | 124 | Gitleaks | Regex (AWS keys, API keys, private keys, Slack/JWT tokens) | `fallback-secret-{rule}-{file}-{line}` |
 | `iac.py` | 192 | Trivy (`trivy config`) | Dockerfile/K8s/Terraform/Helm heuristic checks | `fallback-iac-{issue_key}-{file}` |
 | `container.py` | 107 | Trivy (`trivy image`) | Skip if no docker_image; optional build+scan if Docker+Trivy present | N/A (uses Trivy parser) |
-| `dast.py` | 208 | OWASP ZAP (detected but not invoked) | Passive HTTP checks (headers, cookies, CORS, disclosure paths) | `dast-{check_type}-{target_url}` |
+| `dast.py` | ~330 | OWASP ZAP baseline (`zap-baseline.py` or ZAP Docker image) | Passive HTTP checks (headers, cookies, CORS, disclosure paths) | `zap-{plugin_id}-{endpoint}` or `dast-{check_type}-{target_url}` |
 | `api.py` | 188 | N/A | OpenAPI/Swagger spec static analysis | `api-{check_type}-{method}-{path}` |
 
 ### 3.4 Parsers (`scanners/parsers/`)
@@ -164,7 +164,7 @@ _ENGINE_CLASSES = {
 | `semgrep_parser.py` | ~55 | Parses Semgrep JSON → `ScannerFinding` list |
 | `trivy_parser.py` | ~85 | Parses Trivy vuln + config JSON → `ScannerFinding` list |
 | `gitleaks_parser.py` | ~50 | Parses Gitleaks JSON → `ScannerFinding` list (masks secrets) |
-| `zap_parser.py` | ~50 | Parses ZAP JSON → `ScannerFinding` list (exists but ZAP not invoked) |
+| `zap_parser.py` | ~50 | Parses ZAP JSON → `ScannerFinding` list |
 
 ### 3.5 Recommendation Engine (`scanners/recommendation.py` — ~418 lines)
 

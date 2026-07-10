@@ -13,6 +13,7 @@ from .views import (
     ProjectViewSet,
     ReportViewSet,
     RepositoryViewSet,
+    ScanPolicyTemplateViewSet,
     ScanPolicyViewSet,
     ScanViewSet,
 )
@@ -24,6 +25,7 @@ router.register("git-integrations", GitIntegrationViewSet, basename="sw-git-inte
 router.register("projects", ProjectViewSet, basename="sw-projects")
 router.register("repositories", RepositoryViewSet, basename="sw-repositories")
 router.register("scan-policies", ScanPolicyViewSet, basename="sw-scan-policies")
+router.register("scan-policy-templates", ScanPolicyTemplateViewSet, basename="sw-scan-policy-templates")
 router.register("scans", ScanViewSet, basename="sw-scans")
 router.register("findings", FindingViewSet, basename="sw-findings")
 router.register("reports", ReportViewSet, basename="sw-reports")

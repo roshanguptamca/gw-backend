@@ -118,7 +118,7 @@
 | 24 | Security test generation | None | AI-generated security test scaffolding per finding | Medium | 3-4 weeks | Multi-agent AI |
 | 25 | Threat modeling | None | STRIDE-based automated threat model from codebase | Medium | 6-8 weeks | Knowledge graph, AI |
 | 26 | GitLab/Bitbucket support | Model fields exist, no real implementation | Full GitLab + Bitbucket API integration | Medium | 4-6 weeks | None |
-| 27 | ZAP active scanning | Detected but not invoked | Configurable ZAP integration with time limits | Medium | 2-3 weeks | ZAP Docker |
+| 27 | ZAP active scanning | Baseline ZAP/passive only | Configurable authenticated spider + opt-in active scan with time limits | Medium | 2-3 weeks | ZAP Docker |
 | 28 | Database indexing | Only fingerprint indexed | Composite indexes on (project, status), (project, scanner_type, status) | Medium | 1 day | None |
 | 29 | Metrics/observability | None | Prometheus metrics, OpenTelemetry traces | Low | 2-3 weeks | Infrastructure |
 | 30 | Secret rotation automation | None | Detect rotation-eligible secrets, initiate rotation workflow | Low | 4-6 weeks | Cloud provider APIs |

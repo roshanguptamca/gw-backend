@@ -2,9 +2,8 @@
 Parse OWASP ZAP JSON report output (e.g. from zap-baseline.py -J report.json)
 into ScannerFinding objects.
 
-Not exercised by default scanning (ZAP is not installed in this environment)
-but implemented and unit-tested against a small sample fixture so it is
-ready to use once ZAP is available.
+Used by the DAST scanner after `zap-baseline.py` or the ZAP Docker image
+produces a JSON report.
 """
 
 from __future__ import annotations
