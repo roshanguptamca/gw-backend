@@ -38,6 +38,7 @@ from .models import (
     SecureWiseScanPolicyTemplate,
 )
 from .permissions import ADMIN_ROLES, WRITE_ROLES, _membership
+from .scanners.repository import validate_local_repository_path
 from .serializers import (
     ScanEngineResultSerializer,
     SecureWiseAuditLogSerializer,
@@ -64,7 +65,6 @@ from .services.repository import (
     normalize_url,
     validate_url_format,
 )
-from .scanners.repository import validate_local_repository_path
 from .services.scanner import ScannerRunner
 
 logger = logging.getLogger(__name__)

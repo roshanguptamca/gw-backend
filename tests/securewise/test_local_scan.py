@@ -6,16 +6,16 @@ import pytest
 
 from apps.securewise.cli import main as cli_main
 from apps.securewise.scanners.base import ScannerFinding, ScannerResult
+from apps.securewise.scanners.repository import copy_local_repository
 from apps.securewise.services import local_scan
 from apps.securewise.services.local_scan import (
-    LocalScanError,
     REPORT_HTML_NAME,
     REPORT_JSON_NAME,
+    LocalScanError,
     run_local_scan,
     validate_repository_path,
 )
 from apps.securewise.services.pipeline import generate_github_actions_workflow, generate_jenkinsfile
-from apps.securewise.scanners.repository import copy_local_repository
 
 
 class FakeScanner:
