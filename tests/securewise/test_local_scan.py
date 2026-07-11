@@ -6,7 +6,7 @@ import pytest
 
 from apps.securewise.cli import main as cli_main
 from apps.securewise.scanners.base import ScannerFinding, ScannerResult
-from apps.securewise.scanners.repository import copy_local_repository
+from apps.securewise.scanners.repository import copy_local_repository, validate_local_repository_path
 from apps.securewise.services import local_scan
 from apps.securewise.services.local_scan import (
     REPORT_HTML_NAME,
@@ -61,6 +61,18 @@ def test_validate_repository_path_rejects_unsupported_content(tmp_path):
     with pytest.raises(LocalScanError) as exc:
         validate_repository_path(tmp_path)
     assert exc.value.code == "unsupported_project_type"
+
+
+def test_validate_local_repository_path_strips_quotes_and_whitespace(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "app.py").write_text("print('hello')\n", encoding="utf-8")
+
+    ok, message, resolved = validate_local_repository_path(f'  "{repo}/"  ')
+
+    assert ok is True
+    assert "accessible" in message.lower()
+    assert resolved == repo.resolve()
 
 
 def test_run_local_scan_writes_json_and_html_reports(tmp_path, monkeypatch):

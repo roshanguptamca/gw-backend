@@ -383,6 +383,20 @@ class TestRepositoryAPI:
         assert resp.status_code == 200
         assert resp.json()["accessible"] is True
 
+    def test_validate_local_path_endpoint_strips_quotes_and_whitespace(self, auth_client, tmp_path):
+        local_repo = tmp_path / "local-repo"
+        local_repo.mkdir()
+        (local_repo / "app.py").write_text("print('hello')\n", encoding="utf-8")
+
+        resp = auth_client.post(
+            "/api/securewise/repositories/validate/",
+            {"local_path": f'  "{local_repo}/"  ', "access_mode": "local_path"},
+            format="json",
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["accessible"] is True
+
     def test_test_access_endpoint(self, auth_client, repository):
         resp = auth_client.post(f"/api/securewise/repositories/{repository.id}/test-access/")
         # Returns 200 or 400 depending on network; just check it responds

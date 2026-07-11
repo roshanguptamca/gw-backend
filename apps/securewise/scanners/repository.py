@@ -147,13 +147,19 @@ def clone_repository(scan, repo_path: Path, allowed_root: Path | None = None, ti
 
 
 def validate_local_repository_path(path: str | Path) -> tuple[bool, str, Path | None]:
-    repo_path = Path(path).expanduser()
+    repo_path = _normalize_local_path(path)
     try:
         repo_path = repo_path.resolve()
     except OSError as exc:
         return False, f"Local path cannot be resolved: {exc}", None
     if not repo_path.exists():
-        return False, "Local path does not exist.", None
+        return (
+            False,
+            "Local path does not exist from the SecureWise backend process. "
+            "If SecureWise runs in Docker, mount the host folder into the "
+            "container and use the mounted container path.",
+            None,
+        )
     if not repo_path.is_dir():
         return False, "Local path is not a directory.", None
     if not os_access_readable(repo_path):
@@ -186,3 +192,8 @@ def os_access_readable(path: Path) -> bool:
         return True
     except OSError:
         return False
+
+
+def _normalize_local_path(path: str | Path) -> Path:
+    raw = str(path).strip().strip('"').strip("'")
+    return Path(raw).expanduser()

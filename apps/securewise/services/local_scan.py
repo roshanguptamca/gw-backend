@@ -23,6 +23,7 @@ from apps.securewise.scanners.container import ContainerScanner
 from apps.securewise.scanners.dast import DastScanner
 from apps.securewise.scanners.iac import IacScanner
 from apps.securewise.scanners.mode_labels import classify_raw_tool
+from apps.securewise.scanners.repository import _normalize_local_path
 from apps.securewise.scanners.sast import SastScanner
 from apps.securewise.scanners.sca import ScaScanner
 from apps.securewise.scanners.secrets import SecretsScanner
@@ -82,7 +83,7 @@ class LocalScanError(ValueError):
 
 
 def validate_repository_path(path: str | Path) -> Path:
-    repo_path = Path(path).expanduser().resolve()
+    repo_path = _normalize_local_path(path).resolve()
     if not repo_path.exists():
         raise LocalScanError("invalid_path", f"Path does not exist: {repo_path}")
     if not repo_path.is_dir():
