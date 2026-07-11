@@ -48,7 +48,11 @@ class ContainerScanner(BaseScanner):
                 success=True,
                 findings=[],
                 status="skipped",
-                skipped_reason="Dockerfile present but image scanning requires a built image; configure docker_image explicitly",
+                skipped_reason=(
+                    "Dockerfile present but SecureWise cannot build a temporary image because Docker "
+                    "is unavailable in this environment; configure docker_image explicitly or run "
+                    "the scan on a Docker-enabled runner"
+                ),
                 metadata={"raw_tool": "none"},
             )
 
