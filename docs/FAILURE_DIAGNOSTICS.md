@@ -33,4 +33,7 @@ SecureWise should classify failures by stage and surface a sanitized log excerpt
 ## Guidance
 
 Diagnostics should explain the real blocker, not hide behind a generic Docker error.
-
+The SecureWise frontend now consumes `diagnostics.log_excerpt`, shows the failed stage, and
+renders retry guidance inline on the scan detail page. When `retryable` is true, the UI shows a
+retry action; when it is false, the retry action is hidden and the page stays honest about partial
+coverage.
