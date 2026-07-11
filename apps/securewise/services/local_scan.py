@@ -197,7 +197,8 @@ def resolve_local_engines(
     if scan_type != "full":
         return [scan_type]
     engines = ["sast", "sca", "secrets", "iac"]
-    if docker_image or _has_dockerfile(repo_path):
+    discovery = ApplicationDiscoveryEngine().discover(repo_path)
+    if docker_image or (_has_dockerfile(repo_path) and discovery.project_type not in ("library", "cli")):
         engines.append("container")
     if api_spec_url or _has_api_spec(repo_path):
         engines.append("api")

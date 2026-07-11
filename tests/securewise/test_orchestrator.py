@@ -16,6 +16,7 @@ from apps.securewise.models import (
     SecureWiseMembership,
     SecureWiseOrganization,
     SecureWiseProject,
+    SecureWiseRepository,
     SecureWiseScan,
     SecureWiseScanEngineResult,
 )
@@ -71,6 +72,27 @@ class TestResolveEngines:
         scan = _make_scan(org, project, owner, scan_type="full")
         engines = ScannerOrchestrator().resolve_engines(scan, tmp_path)
         assert "container" in engines
+
+    def test_full_library_repo_skips_container_and_dast(self, org_project, tmp_path):
+        owner, org, project = org_project
+        (tmp_path / "requirements.txt").write_text("requests\n")
+        (tmp_path / "setup.py").write_text("from setuptools import setup\nsetup(name='x')\n")
+        (tmp_path / "mylib.py").write_text("def hello():\n    return 'hi'\n")
+        (tmp_path / "Dockerfile").write_text("FROM python:3.12\n")
+        repo = SecureWiseRepository.objects.create(
+            organization=org,
+            project=project,
+            name="library-repo",
+            access_mode="local_path",
+            local_path=str(tmp_path),
+            repository_url="",
+            created_by=owner,
+        )
+        scan = _make_scan(org, project, owner, scan_type="full", repository=repo)
+
+        engines = ScannerOrchestrator().resolve_engines(scan, tmp_path)
+
+        assert engines == ["sast", "sca", "secrets", "iac"]
 
     def test_full_with_docker_image_field_adds_container(self, org_project, tmp_path):
         owner, org, project = org_project

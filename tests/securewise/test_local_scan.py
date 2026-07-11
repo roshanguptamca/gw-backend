@@ -75,6 +75,17 @@ def test_validate_local_repository_path_strips_quotes_and_whitespace(tmp_path):
     assert resolved == repo.resolve()
 
 
+def test_resolve_local_engines_skips_container_for_library_repo(tmp_path):
+    (tmp_path / "requirements.txt").write_text("requests\n", encoding="utf-8")
+    (tmp_path / "setup.py").write_text("from setuptools import setup\nsetup(name='x')\n", encoding="utf-8")
+    (tmp_path / "mylib.py").write_text("def hello():\n    return 'hi'\n", encoding="utf-8")
+    (tmp_path / "Dockerfile").write_text("FROM python:3.12\n", encoding="utf-8")
+
+    engines = local_scan.resolve_local_engines("full", tmp_path)
+
+    assert engines == ["sast", "sca", "secrets", "iac"]
+
+
 def test_run_local_scan_writes_json_and_html_reports(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     repo.mkdir()
