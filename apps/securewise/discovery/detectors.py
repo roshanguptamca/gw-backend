@@ -29,7 +29,13 @@ from .framework_signatures import (
     NEXTJS_SIGNATURE,
     NODE_FRAMEWORK_DEPENDENCY_MARKERS,
     NODE_LOCKFILES,
+    PHP_DEPENDENCY_FILES,
+    PHP_GENERIC_SIGNATURE,
+    PHP_LARAVEL_SIGNATURE,
     PYTHON_DEPENDENCY_FILES,
+    RUBY_DEPENDENCY_FILES,
+    RUBY_RAILS_SIGNATURE,
+    RUBY_SINATRA_SIGNATURE,
     SPRING_BOOT_MARKERS,
     SPRING_BOOT_SIGNATURE,
 )
@@ -53,6 +59,8 @@ _IGNORED_DIR_NAMES = {
 }
 _PYTHON_RUNTIME_ENTRYPOINTS = ("app.py", "main.py", "server.py", "wsgi.py", "asgi.py")
 _NODE_RUNTIME_ENTRYPOINTS = ("server.js", "app.js", "main.js", "index.js")
+_PHP_RUNTIME_ENTRYPOINTS = ("artisan", "index.php", "server.php")
+_RUBY_RUNTIME_ENTRYPOINTS = ("app.rb", "config.ru")
 _PORT_HINT_PATTERNS = [
     re.compile(r"PORT\s*\|\|\s*(\d{2,5})", re.IGNORECASE),
     re.compile(r"PORT\s*\?\?\s*(\d{2,5})", re.IGNORECASE),
@@ -378,6 +386,96 @@ def detect_node(repo_path: Path) -> dict | None:
         "test_command": test_command,
         "start_command": start_command,
         "default_port": signature.default_port,
+        "health_endpoint": "",
+    }
+
+
+# ---------------------------------------------------------------------------
+# PHP
+# ---------------------------------------------------------------------------
+
+
+def detect_php(repo_path: Path) -> dict | None:
+    dependency_files = [f for f in PHP_DEPENDENCY_FILES if (repo_path / f).is_file()]
+    if not dependency_files and not any((repo_path / f).is_file() for f in _PHP_RUNTIME_ENTRYPOINTS):
+        return None
+
+    composer_path = repo_path / "composer.json"
+    composer = {}
+    if composer_path.is_file():
+        try:
+            composer = json.loads(_read_text_safely(composer_path) or "{}")
+        except (json.JSONDecodeError, ValueError):
+            composer = {}
+
+    require = {**composer.get("require", {}), **composer.get("require-dev", {})}
+    if "laravel/framework" in require:
+        sig = PHP_LARAVEL_SIGNATURE
+    elif any(key.startswith("symfony/") for key in require):
+        sig = PHP_GENERIC_SIGNATURE
+    else:
+        sig = PHP_GENERIC_SIGNATURE
+
+    runtime_entrypoint = _top_level_file(repo_path, _PHP_RUNTIME_ENTRYPOINTS)
+    start_command = sig.start_command
+    if runtime_entrypoint and runtime_entrypoint.name == "index.php":
+        start_command = "php -S 0.0.0.0:8000 -t public"
+    elif runtime_entrypoint and runtime_entrypoint.name == "server.php":
+        start_command = "php -S 0.0.0.0:8000 server.php"
+    elif runtime_entrypoint and runtime_entrypoint.name == "artisan" and sig is PHP_GENERIC_SIGNATURE:
+        start_command = "php artisan serve --host=0.0.0.0 --port=8000"
+
+    return {
+        "language": "php",
+        "framework": sig.name,
+        "project_type": sig.project_type,
+        "package_manager": "composer",
+        "dependency_files": dependency_files or [runtime_entrypoint.name if runtime_entrypoint else "composer.json"],
+        "build_command": "composer install" if dependency_files else "",
+        "test_command": "vendor/bin/phpunit" if dependency_files else "",
+        "start_command": start_command,
+        "default_port": sig.default_port,
+        "health_endpoint": "",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Ruby
+# ---------------------------------------------------------------------------
+
+
+def detect_ruby(repo_path: Path) -> dict | None:
+    dependency_files = [f for f in RUBY_DEPENDENCY_FILES if (repo_path / f).is_file()]
+    if not dependency_files and not any((repo_path / f).is_file() for f in _RUBY_RUNTIME_ENTRYPOINTS):
+        return None
+
+    gemfile_path = repo_path / "Gemfile"
+    gemfile_text = _read_text_safely(gemfile_path) if gemfile_path.is_file() else ""
+
+    if "rails" in gemfile_text.lower():
+        sig = RUBY_RAILS_SIGNATURE
+    elif "sinatra" in gemfile_text.lower():
+        sig = RUBY_SINATRA_SIGNATURE
+    else:
+        sig = RUBY_RAILS_SIGNATURE if (repo_path / "config.ru").is_file() else RUBY_SINATRA_SIGNATURE
+
+    runtime_entrypoint = _top_level_file(repo_path, _RUBY_RUNTIME_ENTRYPOINTS)
+    start_command = sig.start_command
+    if runtime_entrypoint and runtime_entrypoint.name == "config.ru":
+        start_command = "bundle exec rackup -o 0.0.0.0 -p 3000"
+    elif runtime_entrypoint and runtime_entrypoint.name == "app.rb":
+        start_command = "bundle exec ruby app.rb -o 0.0.0.0 -p 4567"
+
+    return {
+        "language": "ruby",
+        "framework": sig.name,
+        "project_type": sig.project_type,
+        "package_manager": "bundler",
+        "dependency_files": dependency_files or [runtime_entrypoint.name if runtime_entrypoint else "Gemfile"],
+        "build_command": "bundle install" if dependency_files else "",
+        "test_command": "bundle exec rspec" if dependency_files else "",
+        "start_command": start_command,
+        "default_port": sig.default_port,
         "health_endpoint": "",
     }
 

@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 _DETECTORS = [
     ("python", detectors.detect_python),
     ("node", detectors.detect_node),
+    ("php", detectors.detect_php),
+    ("ruby", detectors.detect_ruby),
     ("java", detectors.detect_java),
     ("go", detectors.detect_go),
 ]

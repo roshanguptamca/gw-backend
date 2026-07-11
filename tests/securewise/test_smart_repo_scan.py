@@ -16,7 +16,7 @@ from django.contrib.auth import get_user_model
 import pytest
 from rest_framework.test import APIClient
 
-from apps.securewise.discovery.detectors import detect_node, detect_python
+from apps.securewise.discovery.detectors import detect_node, detect_php, detect_python, detect_ruby
 from apps.securewise.discovery.engine import ApplicationDiscoveryEngine
 from apps.securewise.discovery.health import probe_health
 from apps.securewise.discovery.ports import (
@@ -142,6 +142,28 @@ class TestDiscoveryDetectors:
         assert result["framework"] == "generic_node_app"
         assert result["start_command"] == "node server.js"
         assert result["default_port"] == 3001
+
+    def test_detect_php_laravel(self, tmp_path):
+        (tmp_path / "composer.json").write_text(
+            '{"require":{"laravel/framework":"^11.0"}}',
+            encoding="utf-8",
+        )
+        (tmp_path / "artisan").write_text("<?php\n", encoding="utf-8")
+        result = detect_php(tmp_path)
+        assert result is not None
+        assert result["project_type"] == "web_app"
+        assert result["framework"] == "laravel"
+        assert result["default_port"] == 8000
+        assert "php artisan serve" in result["start_command"]
+
+    def test_detect_ruby_rails(self, tmp_path):
+        (tmp_path / "Gemfile").write_text("source 'https://rubygems.org'\ngem 'rails'\n", encoding="utf-8")
+        result = detect_ruby(tmp_path)
+        assert result is not None
+        assert result["project_type"] == "web_app"
+        assert result["framework"] == "rails"
+        assert result["default_port"] == 3000
+        assert "rails server" in result["start_command"]
 
     def test_detect_node_express(self, tmp_path):
         (tmp_path / "package.json").write_text(
@@ -396,6 +418,14 @@ class TestOrchestratorSmartDast:
     ):
         owner, org, project = org_project
         _make_django_repo(tmp_path)
+        scan = _make_scan_with_repo(org, project, owner, repository, scan_type="full")
+        engines = ScannerOrchestrator().resolve_engines(scan, tmp_path)
+        assert "dast" in engines
+
+    def test_resolve_engines_includes_dast_for_php_web_repo(self, org_project, repository, tmp_path):
+        owner, org, project = org_project
+        (tmp_path / "composer.json").write_text('{"require":{"laravel/framework":"^11.0"}}', encoding="utf-8")
+        (tmp_path / "artisan").write_text("<?php\n", encoding="utf-8")
         scan = _make_scan_with_repo(org, project, owner, repository, scan_type="full")
         engines = ScannerOrchestrator().resolve_engines(scan, tmp_path)
         assert "dast" in engines

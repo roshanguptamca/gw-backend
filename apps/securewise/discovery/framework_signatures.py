@@ -85,6 +85,44 @@ NODE_FRAMEWORK_DEPENDENCY_MARKERS = [
 ]
 
 # ---------------------------------------------------------------------------
+# PHP
+# ---------------------------------------------------------------------------
+
+PHP_DEPENDENCY_FILES = ("composer.json", "composer.lock")
+
+PHP_LARAVEL_SIGNATURE = FrameworkSignature(
+    name="laravel",
+    project_type="web_app",
+    default_port=8000,
+    start_command="php artisan serve --host=0.0.0.0 --port=8000",
+)
+PHP_GENERIC_SIGNATURE = FrameworkSignature(
+    name="php",
+    project_type="web_app",
+    default_port=8000,
+    start_command="php -S 0.0.0.0:8000 -t public",
+)
+
+# ---------------------------------------------------------------------------
+# Ruby
+# ---------------------------------------------------------------------------
+
+RUBY_DEPENDENCY_FILES = ("Gemfile", "Gemfile.lock")
+
+RUBY_RAILS_SIGNATURE = FrameworkSignature(
+    name="rails",
+    project_type="web_app",
+    default_port=3000,
+    start_command="bundle exec rails server -b 0.0.0.0 -p 3000",
+)
+RUBY_SINATRA_SIGNATURE = FrameworkSignature(
+    name="sinatra",
+    project_type="web_app",
+    default_port=4567,
+    start_command="bundle exec ruby app.rb -o 0.0.0.0 -p 4567",
+)
+
+# ---------------------------------------------------------------------------
 # Java
 # ---------------------------------------------------------------------------
 
