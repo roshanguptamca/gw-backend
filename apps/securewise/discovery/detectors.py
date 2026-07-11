@@ -51,6 +51,17 @@ _IGNORED_DIR_NAMES = {
     "target",
     "vendor",
 }
+_PYTHON_RUNTIME_ENTRYPOINTS = ("app.py", "main.py", "server.py", "wsgi.py", "asgi.py")
+_NODE_RUNTIME_ENTRYPOINTS = ("server.js", "app.js", "main.js", "index.js")
+_PORT_HINT_PATTERNS = [
+    re.compile(r"PORT\s*\|\|\s*(\d{2,5})", re.IGNORECASE),
+    re.compile(r"PORT\s*\?\?\s*(\d{2,5})", re.IGNORECASE),
+    re.compile(r"port\s*=\s*(\d{2,5})", re.IGNORECASE),
+    re.compile(r"--port(?:=|\s+)(\d{2,5})", re.IGNORECASE),
+    re.compile(r"get\(\s*['\"]PORT['\"]\s*,\s*(\d{2,5})\s*\)", re.IGNORECASE),
+    re.compile(r"PORT['\"]?\s*[:=]\s*(\d{2,5})", re.IGNORECASE),
+    re.compile(r"EXPOSE\s+(\d{2,5})", re.IGNORECASE),
+]
 
 
 def _iter_files(repo_path: Path, max_files: int = _MAX_FILES_SCANNED):
@@ -73,6 +84,28 @@ def _read_text_safely(path: Path, max_bytes: int = _MAX_FILE_BYTES) -> str:
         return path.read_text(encoding="utf-8", errors="ignore")
     except OSError:
         return ""
+
+
+def _top_level_file(repo_path: Path, names: tuple[str, ...]) -> Path | None:
+    for name in names:
+        candidate = repo_path / name
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _infer_port_hint(text: str, default: int) -> int:
+    for pattern in _PORT_HINT_PATTERNS:
+        match = pattern.search(text)
+        if not match:
+            continue
+        try:
+            port = int(match.group(1))
+            if 1 <= port <= 65535:
+                return port
+        except (TypeError, ValueError):
+            continue
+    return default
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +256,30 @@ def detect_python(repo_path: Path) -> dict | None:
                 "health_endpoint": sig.health_endpoint,
             }
 
+    runtime_entrypoint = _top_level_file(repo_path, _PYTHON_RUNTIME_ENTRYPOINTS)
+    if runtime_entrypoint:
+        text = _read_text_safely(runtime_entrypoint)
+        default_port = 8000
+        if "flask" in text.lower():
+            default_port = 5000
+        elif "streamlit" in text.lower():
+            default_port = 8501
+        elif "django" in text.lower():
+            default_port = 8000
+        port = _infer_port_hint(text, default_port)
+        return {
+            "language": "python",
+            "framework": "generic_python_app",
+            "project_type": "web_app",
+            "package_manager": package_manager,
+            "dependency_files": dependency_files or [runtime_entrypoint.name],
+            "build_command": "pip install -r requirements.txt" if dependency_files else "pip install .",
+            "test_command": "pytest",
+            "start_command": f"python {runtime_entrypoint.name}",
+            "default_port": port,
+            "health_endpoint": "",
+        }
+
     # Python present but no recognized web framework — likely a library/CLI/script.
     return {
         "language": "python",
@@ -275,6 +332,23 @@ def detect_node(repo_path: Path) -> dict | None:
     test_command = f"{package_manager} test" if "test" in scripts else ""
 
     if signature is None:
+        runtime_entrypoint = _top_level_file(repo_path, _NODE_RUNTIME_ENTRYPOINTS)
+        if runtime_entrypoint:
+            text = _read_text_safely(runtime_entrypoint)
+            port = _infer_port_hint(text, 3000)
+            return {
+                "language": "node",
+                "framework": "generic_node_app",
+                "project_type": "api_service",
+                "package_manager": package_manager,
+                "dependency_files": ["package.json"],
+                "build_command": build_command,
+                "test_command": test_command,
+                "start_command": f"node {runtime_entrypoint.name}",
+                "default_port": port,
+                "health_endpoint": "",
+            }
+
         # A package.json exists but no recognized runtime framework/start
         # script was found — treat as a library rather than guessing.
         return {

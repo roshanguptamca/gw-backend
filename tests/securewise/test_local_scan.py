@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -86,6 +87,15 @@ def test_resolve_local_engines_skips_container_for_library_repo(tmp_path):
     assert engines == ["sast", "sca", "secrets", "iac"]
 
 
+def test_resolve_local_engines_includes_dast_for_generic_web_repo(tmp_path):
+    (tmp_path / "requirements.txt").write_text("requests\n", encoding="utf-8")
+    (tmp_path / "app.py").write_text("print('hello')\n", encoding="utf-8")
+
+    engines = local_scan.resolve_local_engines("full", tmp_path)
+
+    assert "dast" in engines
+
+
 def test_run_local_scan_writes_json_and_html_reports(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -101,6 +111,49 @@ def test_run_local_scan_writes_json_and_html_reports(tmp_path, monkeypatch):
     assert (output / REPORT_HTML_NAME).exists()
     persisted = json.loads((output / REPORT_JSON_NAME).read_text(encoding="utf-8"))
     assert persisted["artifacts"]["html"].endswith(REPORT_HTML_NAME)
+
+
+def test_run_local_scan_autostarts_runtime_for_web_repo(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "requirements.txt").write_text("requests\n", encoding="utf-8")
+    (repo / "app.py").write_text("print('hello')\n", encoding="utf-8")
+    output = tmp_path / "out"
+    monkeypatch.setitem(local_scan._ENGINE_CLASSES, "sast", CleanScanner)
+    monkeypatch.setitem(local_scan._ENGINE_CLASSES, "sca", CleanScanner)
+    monkeypatch.setitem(local_scan._ENGINE_CLASSES, "secrets", CleanScanner)
+    monkeypatch.setitem(local_scan._ENGINE_CLASSES, "iac", CleanScanner)
+    monkeypatch.setitem(local_scan._ENGINE_CLASSES, "container", CleanScanner)
+    monkeypatch.setitem(local_scan._ENGINE_CLASSES, "api", CleanScanner)
+
+    captured = {}
+
+    class FakeDastScanner:
+        def run(self, repo_path, scan_id, metadata):
+            captured["target_url"] = metadata.get("target_url")
+            return ScannerResult(success=True, findings=[], metadata={"raw_tool": "test"})
+
+    class FakeRuntimeManager:
+        def try_start(self, repo_path, discovery):
+            return SimpleNamespace(
+                started=True,
+                runtime_url="http://127.0.0.1:4321",
+                selected_health_endpoint="/health",
+                has_dedicated_health_endpoint=True,
+                skip_reason="",
+            )
+
+        def stop(self):
+            captured["stopped"] = True
+
+    monkeypatch.setitem(local_scan._ENGINE_CLASSES, "dast", FakeDastScanner)
+    monkeypatch.setattr(local_scan, "RuntimeEnvironmentManager", FakeRuntimeManager)
+
+    report = run_local_scan(repo, output_dir=output, scan_type="full", fail_on="high")
+
+    assert "dast" in report["scan"]["engines"]
+    assert captured["target_url"] == "http://127.0.0.1:4321"
+    assert captured["stopped"] is True
 
 
 def test_copy_local_repository_copies_into_allowed_workspace(tmp_path):

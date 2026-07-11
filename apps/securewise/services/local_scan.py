@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Iterable
 
 from apps.securewise.discovery.engine import ApplicationDiscoveryEngine
+from apps.securewise.runtime.manager import RuntimeEnvironmentManager
 from apps.securewise.scanners.api import ApiScanner
 from apps.securewise.scanners.base import ScannerFinding
 from apps.securewise.scanners.container import ContainerScanner
@@ -127,9 +128,11 @@ def run_local_scan(
     if discovery.project_type == "unknown":
         warnings.append("Project type is unknown; SecureWise will run file-based checks where possible.")
 
+    runtime_manager = None
     engines = resolve_local_engines(
         scan_type,
         repo_path,
+        discovery=discovery,
         target_url=target_url,
         docker_image=docker_image,
         api_spec_url=api_spec_url,
@@ -142,30 +145,46 @@ def run_local_scan(
         "docker_image": docker_image,
         "api_spec_url": api_spec_url,
     }
+    if scan_type == "full" and discovery.requires_runtime and not target_url:
+        runtime_manager = RuntimeEnvironmentManager()
+        runtime_result = runtime_manager.try_start(repo_path, discovery)
+        if runtime_result.started:
+            metadata["target_url"] = runtime_result.runtime_url
+            warnings.append(f"Auto-started application runtime at {runtime_result.runtime_url}")
+        else:
+            metadata["dast_skip_reason"] = runtime_result.skip_reason
+            warnings.append(runtime_result.skip_reason)
 
-    for engine_name in engines:
-        engine = _ENGINE_CLASSES[engine_name]()
-        result = engine.run(repo_path, "local", metadata)
-        raw_tool = (result.metadata or {}).get("raw_tool")
-        engine_results.append(
-            {
-                "engine": engine_name,
-                "status": result.status,
-                "success": result.success,
-                "skipped_reason": result.skipped_reason,
-                "error": result.error,
-                "findings_count": len(result.findings),
-                "raw_tool": raw_tool,
-                "mode": classify_raw_tool(raw_tool),
-                "metadata": result.metadata,
-            }
-        )
-        if result.success:
-            for finding in result.findings:
-                if finding.fingerprint in seen:
-                    continue
-                seen.add(finding.fingerprint)
-                findings.append(finding)
+    if metadata.get("target_url") and "dast" in engines:
+        target_url = metadata["target_url"]
+
+    try:
+        for engine_name in engines:
+            engine = _ENGINE_CLASSES[engine_name]()
+            result = engine.run(repo_path, "local", metadata)
+            raw_tool = (result.metadata or {}).get("raw_tool")
+            engine_results.append(
+                {
+                    "engine": engine_name,
+                    "status": result.status,
+                    "success": result.success,
+                    "skipped_reason": result.skipped_reason,
+                    "error": result.error,
+                    "findings_count": len(result.findings),
+                    "raw_tool": raw_tool,
+                    "mode": classify_raw_tool(raw_tool),
+                    "metadata": result.metadata,
+                }
+            )
+            if result.success:
+                for finding in result.findings:
+                    if finding.fingerprint in seen:
+                        continue
+                    seen.add(finding.fingerprint)
+                    findings.append(finding)
+    finally:
+        if runtime_manager is not None:
+            runtime_manager.stop()
 
     report = build_local_report(
         repo_path,
@@ -190,6 +209,7 @@ def resolve_local_engines(
     scan_type: str,
     repo_path: Path,
     *,
+    discovery=None,
     target_url: str = "",
     docker_image: str = "",
     api_spec_url: str = "",
@@ -197,12 +217,12 @@ def resolve_local_engines(
     if scan_type != "full":
         return [scan_type]
     engines = ["sast", "sca", "secrets", "iac"]
-    discovery = ApplicationDiscoveryEngine().discover(repo_path)
+    discovery = discovery or ApplicationDiscoveryEngine().discover(repo_path)
     if docker_image or (_has_dockerfile(repo_path) and discovery.project_type not in ("library", "cli")):
         engines.append("container")
     if api_spec_url or _has_api_spec(repo_path):
         engines.append("api")
-    if target_url:
+    if target_url or discovery.requires_runtime:
         engines.append("dast")
     return engines
 

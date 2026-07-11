@@ -73,6 +73,24 @@ class TestResolveEngines:
         engines = ScannerOrchestrator().resolve_engines(scan, tmp_path)
         assert "container" in engines
 
+    def test_full_generic_python_app_adds_dast(self, org_project, tmp_path):
+        owner, org, project = org_project
+        (tmp_path / "requirements.txt").write_text("requests\n")
+        (tmp_path / "app.py").write_text("print('hello')\n")
+        repo = SecureWiseRepository.objects.create(
+            organization=org,
+            project=project,
+            name="generic-app",
+            access_mode="local_path",
+            local_path=str(tmp_path),
+            repository_url="",
+            created_by=owner,
+        )
+        scan = _make_scan(org, project, owner, scan_type="full", repository=repo)
+        engines = ScannerOrchestrator().resolve_engines(scan, tmp_path)
+        assert "dast" in engines
+        assert "container" not in engines
+
     def test_full_library_repo_skips_container_and_dast(self, org_project, tmp_path):
         owner, org, project = org_project
         (tmp_path / "requirements.txt").write_text("requests\n")

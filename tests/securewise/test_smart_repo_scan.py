@@ -112,6 +112,37 @@ class TestDiscoveryDetectors:
         assert result["project_type"] == "api_service"
         assert "main:app" in result["start_command"]
 
+    def test_detect_python_generic_entrypoint_as_web_app_without_port(self, tmp_path):
+        (tmp_path / "requirements.txt").write_text("requests\n")
+        (tmp_path / "app.py").write_text("print('hello')\n")
+        result = detect_python(tmp_path)
+        assert result is not None
+        assert result["project_type"] == "web_app"
+        assert result["framework"] == "generic_python_app"
+        assert result["start_command"] == "python app.py"
+
+    def test_detect_python_generic_entrypoint_as_web_app(self, tmp_path):
+        (tmp_path / "requirements.txt").write_text("requests\n")
+        (tmp_path / "app.py").write_text(
+            "import os\n\nif __name__ == '__main__':\n    print(os.environ.get('PORT', 8080))\n"
+        )
+        result = detect_python(tmp_path)
+        assert result is not None
+        assert result["project_type"] == "web_app"
+        assert result["framework"] == "generic_python_app"
+        assert result["start_command"] == "python app.py"
+        assert result["default_port"] == 8080
+
+    def test_detect_node_generic_entrypoint_as_api_service(self, tmp_path):
+        (tmp_path / "package.json").write_text("{}")
+        (tmp_path / "server.js").write_text("const port = process.env.PORT || 3001;\n")
+        result = detect_node(tmp_path)
+        assert result is not None
+        assert result["project_type"] == "api_service"
+        assert result["framework"] == "generic_node_app"
+        assert result["start_command"] == "node server.js"
+        assert result["default_port"] == 3001
+
     def test_detect_node_express(self, tmp_path):
         (tmp_path / "package.json").write_text(
             '{"dependencies": {"express": "^4.0.0"}, "scripts": {"start": "node index.js"}}'
