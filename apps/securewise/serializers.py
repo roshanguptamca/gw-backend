@@ -330,6 +330,7 @@ class SecureWiseScanPolicyTemplateSerializer(serializers.ModelSerializer):
 class SecureWiseScanSerializer(serializers.ModelSerializer):
     triggered_by_detail = MinimalUserSerializer(source="triggered_by", read_only=True)
     finding_counts = serializers.SerializerMethodField()
+    can_retry = serializers.SerializerMethodField()
 
     class Meta:
         model = SecureWiseScan
@@ -360,6 +361,7 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
             "scanner_metadata",
             "quality_gate_passed",
             "finding_counts",
+            "can_retry",
             "created_at",
             "updated_at",
         )
@@ -378,6 +380,7 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
             "scanner_metadata",
             "quality_gate_passed",
             "finding_counts",
+            "can_retry",
             "created_at",
             "updated_at",
         )
@@ -406,8 +409,15 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
                     )
                 }
             )
-        if scan_type == "dast" and not target_url:
-            raise serializers.ValidationError({"target_url": "Target URL is required to run a DAST scan."})
+        if scan_type == "dast" and not target_url and not repository:
+            raise serializers.ValidationError(
+                {
+                    "target_url": (
+                        "Target URL is required to run a DAST scan unless a repository is attached "
+                        "and SecureWise can auto-start the application runtime."
+                    )
+                }
+            )
         if scan_type == "api" and not api_spec_url and not repository:
             raise serializers.ValidationError(
                 {"api_spec_url": "An OpenAPI spec URL/path or a repository is required to run an API scan."}
@@ -429,8 +439,13 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
         counts["total"] = sum(counts.values())
         return counts
 
+    def get_can_retry(self, obj):
+        return obj.status in ("failed", "cancelled", "completed_with_warnings", "completed", "completed_partial")
+
 
 class ScanEngineResultSerializer(serializers.ModelSerializer):
+    diagnostics = serializers.SerializerMethodField()
+
     class Meta:
         model = SecureWiseScanEngineResult
         fields = (
@@ -444,11 +459,31 @@ class ScanEngineResultSerializer(serializers.ModelSerializer):
             "findings_count",
             "skipped_reason",
             "raw_summary",
+            "diagnostics",
             "error_message",
             "created_at",
             "updated_at",
         )
         read_only_fields = fields
+
+    def get_diagnostics(self, obj):
+        raw_summary = obj.raw_summary or {}
+        log_excerpt = (
+            raw_summary.get("dast_runtime_logs")
+            or raw_summary.get("stdout")
+            or raw_summary.get("stderr")
+            or obj.error_message
+            or obj.skipped_reason
+            or ""
+        )
+        if not log_excerpt:
+            return {}
+        return {
+            "log_excerpt": str(log_excerpt)[:4000],
+            "stage": raw_summary.get("stage", ""),
+            "root_cause": raw_summary.get("root_cause", ""),
+            "retryable": raw_summary.get("retryable"),
+        }
 
 
 # ---------------------------------------------------------------------------

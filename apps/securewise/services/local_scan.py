@@ -17,12 +17,14 @@ from pathlib import Path
 from typing import Iterable
 
 from apps.securewise.discovery.engine import ApplicationDiscoveryEngine
+from apps.securewise.runtime.manager import RuntimeEnvironmentManager
 from apps.securewise.scanners.api import ApiScanner
 from apps.securewise.scanners.base import ScannerFinding
 from apps.securewise.scanners.container import ContainerScanner
 from apps.securewise.scanners.dast import DastScanner
 from apps.securewise.scanners.iac import IacScanner
 from apps.securewise.scanners.mode_labels import classify_raw_tool
+from apps.securewise.scanners.repository import _normalize_local_path
 from apps.securewise.scanners.sast import SastScanner
 from apps.securewise.scanners.sca import ScaScanner
 from apps.securewise.scanners.secrets import SecretsScanner
@@ -82,7 +84,7 @@ class LocalScanError(ValueError):
 
 
 def validate_repository_path(path: str | Path) -> Path:
-    repo_path = Path(path).expanduser().resolve()
+    repo_path = _normalize_local_path(path).resolve()
     if not repo_path.exists():
         raise LocalScanError("invalid_path", f"Path does not exist: {repo_path}")
     if not repo_path.is_dir():
@@ -126,9 +128,11 @@ def run_local_scan(
     if discovery.project_type == "unknown":
         warnings.append("Project type is unknown; SecureWise will run file-based checks where possible.")
 
+    runtime_manager = None
     engines = resolve_local_engines(
         scan_type,
         repo_path,
+        discovery=discovery,
         target_url=target_url,
         docker_image=docker_image,
         api_spec_url=api_spec_url,
@@ -141,30 +145,50 @@ def run_local_scan(
         "docker_image": docker_image,
         "api_spec_url": api_spec_url,
     }
+    if scan_type in {"full", "dast"} and discovery.requires_runtime and not target_url:
+        runtime_manager = RuntimeEnvironmentManager()
+        runtime_result = runtime_manager.try_start(repo_path, discovery)
+        if runtime_result.started:
+            metadata["target_url"] = runtime_result.runtime_url
+            warnings.append(f"Auto-started application runtime at {runtime_result.runtime_url}")
+        else:
+            metadata["dast_skip_reason"] = runtime_result.skip_reason
+            if runtime_result.logs:
+                metadata["dast_runtime_logs"] = runtime_result.logs
+            warnings.append(runtime_result.skip_reason)
+            if runtime_result.logs:
+                warnings.append(f"Runtime logs:\n{runtime_result.logs}")
 
-    for engine_name in engines:
-        engine = _ENGINE_CLASSES[engine_name]()
-        result = engine.run(repo_path, "local", metadata)
-        raw_tool = (result.metadata or {}).get("raw_tool")
-        engine_results.append(
-            {
-                "engine": engine_name,
-                "status": result.status,
-                "success": result.success,
-                "skipped_reason": result.skipped_reason,
-                "error": result.error,
-                "findings_count": len(result.findings),
-                "raw_tool": raw_tool,
-                "mode": classify_raw_tool(raw_tool),
-                "metadata": result.metadata,
-            }
-        )
-        if result.success:
-            for finding in result.findings:
-                if finding.fingerprint in seen:
-                    continue
-                seen.add(finding.fingerprint)
-                findings.append(finding)
+    if metadata.get("target_url") and "dast" in engines:
+        target_url = metadata["target_url"]
+
+    try:
+        for engine_name in engines:
+            engine = _ENGINE_CLASSES[engine_name]()
+            result = engine.run(repo_path, "local", metadata)
+            raw_tool = (result.metadata or {}).get("raw_tool")
+            engine_results.append(
+                {
+                    "engine": engine_name,
+                    "status": result.status,
+                    "success": result.success,
+                    "skipped_reason": result.skipped_reason,
+                    "error": result.error,
+                    "findings_count": len(result.findings),
+                    "raw_tool": raw_tool,
+                    "mode": classify_raw_tool(raw_tool),
+                    "metadata": result.metadata,
+                }
+            )
+            if result.success:
+                for finding in result.findings:
+                    if finding.fingerprint in seen:
+                        continue
+                    seen.add(finding.fingerprint)
+                    findings.append(finding)
+    finally:
+        if runtime_manager is not None:
+            runtime_manager.stop()
 
     report = build_local_report(
         repo_path,
@@ -189,6 +213,7 @@ def resolve_local_engines(
     scan_type: str,
     repo_path: Path,
     *,
+    discovery=None,
     target_url: str = "",
     docker_image: str = "",
     api_spec_url: str = "",
@@ -196,11 +221,12 @@ def resolve_local_engines(
     if scan_type != "full":
         return [scan_type]
     engines = ["sast", "sca", "secrets", "iac"]
-    if docker_image or _has_dockerfile(repo_path):
+    discovery = discovery or ApplicationDiscoveryEngine().discover(repo_path)
+    if docker_image or (_has_dockerfile(repo_path) and discovery.project_type not in ("library", "cli")):
         engines.append("container")
     if api_spec_url or _has_api_spec(repo_path):
         engines.append("api")
-    if target_url:
+    if target_url or discovery.requires_runtime:
         engines.append("dast")
     return engines
 
@@ -218,11 +244,22 @@ def build_local_report(
     severity_counts = Counter(f.severity for f in findings)
     threshold_index = SEVERITY_ORDER.index(fail_on)
     failing_findings = [f for f in findings if f.severity in SEVERITY_ORDER[: threshold_index + 1]]
+    discovery_summary = {
+        "project_type": discovery.get("project_type", "unknown"),
+        "framework": discovery.get("detected_frameworks", [""])[0] if discovery.get("detected_frameworks") else "",
+        "requires_runtime": discovery.get("requires_runtime", False),
+        "can_auto_run": discovery.get("can_auto_run", False),
+        "start_command": discovery.get("start_command", ""),
+        "candidate_ports": discovery.get("candidate_ports", []),
+        "skip_reasons": discovery.get("skip_reasons", []),
+        "warnings": discovery.get("warnings", []),
+    }
     return {
         "report_version": "local-1.0",
         "generated_at": datetime.now(UTC).isoformat(),
         "repository_path": str(repo_path),
         "discovery": discovery,
+        "discovery_summary": discovery_summary,
         "scan": {
             "scan_type": scan_type,
             "engines": engines,
@@ -284,6 +321,11 @@ def render_local_html_report(report: dict) -> str:
   <h1>SecureWise Local Scan Report</h1>
   <p><strong>Repository:</strong> {html.escape(report.get("repository_path", ""))}</p>
   <p><strong>Generated:</strong> {html.escape(report.get("generated_at", ""))}</p>
+  <h2>Discovery Plan</h2>
+  <p>Project type: {html.escape(report.get("discovery_summary", {}).get("project_type", ""))}</p>
+  <p>Framework: {html.escape(report.get("discovery_summary", {}).get("framework", "")) or "n/a"}</p>
+  <p>Runtime: {html.escape(str(report.get("discovery_summary", {}).get("requires_runtime", False)))}</p>
+  <p>Auto-run: {html.escape(str(report.get("discovery_summary", {}).get("can_auto_run", False)))}</p>
   <div class="{gate_class}">Quality gate: {gate_text}</div>
   <h2>Summary</h2>
   <p>Total findings: {report.get("summary", {}).get("total_findings", 0)}</p>

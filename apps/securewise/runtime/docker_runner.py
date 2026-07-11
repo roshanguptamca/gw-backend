@@ -55,6 +55,17 @@ GENERATED_DOCKERFILE_TEMPLATES = {
         "EXPOSE {port}\n"
         'CMD ["/app/bin/service"]\n'
     ),
+    "php": (
+        "FROM php:8.2-cli\n" "WORKDIR /app\n" "COPY . /app\n" "RUN true\n" "EXPOSE {port}\n" "CMD {start_command}\n"
+    ),
+    "ruby": (
+        "FROM ruby:3.3-slim\n"
+        "WORKDIR /app\n"
+        "COPY . /app\n"
+        "RUN bundle install || true\n"
+        "EXPOSE {port}\n"
+        "CMD {start_command}\n"
+    ),
 }
 
 

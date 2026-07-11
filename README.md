@@ -514,6 +514,14 @@ connect git repositories (public or private, via encrypted `SecureWiseGitIntegra
 configure scan policies/quality gates, and run scans that produce `SecureWiseFinding` records
 with CWE/OWASP mapping and actionable remediation guidance.
 
+Smart-scan design notes and current-state docs:
+
+- [`docs/SMART_SCAN_CURRENT_STATE.md`](docs/SMART_SCAN_CURRENT_STATE.md)
+- [`docs/SMART_SCAN_ARCHITECTURE.md`](docs/SMART_SCAN_ARCHITECTURE.md)
+- [`docs/APPLICATION_DISCOVERY.md`](docs/APPLICATION_DISCOVERY.md)
+- [`docs/RUNTIME_MANAGER.md`](docs/RUNTIME_MANAGER.md)
+- [`docs/DAST_RUNTIME_FLOW.md`](docs/DAST_RUNTIME_FLOW.md)
+
 ### Scanner architecture
 
 Each scan resolves to a list of **engines** (`apps/securewise/scanners/orchestrator.py`,

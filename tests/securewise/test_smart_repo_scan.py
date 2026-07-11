@@ -16,7 +16,7 @@ from django.contrib.auth import get_user_model
 import pytest
 from rest_framework.test import APIClient
 
-from apps.securewise.discovery.detectors import detect_node, detect_python
+from apps.securewise.discovery.detectors import detect_node, detect_php, detect_python, detect_ruby
 from apps.securewise.discovery.engine import ApplicationDiscoveryEngine
 from apps.securewise.discovery.health import probe_health
 from apps.securewise.discovery.ports import (
@@ -111,6 +111,84 @@ class TestDiscoveryDetectors:
         assert result["framework"] == "fastapi"
         assert result["project_type"] == "api_service"
         assert "main:app" in result["start_command"]
+
+    def test_detect_python_generic_entrypoint_as_web_app_without_port(self, tmp_path):
+        (tmp_path / "requirements.txt").write_text("requests\n")
+        (tmp_path / "app.py").write_text("print('hello')\n")
+        result = detect_python(tmp_path)
+        assert result is not None
+        assert result["project_type"] == "web_app"
+        assert result["framework"] == "generic_python_app"
+        assert result["start_command"] == "python app.py"
+
+    def test_detect_python_generic_entrypoint_as_web_app(self, tmp_path):
+        (tmp_path / "requirements.txt").write_text("requests\n")
+        (tmp_path / "app.py").write_text(
+            "import os\n\nif __name__ == '__main__':\n    print(os.environ.get('PORT', 8080))\n"
+        )
+        result = detect_python(tmp_path)
+        assert result is not None
+        assert result["project_type"] == "web_app"
+        assert result["framework"] == "generic_python_app"
+        assert result["start_command"] == "python app.py"
+        assert result["default_port"] == 8080
+
+    def test_detect_python_nested_django_manage_py(self, tmp_path):
+        backend = tmp_path / "backend"
+        backend.mkdir()
+        (backend / "manage.py").write_text("#!/usr/bin/env python\n", encoding="utf-8")
+        (backend / "requirements.txt").write_text("django\n", encoding="utf-8")
+        result = detect_python(tmp_path)
+        assert result is not None
+        assert result["project_type"] == "web_app"
+        assert result["framework"] == "django"
+        assert result["start_command"] == "python backend/manage.py runserver 0.0.0.0:8000"
+
+    def test_detect_python_packaged_django_project(self, tmp_path):
+        src = tmp_path / "src" / "de_voucher" / "main"
+        src.mkdir(parents=True)
+        (tmp_path / "pyproject.toml").write_text("[project]\nname = 'de-voucher'\n", encoding="utf-8")
+        (src / "settings.py").write_text("SECRET_KEY = 'x'\n", encoding="utf-8")
+        (src / "wsgi.py").write_text("application = None\n", encoding="utf-8")
+        result = detect_python(tmp_path)
+        assert result is not None
+        assert result["project_type"] == "web_app"
+        assert result["framework"] == "django"
+        assert result["start_command"] == (
+            "PYTHONPATH=src DJANGO_SETTINGS_MODULE=de_voucher.main.settings python -m django runserver 0.0.0.0:8000"
+        )
+
+    def test_detect_node_generic_entrypoint_as_api_service(self, tmp_path):
+        (tmp_path / "package.json").write_text("{}")
+        (tmp_path / "server.js").write_text("const port = process.env.PORT || 3001;\n")
+        result = detect_node(tmp_path)
+        assert result is not None
+        assert result["project_type"] == "api_service"
+        assert result["framework"] == "generic_node_app"
+        assert result["start_command"] == "node server.js"
+        assert result["default_port"] == 3001
+
+    def test_detect_php_laravel(self, tmp_path):
+        (tmp_path / "composer.json").write_text(
+            '{"require":{"laravel/framework":"^11.0"}}',
+            encoding="utf-8",
+        )
+        (tmp_path / "artisan").write_text("<?php\n", encoding="utf-8")
+        result = detect_php(tmp_path)
+        assert result is not None
+        assert result["project_type"] == "web_app"
+        assert result["framework"] == "laravel"
+        assert result["default_port"] == 8000
+        assert "php artisan serve" in result["start_command"]
+
+    def test_detect_ruby_rails(self, tmp_path):
+        (tmp_path / "Gemfile").write_text("source 'https://rubygems.org'\ngem 'rails'\n", encoding="utf-8")
+        result = detect_ruby(tmp_path)
+        assert result is not None
+        assert result["project_type"] == "web_app"
+        assert result["framework"] == "rails"
+        assert result["default_port"] == 3000
+        assert "rails server" in result["start_command"]
 
     def test_detect_node_express(self, tmp_path):
         (tmp_path / "package.json").write_text(
@@ -364,6 +442,15 @@ class TestOrchestratorSmartDast:
         self, org_project, repository, tmp_path
     ):
         owner, org, project = org_project
+        _make_django_repo(tmp_path)
+        scan = _make_scan_with_repo(org, project, owner, repository, scan_type="full")
+        engines = ScannerOrchestrator().resolve_engines(scan, tmp_path)
+        assert "dast" in engines
+
+    def test_resolve_engines_includes_dast_for_php_web_repo(self, org_project, repository, tmp_path):
+        owner, org, project = org_project
+        (tmp_path / "composer.json").write_text('{"require":{"laravel/framework":"^11.0"}}', encoding="utf-8")
+        (tmp_path / "artisan").write_text("<?php\n", encoding="utf-8")
         scan = _make_scan_with_repo(org, project, owner, repository, scan_type="full")
         engines = ScannerOrchestrator().resolve_engines(scan, tmp_path)
         assert "dast" in engines
@@ -457,6 +544,53 @@ class TestOrchestratorSmartDast:
         assert "discovery" in scan.scanner_metadata
         assert scan.scanner_metadata["discovery"]["project_type"] == "web_app"
 
+    def test_run_uses_discovered_runtime_url_for_dast_only_scan(self, org_project, repository, tmp_path):
+        owner, org, project = org_project
+        _make_django_repo(tmp_path)
+        scan = _make_scan_with_repo(org, project, owner, repository, scan_type="dast")
+
+        captured_metadata = {}
+
+        def _fake_dast_run(self, repo_path, scan_id, metadata):
+            captured_metadata.update(metadata)
+            return _ok_result()
+
+        import contextlib
+
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(patch("apps.securewise.scanners.orchestrator.DastScanner.run", _fake_dast_run))
+            stack.enter_context(
+                patch("apps.securewise.runtime.manager.docker_runner.is_docker_available", return_value=(True, ""))
+            )
+            stack.enter_context(
+                patch("apps.securewise.runtime.manager.docker_runner.build_image", return_value=(True, ""))
+            )
+            stack.enter_context(
+                patch(
+                    "apps.securewise.runtime.manager.docker_runner.run_container",
+                    return_value=(True, "securewise-runtime-test", ""),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "apps.securewise.runtime.manager.probe_health",
+                    return_value={
+                        "reachable": True,
+                        "selected_endpoint": "/health",
+                        "has_dedicated_health_endpoint": True,
+                        "status_code": 200,
+                    },
+                )
+            )
+            stack.enter_context(patch("apps.securewise.runtime.manager.docker_runner.stop_and_remove"))
+            stack.enter_context(patch("apps.securewise.runtime.manager.docker_runner.remove_image"))
+            findings, engine_meta, any_failed, any_skipped = ScannerOrchestrator().run(scan, tmp_path)
+
+        assert any_skipped is False
+        assert captured_metadata["target_url"].startswith("http://127.0.0.1:")
+        scan.refresh_from_db()
+        assert scan.selected_engines == ["dast"]
+
     def test_run_adds_low_finding_when_no_dedicated_health_endpoint(self, org_project, repository, tmp_path):
         """Missing health endpoint/HEALTHCHECK is a LOW recommendation, never a scan failure."""
         owner, org, project = org_project
@@ -506,6 +640,34 @@ class TestOrchestratorSmartDast:
         assert health_finding.severity == "low"
         assert health_finding.cwe_id == "CWE-703"
 
+    def test_run_exposes_runtime_logs_when_auto_start_fails(self, org_project, repository, tmp_path):
+        owner, org, project = org_project
+        _make_django_repo(tmp_path)
+        scan = _make_scan_with_repo(org, project, owner, repository, scan_type="full")
+
+        import contextlib
+
+        with contextlib.ExitStack() as stack:
+            for cls in ("SastScanner", "ScaScanner", "SecretsScanner", "IacScanner", "ContainerScanner"):
+                stack.enter_context(
+                    patch(f"apps.securewise.scanners.orchestrator.{cls}.run", return_value=_ok_result())
+                )
+            stack.enter_context(
+                patch("apps.securewise.runtime.manager.docker_runner.is_docker_available", return_value=(True, ""))
+            )
+            stack.enter_context(
+                patch(
+                    "apps.securewise.runtime.manager.docker_runner.build_image",
+                    return_value=(False, "build step failed: missing dependency"),
+                )
+            )
+            findings, engine_meta, any_failed, any_skipped = ScannerOrchestrator().run(scan, tmp_path)
+
+        dast_result = SecureWiseScanEngineResult.objects.get(scan=scan, engine="dast")
+        assert dast_result.status == "skipped"
+        assert "missing dependency" in dast_result.raw_summary.get("dast_runtime_logs", "")
+        assert "missing dependency" in engine_meta["dast"].get("dast_runtime_logs", "")
+
     def test_run_does_not_attempt_discovery_without_repository(self, org_project, tmp_path):
         """Existing behavior for bare tmp_path/no-repository scans must be unaffected."""
         owner, org, project = org_project
@@ -517,8 +679,9 @@ class TestOrchestratorSmartDast:
             triggered_by=owner,
             target_url="https://example.test",
         )
-        with patch("apps.securewise.scanners.orchestrator.ApplicationDiscoveryEngine") as mock_engine_cls:
-            findings, engine_meta, any_failed, any_skipped = ScannerOrchestrator().run(scan, tmp_path)
+        with patch.object(ScannerOrchestrator, "resolve_engines", return_value=["sast", "sca", "secrets", "iac"]):
+            with patch("apps.securewise.scanners.orchestrator.ApplicationDiscoveryEngine") as mock_engine_cls:
+                findings, engine_meta, any_failed, any_skipped = ScannerOrchestrator().run(scan, tmp_path)
         mock_engine_cls.assert_not_called()
 
 

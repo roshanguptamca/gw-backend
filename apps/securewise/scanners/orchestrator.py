@@ -102,20 +102,29 @@ class ScannerOrchestrator:
 
         engines = list(_BASE_FULL_ENGINES)
         repo_path = repo_path or Path("/nonexistent")
+        discovery = None
+        if repo_path.exists():
+            try:
+                discovery = ApplicationDiscoveryEngine().discover(repo_path)
+            except Exception:  # pragma: no cover - defensive
+                logger.exception("Discovery failed while resolving engines for scan %s", getattr(scan, "id", "unknown"))
 
-        if scan.docker_image or _repo_has_dockerfile(repo_path):
+        if scan.docker_image or (
+            _repo_has_dockerfile(repo_path) and (discovery is None or discovery.project_type not in ("library", "cli"))
+        ):
             engines.append("container")
         if scan.api_spec_url or _repo_has_api_spec(repo_path):
             engines.append("api")
-        if scan.target_url or scan.repository_id:
+        if scan.target_url:
+            engines.append("dast")
+        elif scan.repository_id and (discovery is None or discovery.requires_runtime):
             # `scan.repository_id` signals a real, repo-backed scan (as
             # opposed to unit tests that pass a bare repo_path with no
-            # repository FK). In that case DAST is always included in the
-            # engine list — even without a target_url — so the smart
-            # discovery/runtime-start attempt in run() gets a chance to
-            # supply one, and a SecureWiseScanEngineResult row is always
-            # created for DAST (never silently omitted; see
-            # docs/SMART_REPO_SCAN.md).
+            # repository FK). For runtime-capable repos we keep DAST in the
+            # engine list so smart discovery/runtime-start can supply a
+            # target URL when the user did not configure one explicitly.
+            # Library/CLI repos are intentionally excluded here because they
+            # have no HTTP runtime to target.
             engines.append("dast")
         return engines
 
@@ -280,11 +289,15 @@ class ScannerOrchestrator:
                 runtime_result.skip_reason
                 or "Application could not be auto-started because required runtime dependencies were not available."
             )
+            if runtime_result.logs:
+                metadata["dast_runtime_logs"] = runtime_result.logs
             return plan, metadata
 
         plan.selected_runtime_url = runtime_result.runtime_url
         plan.selected_health_endpoint = runtime_result.selected_health_endpoint
         metadata["target_url"] = runtime_result.runtime_url
+        if runtime_result.logs:
+            metadata["dast_runtime_logs"] = runtime_result.logs
         # Keep the manager reachable so run() can stop the container in its
         # `finally` block regardless of what happens in the engine loop.
         self._active_runtime_manager = manager

@@ -383,6 +383,20 @@ class TestRepositoryAPI:
         assert resp.status_code == 200
         assert resp.json()["accessible"] is True
 
+    def test_validate_local_path_endpoint_strips_quotes_and_whitespace(self, auth_client, tmp_path):
+        local_repo = tmp_path / "local-repo"
+        local_repo.mkdir()
+        (local_repo / "app.py").write_text("print('hello')\n", encoding="utf-8")
+
+        resp = auth_client.post(
+            "/api/securewise/repositories/validate/",
+            {"local_path": f'  "{local_repo}/"  ', "access_mode": "local_path"},
+            format="json",
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["accessible"] is True
+
     def test_test_access_endpoint(self, auth_client, repository):
         resp = auth_client.post(f"/api/securewise/repositories/{repository.id}/test-access/")
         # Returns 200 or 400 depending on network; just check it responds
@@ -586,6 +600,22 @@ class TestScanAPI:
         data = resp.json()
         assert data["status"] == "pending"
 
+    def test_create_dast_scan_allows_repository_without_target_url(self, auth_client, org, project, repository, policy):
+        resp = auth_client.post(
+            "/api/securewise/scans/",
+            {
+                "organization": str(org.id),
+                "project": str(project.id),
+                "repository": str(repository.id),
+                "policy": str(policy.id),
+                "scan_type": "dast",
+            },
+            format="json",
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["scan_type"] == "dast"
+
     def test_create_source_scan_requires_repository(self, auth_client, org, project, policy):
         resp = auth_client.post(
             "/api/securewise/scans/",
@@ -605,6 +635,22 @@ class TestScanAPI:
         assert resp.status_code == 200
         assert resp.json()["scan_type"] == "sast"
 
+    def test_retrieve_completed_partial_scan_exposes_retry(self, auth_client, org, project, policy, owner, repository):
+        scan = SecureWiseScan.objects.create(
+            organization=org,
+            project=project,
+            policy=policy,
+            repository=repository,
+            scan_type="dast",
+            status="completed_partial",
+            triggered_by=owner,
+        )
+        resp = auth_client.get(f"/api/securewise/scans/{scan.id}/")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "completed_partial"
+        assert data["can_retry"] is True
+
     def test_start_scan(self, auth_client, scan):
         # Mock Thread to avoid SQLite table-locking issue in tests
         with patch("apps.securewise.views.threading.Thread") as mock_thread:
@@ -619,6 +665,19 @@ class TestScanAPI:
         scan.save()
         resp = auth_client.post(f"/api/securewise/scans/{scan.id}/start/")
         assert resp.status_code == 400
+
+    def test_retry_completed_partial_scan(self, auth_client, org, project, policy, owner, repository):
+        scan = SecureWiseScan.objects.create(
+            organization=org,
+            project=project,
+            policy=policy,
+            repository=repository,
+            scan_type="dast",
+            status="completed_partial",
+            triggered_by=owner,
+        )
+        resp = auth_client.post(f"/api/securewise/scans/{scan.id}/retry/")
+        assert resp.status_code == 200
 
     def test_cancel_scan(self, auth_client, org, project, policy, owner):
         s = SecureWiseScan.objects.create(

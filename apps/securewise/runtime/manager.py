@@ -63,7 +63,13 @@ class RuntimeEnvironmentManager:
 
         available, reason = docker_runner.is_docker_available()
         if not available:
-            return RuntimeResult(started=False, skip_reason=f"Docker is not available in this environment: {reason}")
+            return RuntimeResult(
+                started=False,
+                skip_reason=(
+                    f"Docker is not available in this environment: {reason}. "
+                    "Provide a target_url for DAST or run SecureWise on a Docker-enabled runner."
+                ),
+            )
 
         if run_plan.external_services:
             logger.info(

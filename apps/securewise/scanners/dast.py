@@ -55,7 +55,11 @@ class DastScanner(BaseScanner):
                 findings=[],
                 status="skipped",
                 skipped_reason=skipped_reason,
-                metadata={"raw_tool": "none"},
+                metadata={
+                    "raw_tool": "none",
+                    "dast_skip_reason": skipped_reason,
+                    "dast_runtime_logs": metadata.get("dast_runtime_logs", ""),
+                },
             )
 
         logger.warning(
