@@ -249,7 +249,9 @@ def detect_python(repo_path: Path) -> dict | None:
             if candidate.is_file():
                 requirements_path = candidate
                 break
-        build_command = f"pip install -r {requirements_path.relative_to(repo_path)}" if requirements_path else "pip install ."
+        build_command = (
+            f"pip install -r {requirements_path.relative_to(repo_path)}" if requirements_path else "pip install ."
+        )
         return {
             "language": "python",
             "framework": sig.name,
@@ -300,7 +302,9 @@ def detect_python(repo_path: Path) -> dict | None:
     django_settings = _find_django_settings_file(repo_path)
     if django_settings is not None:
         settings_module = _python_module_from_path(repo_path, django_settings)
-        pythonpath = "src" if (repo_path / "src").is_dir() and django_settings.is_relative_to(repo_path / "src") else "."
+        pythonpath = (
+            "src" if (repo_path / "src").is_dir() and django_settings.is_relative_to(repo_path / "src") else "."
+        )
         build_command = "pip install -r requirements.txt" if "requirements.txt" in dependency_files else "pip install ."
         return {
             "language": "python",
