@@ -133,6 +133,31 @@ class TestDiscoveryDetectors:
         assert result["start_command"] == "python app.py"
         assert result["default_port"] == 8080
 
+    def test_detect_python_nested_django_manage_py(self, tmp_path):
+        backend = tmp_path / "backend"
+        backend.mkdir()
+        (backend / "manage.py").write_text("#!/usr/bin/env python\n", encoding="utf-8")
+        (backend / "requirements.txt").write_text("django\n", encoding="utf-8")
+        result = detect_python(tmp_path)
+        assert result is not None
+        assert result["project_type"] == "web_app"
+        assert result["framework"] == "django"
+        assert result["start_command"] == "python backend/manage.py runserver 0.0.0.0:8000"
+
+    def test_detect_python_packaged_django_project(self, tmp_path):
+        src = tmp_path / "src" / "de_voucher" / "main"
+        src.mkdir(parents=True)
+        (tmp_path / "pyproject.toml").write_text("[project]\nname = 'de-voucher'\n", encoding="utf-8")
+        (src / "settings.py").write_text("SECRET_KEY = 'x'\n", encoding="utf-8")
+        (src / "wsgi.py").write_text("application = None\n", encoding="utf-8")
+        result = detect_python(tmp_path)
+        assert result is not None
+        assert result["project_type"] == "web_app"
+        assert result["framework"] == "django"
+        assert result["start_command"] == (
+            "PYTHONPATH=src DJANGO_SETTINGS_MODULE=de_voucher.main.settings python -m django runserver 0.0.0.0:8000"
+        )
+
     def test_detect_node_generic_entrypoint_as_api_service(self, tmp_path):
         (tmp_path / "package.json").write_text("{}")
         (tmp_path / "server.js").write_text("const port = process.env.PORT || 3001;\n")

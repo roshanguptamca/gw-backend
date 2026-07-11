@@ -58,7 +58,21 @@ def main(argv: list[str] | None = None) -> int:
             return 2
 
         artifacts = report.get("artifacts", {})
+        discovery = report.get("discovery_summary", {})
         print(f"SecureWise scan complete: {report['summary']['total_findings']} finding(s)")
+        print(
+            "Discovery: "
+            f"type={discovery.get('project_type', 'unknown')}, "
+            f"framework={discovery.get('framework') or 'n/a'}, "
+            f"runtime={discovery.get('requires_runtime', False)}, "
+            f"auto_run={discovery.get('can_auto_run', False)}"
+        )
+        if report.get("summary", {}).get("warnings"):
+            print("Warnings:")
+            for warning in report["summary"]["warnings"]:
+                print(f"  - {warning}")
+        if report.get("scan", {}).get("engines"):
+            print(f"Engines: {', '.join(report['scan']['engines'])}")
         print(f"JSON report: {artifacts.get('json', '')}")
         print(f"HTML report: {artifacts.get('html', '')}")
         if not report.get("scan", {}).get("quality_gate_passed"):

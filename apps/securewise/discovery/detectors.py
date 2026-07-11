@@ -102,6 +102,31 @@ def _top_level_file(repo_path: Path, names: tuple[str, ...]) -> Path | None:
     return None
 
 
+def _first_named_file(repo_path: Path, names: tuple[str, ...]) -> Path | None:
+    for path in _iter_files(repo_path):
+        if path.name in names:
+            return path
+    return None
+
+
+def _find_django_settings_file(repo_path: Path) -> Path | None:
+    for path in _iter_files(repo_path):
+        if path.name != "settings.py":
+            continue
+        sibling_dir = path.parent
+        if (sibling_dir / "wsgi.py").is_file() or (sibling_dir / "asgi.py").is_file():
+            return path
+    return None
+
+
+def _python_module_from_path(repo_path: Path, path: Path) -> str:
+    rel = path.relative_to(repo_path).with_suffix("")
+    parts = list(rel.parts)
+    if parts and parts[0] == "src":
+        parts = parts[1:]
+    return ".".join(parts)
+
+
 def _infer_port_hint(text: str, default: int) -> int:
     for pattern in _PORT_HINT_PATTERNS:
         match = pattern.search(text)
@@ -204,7 +229,9 @@ def detect_required_env_vars(repo_path: Path) -> list[str]:
 def detect_python(repo_path: Path) -> dict | None:
     dependency_files = [f for f in PYTHON_DEPENDENCY_FILES if (repo_path / f).is_file()]
     manage_py = repo_path / "manage.py"
-    has_python_files = manage_py.is_file() or any(repo_path.rglob("*.py"))
+    nested_manage_py = None if manage_py.is_file() else _first_named_file(repo_path, ("manage.py",))
+    manage_py = manage_py if manage_py.is_file() else nested_manage_py
+    has_python_files = manage_py is not None or any(repo_path.rglob("*.py"))
     if not dependency_files and not has_python_files:
         return None
 
@@ -214,18 +241,24 @@ def detect_python(repo_path: Path) -> dict | None:
     elif (repo_path / "Pipfile").is_file():
         package_manager = "pipenv"
 
-    if manage_py.is_file():
+    if manage_py and manage_py.is_file():
         sig = DJANGO_SIGNATURE
-        build_command = "pip install -r requirements.txt" if "requirements.txt" in dependency_files else "pip install ."
+        manage_py_rel = str(manage_py.relative_to(repo_path))
+        requirements_path = None
+        for candidate in (repo_path / "requirements.txt", manage_py.parent / "requirements.txt"):
+            if candidate.is_file():
+                requirements_path = candidate
+                break
+        build_command = f"pip install -r {requirements_path.relative_to(repo_path)}" if requirements_path else "pip install ."
         return {
             "language": "python",
             "framework": sig.name,
             "project_type": sig.project_type,
             "package_manager": package_manager,
-            "dependency_files": dependency_files or ["manage.py"],
+            "dependency_files": dependency_files or [manage_py_rel],
             "build_command": build_command,
-            "test_command": "python manage.py test",
-            "start_command": sig.start_command,
+            "test_command": f"python {manage_py_rel} test",
+            "start_command": f"python {manage_py_rel} runserver 0.0.0.0:{sig.default_port}",
             "default_port": sig.default_port,
             "health_endpoint": sig.health_endpoint,
         }
@@ -263,6 +296,24 @@ def detect_python(repo_path: Path) -> dict | None:
                 "default_port": sig.default_port,
                 "health_endpoint": sig.health_endpoint,
             }
+
+    django_settings = _find_django_settings_file(repo_path)
+    if django_settings is not None:
+        settings_module = _python_module_from_path(repo_path, django_settings)
+        pythonpath = "src" if (repo_path / "src").is_dir() and django_settings.is_relative_to(repo_path / "src") else "."
+        build_command = "pip install -r requirements.txt" if "requirements.txt" in dependency_files else "pip install ."
+        return {
+            "language": "python",
+            "framework": "django",
+            "project_type": "web_app",
+            "package_manager": package_manager,
+            "dependency_files": dependency_files or [str(django_settings.relative_to(repo_path))],
+            "build_command": build_command,
+            "test_command": "pytest" if dependency_files else "python -m django test",
+            "start_command": f"PYTHONPATH={pythonpath} DJANGO_SETTINGS_MODULE={settings_module} python -m django runserver 0.0.0.0:8000",
+            "default_port": 8000,
+            "health_endpoint": "",
+        }
 
     runtime_entrypoint = _top_level_file(repo_path, _PYTHON_RUNTIME_ENTRYPOINTS)
     if runtime_entrypoint:

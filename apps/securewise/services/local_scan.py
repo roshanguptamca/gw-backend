@@ -240,11 +240,22 @@ def build_local_report(
     severity_counts = Counter(f.severity for f in findings)
     threshold_index = SEVERITY_ORDER.index(fail_on)
     failing_findings = [f for f in findings if f.severity in SEVERITY_ORDER[: threshold_index + 1]]
+    discovery_summary = {
+        "project_type": discovery.get("project_type", "unknown"),
+        "framework": discovery.get("detected_frameworks", [""])[0] if discovery.get("detected_frameworks") else "",
+        "requires_runtime": discovery.get("requires_runtime", False),
+        "can_auto_run": discovery.get("can_auto_run", False),
+        "start_command": discovery.get("start_command", ""),
+        "candidate_ports": discovery.get("candidate_ports", []),
+        "skip_reasons": discovery.get("skip_reasons", []),
+        "warnings": discovery.get("warnings", []),
+    }
     return {
         "report_version": "local-1.0",
         "generated_at": datetime.now(UTC).isoformat(),
         "repository_path": str(repo_path),
         "discovery": discovery,
+        "discovery_summary": discovery_summary,
         "scan": {
             "scan_type": scan_type,
             "engines": engines,
@@ -306,6 +317,11 @@ def render_local_html_report(report: dict) -> str:
   <h1>SecureWise Local Scan Report</h1>
   <p><strong>Repository:</strong> {html.escape(report.get("repository_path", ""))}</p>
   <p><strong>Generated:</strong> {html.escape(report.get("generated_at", ""))}</p>
+  <h2>Discovery Plan</h2>
+  <p>Project type: {html.escape(report.get("discovery_summary", {}).get("project_type", ""))}</p>
+  <p>Framework: {html.escape(report.get("discovery_summary", {}).get("framework", "")) or "n/a"}</p>
+  <p>Runtime: {html.escape(str(report.get("discovery_summary", {}).get("requires_runtime", False)))}</p>
+  <p>Auto-run: {html.escape(str(report.get("discovery_summary", {}).get("can_auto_run", False)))}</p>
   <div class="{gate_class}">Quality gate: {gate_text}</div>
   <h2>Summary</h2>
   <p>Total findings: {report.get("summary", {}).get("total_findings", 0)}</p>

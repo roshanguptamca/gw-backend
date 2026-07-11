@@ -193,6 +193,21 @@ def test_run_local_scan_autostarts_runtime_for_dast_only_repo(tmp_path, monkeypa
     assert captured["stopped"] is True
 
 
+def test_local_scan_report_includes_discovery_summary(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "manage.py").write_text("#!/usr/bin/env python\n", encoding="utf-8")
+    (repo / "requirements.txt").write_text("django\n", encoding="utf-8")
+    output = tmp_path / "out"
+    monkeypatch.setitem(local_scan._ENGINE_CLASSES, "sast", CleanScanner)
+
+    report = run_local_scan(repo, output_dir=output, scan_type="sast", fail_on="high")
+
+    assert report["discovery_summary"]["project_type"] == "web_app"
+    assert report["discovery_summary"]["framework"] == "django"
+    assert "start_command" in report["discovery_summary"]
+
+
 def test_copy_local_repository_copies_into_allowed_workspace(tmp_path):
     source = tmp_path / "source"
     source.mkdir()
