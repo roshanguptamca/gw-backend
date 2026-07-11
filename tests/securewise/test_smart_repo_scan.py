@@ -395,6 +395,7 @@ class TestOrchestratorSmartDast:
         self, org_project, repository, tmp_path
     ):
         owner, org, project = org_project
+        _make_django_repo(tmp_path)
         scan = _make_scan_with_repo(org, project, owner, repository, scan_type="full")
         engines = ScannerOrchestrator().resolve_engines(scan, tmp_path)
         assert "dast" in engines
@@ -488,6 +489,53 @@ class TestOrchestratorSmartDast:
         assert "discovery" in scan.scanner_metadata
         assert scan.scanner_metadata["discovery"]["project_type"] == "web_app"
 
+    def test_run_uses_discovered_runtime_url_for_dast_only_scan(self, org_project, repository, tmp_path):
+        owner, org, project = org_project
+        _make_django_repo(tmp_path)
+        scan = _make_scan_with_repo(org, project, owner, repository, scan_type="dast")
+
+        captured_metadata = {}
+
+        def _fake_dast_run(self, repo_path, scan_id, metadata):
+            captured_metadata.update(metadata)
+            return _ok_result()
+
+        import contextlib
+
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(patch("apps.securewise.scanners.orchestrator.DastScanner.run", _fake_dast_run))
+            stack.enter_context(
+                patch("apps.securewise.runtime.manager.docker_runner.is_docker_available", return_value=(True, ""))
+            )
+            stack.enter_context(
+                patch("apps.securewise.runtime.manager.docker_runner.build_image", return_value=(True, ""))
+            )
+            stack.enter_context(
+                patch(
+                    "apps.securewise.runtime.manager.docker_runner.run_container",
+                    return_value=(True, "securewise-runtime-test", ""),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "apps.securewise.runtime.manager.probe_health",
+                    return_value={
+                        "reachable": True,
+                        "selected_endpoint": "/health",
+                        "has_dedicated_health_endpoint": True,
+                        "status_code": 200,
+                    },
+                )
+            )
+            stack.enter_context(patch("apps.securewise.runtime.manager.docker_runner.stop_and_remove"))
+            stack.enter_context(patch("apps.securewise.runtime.manager.docker_runner.remove_image"))
+            findings, engine_meta, any_failed, any_skipped = ScannerOrchestrator().run(scan, tmp_path)
+
+        assert any_skipped is False
+        assert captured_metadata["target_url"].startswith("http://127.0.0.1:")
+        scan.refresh_from_db()
+        assert scan.selected_engines == ["dast"]
+
     def test_run_adds_low_finding_when_no_dedicated_health_endpoint(self, org_project, repository, tmp_path):
         """Missing health endpoint/HEALTHCHECK is a LOW recommendation, never a scan failure."""
         owner, org, project = org_project
@@ -548,8 +596,9 @@ class TestOrchestratorSmartDast:
             triggered_by=owner,
             target_url="https://example.test",
         )
-        with patch("apps.securewise.scanners.orchestrator.ApplicationDiscoveryEngine") as mock_engine_cls:
-            findings, engine_meta, any_failed, any_skipped = ScannerOrchestrator().run(scan, tmp_path)
+        with patch.object(ScannerOrchestrator, "resolve_engines", return_value=["sast", "sca", "secrets", "iac"]):
+            with patch("apps.securewise.scanners.orchestrator.ApplicationDiscoveryEngine") as mock_engine_cls:
+                findings, engine_meta, any_failed, any_skipped = ScannerOrchestrator().run(scan, tmp_path)
         mock_engine_cls.assert_not_called()
 
 

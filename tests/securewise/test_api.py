@@ -600,6 +600,22 @@ class TestScanAPI:
         data = resp.json()
         assert data["status"] == "pending"
 
+    def test_create_dast_scan_allows_repository_without_target_url(self, auth_client, org, project, repository, policy):
+        resp = auth_client.post(
+            "/api/securewise/scans/",
+            {
+                "organization": str(org.id),
+                "project": str(project.id),
+                "repository": str(repository.id),
+                "policy": str(policy.id),
+                "scan_type": "dast",
+            },
+            format="json",
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["scan_type"] == "dast"
+
     def test_create_source_scan_requires_repository(self, auth_client, org, project, policy):
         resp = auth_client.post(
             "/api/securewise/scans/",

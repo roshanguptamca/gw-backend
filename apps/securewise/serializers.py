@@ -406,8 +406,15 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
                     )
                 }
             )
-        if scan_type == "dast" and not target_url:
-            raise serializers.ValidationError({"target_url": "Target URL is required to run a DAST scan."})
+        if scan_type == "dast" and not target_url and not repository:
+            raise serializers.ValidationError(
+                {
+                    "target_url": (
+                        "Target URL is required to run a DAST scan unless a repository is attached "
+                        "and SecureWise can auto-start the application runtime."
+                    )
+                }
+            )
         if scan_type == "api" and not api_spec_url and not repository:
             raise serializers.ValidationError(
                 {"api_spec_url": "An OpenAPI spec URL/path or a repository is required to run an API scan."}

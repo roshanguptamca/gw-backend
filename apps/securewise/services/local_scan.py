@@ -145,7 +145,7 @@ def run_local_scan(
         "docker_image": docker_image,
         "api_spec_url": api_spec_url,
     }
-    if scan_type == "full" and discovery.requires_runtime and not target_url:
+    if scan_type in {"full", "dast"} and discovery.requires_runtime and not target_url:
         runtime_manager = RuntimeEnvironmentManager()
         runtime_result = runtime_manager.try_start(repo_path, discovery)
         if runtime_result.started:
