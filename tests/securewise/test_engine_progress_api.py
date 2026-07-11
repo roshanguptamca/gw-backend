@@ -94,6 +94,30 @@ class TestScanProgressEndpoint:
         engine_names = {e["engine"] for e in data["engines"]}
         assert engine_names == {"sast", "dast"}
 
+    def test_progress_exposes_diagnostics(self, client_a, org_a, project_a, owner_a):
+        scan = SecureWiseScan.objects.create(
+            organization=org_a,
+            project=project_a,
+            scan_type="dast",
+            status="completed_partial",
+            progress=100,
+            triggered_by=owner_a,
+        )
+        SecureWiseScanEngineResult.objects.create(
+            scan=scan,
+            engine="dast",
+            status="skipped",
+            skipped_reason="Application could not be auto-started because the Docker build failed.",
+            raw_summary={
+                "dast_runtime_logs": "build step failed: missing dependency",
+            },
+        )
+
+        resp = client_a.get(f"/api/securewise/scans/{scan.id}/progress/")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["engines"][0]["diagnostics"]["log_excerpt"] == "build step failed: missing dependency"
+
     def test_other_org_user_cannot_view_progress(self, client_b, scan_a):
         resp = client_b.get(f"/api/securewise/scans/{scan_a.id}/progress/")
         assert resp.status_code == 404
@@ -113,6 +137,31 @@ class TestScanEngineResultsEndpoint:
         assert len(results) == 2
         engines = {r["engine"] for r in results}
         assert engines == {"sast", "dast"}
+
+    def test_engine_results_expose_diagnostics(self, client_a, org_a, project_a, owner_a):
+        scan = SecureWiseScan.objects.create(
+            organization=org_a,
+            project=project_a,
+            scan_type="dast",
+            status="completed_partial",
+            progress=100,
+            triggered_by=owner_a,
+        )
+        SecureWiseScanEngineResult.objects.create(
+            scan=scan,
+            engine="dast",
+            status="skipped",
+            skipped_reason="Application could not be auto-started because the Docker build failed.",
+            raw_summary={
+                "dast_runtime_logs": "build step failed: missing dependency",
+            },
+        )
+
+        resp = client_a.get(f"/api/securewise/scans/{scan.id}/engine-results/")
+        assert resp.status_code == 200
+        data = resp.json()
+        results = data if isinstance(data, list) else data.get("results", data)
+        assert results[0]["diagnostics"]["log_excerpt"] == "build step failed: missing dependency"
 
     def test_other_org_user_cannot_view_engine_results(self, client_b, scan_a):
         resp = client_b.get(f"/api/securewise/scans/{scan_a.id}/engine-results/")

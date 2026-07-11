@@ -868,6 +868,24 @@ class ScanViewSet(viewsets.ModelViewSet):
                 "status": er.status,
                 "findings_count": er.findings_count,
                 "skipped_reason": er.skipped_reason,
+                "diagnostics": {
+                    "log_excerpt": (
+                        (er.raw_summary or {}).get("dast_runtime_logs")
+                        or (er.raw_summary or {}).get("stdout")
+                        or (er.raw_summary or {}).get("stderr")
+                        or er.error_message
+                        or er.skipped_reason
+                        or ""
+                    )[:4000]
+                    if (
+                        (er.raw_summary or {}).get("dast_runtime_logs")
+                        or (er.raw_summary or {}).get("stdout")
+                        or (er.raw_summary or {}).get("stderr")
+                        or er.error_message
+                        or er.skipped_reason
+                    )
+                    else "",
+                },
             }
             for er in scan.engine_results.all()
         ]

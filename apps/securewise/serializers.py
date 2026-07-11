@@ -444,6 +444,8 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
 
 
 class ScanEngineResultSerializer(serializers.ModelSerializer):
+    diagnostics = serializers.SerializerMethodField()
+
     class Meta:
         model = SecureWiseScanEngineResult
         fields = (
@@ -457,11 +459,31 @@ class ScanEngineResultSerializer(serializers.ModelSerializer):
             "findings_count",
             "skipped_reason",
             "raw_summary",
+            "diagnostics",
             "error_message",
             "created_at",
             "updated_at",
         )
         read_only_fields = fields
+
+    def get_diagnostics(self, obj):
+        raw_summary = obj.raw_summary or {}
+        log_excerpt = (
+            raw_summary.get("dast_runtime_logs")
+            or raw_summary.get("stdout")
+            or raw_summary.get("stderr")
+            or obj.error_message
+            or obj.skipped_reason
+            or ""
+        )
+        if not log_excerpt:
+            return {}
+        return {
+            "log_excerpt": str(log_excerpt)[:4000],
+            "stage": raw_summary.get("stage", ""),
+            "root_cause": raw_summary.get("root_cause", ""),
+            "retryable": raw_summary.get("retryable"),
+        }
 
 
 # ---------------------------------------------------------------------------
