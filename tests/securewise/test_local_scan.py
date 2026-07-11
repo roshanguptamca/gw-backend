@@ -193,6 +193,36 @@ def test_run_local_scan_autostarts_runtime_for_dast_only_repo(tmp_path, monkeypa
     assert captured["stopped"] is True
 
 
+def test_run_local_scan_includes_runtime_logs_on_autostart_failure(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "requirements.txt").write_text("requests\n", encoding="utf-8")
+    (repo / "app.py").write_text("print('hello')\n", encoding="utf-8")
+    output = tmp_path / "out"
+
+    class FakeRuntimeManager:
+        def try_start(self, repo_path, discovery):
+            return SimpleNamespace(
+                started=False,
+                runtime_url="",
+                selected_health_endpoint="",
+                has_dedicated_health_endpoint=False,
+                skip_reason="Application could not be auto-started because the Docker build failed.",
+                logs="build step failed: missing dependency",
+            )
+
+        def stop(self):
+            pass
+
+    monkeypatch.setitem(local_scan._ENGINE_CLASSES, "dast", CleanScanner)
+    monkeypatch.setattr(local_scan, "RuntimeEnvironmentManager", FakeRuntimeManager)
+
+    report = run_local_scan(repo, output_dir=output, scan_type="dast", fail_on="high")
+
+    assert "Runtime logs:" in "\n".join(report["summary"]["warnings"])
+    assert "missing dependency" in "\n".join(report["summary"]["warnings"])
+
+
 def test_local_scan_report_includes_discovery_summary(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     repo.mkdir()

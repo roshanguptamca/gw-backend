@@ -289,11 +289,15 @@ class ScannerOrchestrator:
                 runtime_result.skip_reason
                 or "Application could not be auto-started because required runtime dependencies were not available."
             )
+            if runtime_result.logs:
+                metadata["dast_runtime_logs"] = runtime_result.logs
             return plan, metadata
 
         plan.selected_runtime_url = runtime_result.runtime_url
         plan.selected_health_endpoint = runtime_result.selected_health_endpoint
         metadata["target_url"] = runtime_result.runtime_url
+        if runtime_result.logs:
+            metadata["dast_runtime_logs"] = runtime_result.logs
         # Keep the manager reachable so run() can stop the container in its
         # `finally` block regardless of what happens in the engine loop.
         self._active_runtime_manager = manager

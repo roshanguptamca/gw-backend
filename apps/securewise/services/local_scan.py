@@ -153,7 +153,11 @@ def run_local_scan(
             warnings.append(f"Auto-started application runtime at {runtime_result.runtime_url}")
         else:
             metadata["dast_skip_reason"] = runtime_result.skip_reason
+            if runtime_result.logs:
+                metadata["dast_runtime_logs"] = runtime_result.logs
             warnings.append(runtime_result.skip_reason)
+            if runtime_result.logs:
+                warnings.append(f"Runtime logs:\n{runtime_result.logs}")
 
     if metadata.get("target_url") and "dast" in engines:
         target_url = metadata["target_url"]

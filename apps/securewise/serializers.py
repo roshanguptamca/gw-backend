@@ -330,6 +330,7 @@ class SecureWiseScanPolicyTemplateSerializer(serializers.ModelSerializer):
 class SecureWiseScanSerializer(serializers.ModelSerializer):
     triggered_by_detail = MinimalUserSerializer(source="triggered_by", read_only=True)
     finding_counts = serializers.SerializerMethodField()
+    can_retry = serializers.SerializerMethodField()
 
     class Meta:
         model = SecureWiseScan
@@ -360,6 +361,7 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
             "scanner_metadata",
             "quality_gate_passed",
             "finding_counts",
+            "can_retry",
             "created_at",
             "updated_at",
         )
@@ -378,6 +380,7 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
             "scanner_metadata",
             "quality_gate_passed",
             "finding_counts",
+            "can_retry",
             "created_at",
             "updated_at",
         )
@@ -435,6 +438,9 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
             counts[row["severity"]] = counts.get(row["severity"], 0) + 1
         counts["total"] = sum(counts.values())
         return counts
+
+    def get_can_retry(self, obj):
+        return obj.status in ("failed", "cancelled", "completed_with_warnings", "completed", "completed_partial")
 
 
 class ScanEngineResultSerializer(serializers.ModelSerializer):

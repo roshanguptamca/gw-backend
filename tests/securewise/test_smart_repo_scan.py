@@ -640,6 +640,34 @@ class TestOrchestratorSmartDast:
         assert health_finding.severity == "low"
         assert health_finding.cwe_id == "CWE-703"
 
+    def test_run_exposes_runtime_logs_when_auto_start_fails(self, org_project, repository, tmp_path):
+        owner, org, project = org_project
+        _make_django_repo(tmp_path)
+        scan = _make_scan_with_repo(org, project, owner, repository, scan_type="full")
+
+        import contextlib
+
+        with contextlib.ExitStack() as stack:
+            for cls in ("SastScanner", "ScaScanner", "SecretsScanner", "IacScanner", "ContainerScanner"):
+                stack.enter_context(
+                    patch(f"apps.securewise.scanners.orchestrator.{cls}.run", return_value=_ok_result())
+                )
+            stack.enter_context(
+                patch("apps.securewise.runtime.manager.docker_runner.is_docker_available", return_value=(True, ""))
+            )
+            stack.enter_context(
+                patch(
+                    "apps.securewise.runtime.manager.docker_runner.build_image",
+                    return_value=(False, "build step failed: missing dependency"),
+                )
+            )
+            findings, engine_meta, any_failed, any_skipped = ScannerOrchestrator().run(scan, tmp_path)
+
+        dast_result = SecureWiseScanEngineResult.objects.get(scan=scan, engine="dast")
+        assert dast_result.status == "skipped"
+        assert "missing dependency" in dast_result.raw_summary.get("dast_runtime_logs", "")
+        assert "missing dependency" in engine_meta["dast"].get("dast_runtime_logs", "")
+
     def test_run_does_not_attempt_discovery_without_repository(self, org_project, tmp_path):
         """Existing behavior for bare tmp_path/no-repository scans must be unaffected."""
         owner, org, project = org_project

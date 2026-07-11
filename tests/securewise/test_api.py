@@ -635,6 +635,22 @@ class TestScanAPI:
         assert resp.status_code == 200
         assert resp.json()["scan_type"] == "sast"
 
+    def test_retrieve_completed_partial_scan_exposes_retry(self, auth_client, org, project, policy, owner, repository):
+        scan = SecureWiseScan.objects.create(
+            organization=org,
+            project=project,
+            policy=policy,
+            repository=repository,
+            scan_type="dast",
+            status="completed_partial",
+            triggered_by=owner,
+        )
+        resp = auth_client.get(f"/api/securewise/scans/{scan.id}/")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "completed_partial"
+        assert data["can_retry"] is True
+
     def test_start_scan(self, auth_client, scan):
         # Mock Thread to avoid SQLite table-locking issue in tests
         with patch("apps.securewise.views.threading.Thread") as mock_thread:
@@ -649,6 +665,19 @@ class TestScanAPI:
         scan.save()
         resp = auth_client.post(f"/api/securewise/scans/{scan.id}/start/")
         assert resp.status_code == 400
+
+    def test_retry_completed_partial_scan(self, auth_client, org, project, policy, owner, repository):
+        scan = SecureWiseScan.objects.create(
+            organization=org,
+            project=project,
+            policy=policy,
+            repository=repository,
+            scan_type="dast",
+            status="completed_partial",
+            triggered_by=owner,
+        )
+        resp = auth_client.post(f"/api/securewise/scans/{scan.id}/retry/")
+        assert resp.status_code == 200
 
     def test_cancel_scan(self, auth_client, org, project, policy, owner):
         s = SecureWiseScan.objects.create(
