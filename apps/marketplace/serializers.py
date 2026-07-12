@@ -12,6 +12,7 @@ from .cloudinary_service import (
     PRODUCT_IMAGE_MAX_BYTES,
     SHOP_BANNER_MAX_BYTES,
     SHOP_LOGO_MAX_BYTES,
+    delete_cloudinary_image,
     upload_product_gallery_image,
     upload_product_main_image,
     upload_shop_banner,
@@ -64,6 +65,11 @@ class ShopSettingsSerializer(serializers.ModelSerializer):
             "order_acceptance_mode",
             "whatsapp_number",
             "bank_transfer_instructions",
+            "notification_email",
+            "new_order_email_enabled",
+            "cancellation_request_email_enabled",
+            "low_stock_notification_enabled",
+            "supported_delivery_countries",
         ]
 
 
@@ -72,6 +78,8 @@ class ShopSerializer(serializers.ModelSerializer):
     product_count = serializers.IntegerField(read_only=True)
     logo = serializers.ImageField(write_only=True, required=False)
     banner_image = serializers.ImageField(write_only=True, required=False)
+    remove_logo = serializers.BooleanField(write_only=True, required=False, default=False)
+    remove_banner = serializers.BooleanField(write_only=True, required=False, default=False)
 
     class Meta:
         model = Shop
@@ -80,6 +88,13 @@ class ShopSerializer(serializers.ModelSerializer):
             "name",
             "slug",
             "description",
+            "short_description",
+            "shop_type",
+            "phone",
+            "email",
+            "website_url",
+            "social_links",
+            "address",
             "logo",
             "logo_public_id",
             "logo_url",
@@ -87,11 +102,16 @@ class ShopSerializer(serializers.ModelSerializer):
             "banner_public_id",
             "banner_url",
             "city",
+            "postal_code",
+            "country",
             "delivery_area",
             "pickup_available",
             "delivery_available",
+            "opening_hours",
             "is_active",
             "is_approved",
+            "remove_logo",
+            "remove_banner",
             "settings",
             "product_count",
             "created_at",
@@ -119,8 +139,24 @@ class ShopSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         logo_file = validated_data.pop("logo", None)
         banner_file = validated_data.pop("banner_image", None)
+        remove_logo = validated_data.pop("remove_logo", False)
+        remove_banner = validated_data.pop("remove_banner", False)
         shop = super().update(instance, validated_data)
         try:
+            if remove_logo:
+                if shop.logo_public_id:
+                    delete_cloudinary_image(shop.logo_public_id)
+                shop.logo = None
+                shop.logo_public_id = ""
+                shop.logo_url = ""
+                shop.save(update_fields=["logo", "logo_public_id", "logo_url", "updated_at"])
+            if remove_banner:
+                if shop.banner_public_id:
+                    delete_cloudinary_image(shop.banner_public_id)
+                shop.banner_image = None
+                shop.banner_public_id = ""
+                shop.banner_url = ""
+                shop.save(update_fields=["banner_image", "banner_public_id", "banner_url", "updated_at"])
             if logo_file:
                 upload_shop_logo(shop, logo_file)
             if banner_file:
@@ -555,12 +591,22 @@ class PublicShopSerializer(ShopSerializer):
             "name",
             "slug",
             "description",
+            "short_description",
+            "shop_type",
+            "phone",
+            "email",
+            "website_url",
+            "social_links",
+            "address",
             "logo_url",
             "banner_url",
             "city",
+            "postal_code",
+            "country",
             "delivery_area",
             "pickup_available",
             "delivery_available",
+            "opening_hours",
             "settings",
             "product_count",
         ]
