@@ -535,6 +535,7 @@ class SellerDashboardView(APIView):
         data = {
             "total_products": Product.objects.filter(shop=shop).count(),
             "active_products": Product.objects.filter(shop=shop, is_active=True).count(),
+            "total_orders": orders.count(),
             "pending_orders": orders.filter(status=Order.STATUS_PENDING).count(),
             "completed_orders": completed.count(),
             "today_sales": str(
@@ -616,12 +617,30 @@ class SellerProductViewSet(viewsets.ModelViewSet):
     parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def get_queryset(self):
-        return (
+        queryset = (
             Product.objects.filter(shop=self.request.user.seller_profile.shop)
             .select_related("category")
             .prefetch_related("images")
             .order_by("-created_at")
         )
+        query = (self.request.query_params.get("q") or "").strip()
+        status = (self.request.query_params.get("status") or "").strip().lower()
+        if query:
+            queryset = queryset.filter(
+                Q(name__icontains=query)
+                | Q(sku__icontains=query)
+                | Q(description__icontains=query)
+                | Q(category__name__icontains=query)
+            )
+        if status == "active":
+            queryset = queryset.filter(is_active=True, is_approved=True)
+        elif status == "draft":
+            queryset = queryset.filter(Q(is_active=False) | Q(is_approved=False))
+        elif status == "featured":
+            queryset = queryset.filter(is_featured=True)
+        elif status == "low-stock":
+            queryset = queryset.filter(stock_quantity__lte=5)
+        return queryset
 
     def perform_destroy(self, instance):
         _delete_cloudinary_image_or_400(instance.image_public_id)
@@ -656,11 +675,22 @@ class SellerOrderViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsSeller, IsShopOwner]
 
     def get_queryset(self):
-        return (
+        queryset = (
             Order.objects.filter(shop=self.request.user.seller_profile.shop)
             .select_related("shop")
             .prefetch_related("items")
         )
+        query = (self.request.query_params.get("q") or "").strip()
+        status = (self.request.query_params.get("status") or "").strip().lower()
+        if query:
+            queryset = queryset.filter(
+                Q(order_number__icontains=query)
+                | Q(customer_name__icontains=query)
+                | Q(customer_email__icontains=query)
+            )
+        if status:
+            queryset = queryset.filter(status=status)
+        return queryset.order_by("-created_at")
 
     @action(detail=True, methods=["patch"])
     def status(self, request, pk=None):
