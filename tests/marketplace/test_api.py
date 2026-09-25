@@ -8,7 +8,7 @@ from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from apps.marketplace.models import Coupon, Order, OrderEmailLog, OrderItem, Product, Shop
+from apps.marketplace.models import Category, Coupon, Order, OrderEmailLog, OrderItem, Product, Shop
 from apps.marketplace.services import create_seller_with_shop
 
 User = get_user_model()
@@ -42,12 +42,18 @@ class MarketplaceAPITests(TestCase):
             shop.is_approved = True
             shop.delivery_available = True
             shop.save()
+        self.snacks_category = Category.objects.create(shop=self.shop, name="Snacks", slug="snacks")
+        self.sweets_category = Category.objects.create(shop=self.shop, name="Sweets", slug="sweets")
+        self.other_category = Category.objects.create(shop=self.other_shop, name="Snacks", slug="snacks")
         self.product = Product.objects.create(
             shop=self.shop,
+            category=self.snacks_category,
             name="Masala Namkeen",
             slug="masala-namkeen",
+            description="A crunchy savoury snack.",
             price=Decimal("4.99"),
             stock_quantity=10,
+            sku="NAMKEEN-001",
             is_active=True,
             is_approved=True,
         )
@@ -62,10 +68,13 @@ class MarketplaceAPITests(TestCase):
         )
         self.other_product = Product.objects.create(
             shop=self.other_shop,
+            category=self.other_category,
             name="Other",
             slug="other",
+            description="A product from another seller.",
             price=Decimal("9.00"),
             stock_quantity=10,
+            sku="OTHER-001",
             is_active=True,
             is_approved=True,
         )
@@ -167,6 +176,39 @@ class MarketplaceAPITests(TestCase):
         self.assertEqual(detail.data["slug"], self.shop.slug)
         self.assertEqual(products.status_code, status.HTTP_200_OK)
         self.assertEqual([item["id"] for item in products.data], [self.product.id])
+
+    def test_public_shop_products_search_and_category_filters_are_scoped_to_the_shop(self):
+        for params in (
+            {"search": "masala"},
+            {"search": "crunchy"},
+            {"search": "NAMKEEN-001"},
+            {"search": "snacks"},
+            {"category": "snacks"},
+            {"search": "masala", "category": "snacks"},
+        ):
+            response = self.client.get(f"/api/marketplace/shops/{self.shop.slug}/products/", params)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual([item["id"] for item in response.data], [self.product.id])
+
+        no_match = self.client.get(
+            f"/api/marketplace/shops/{self.shop.slug}/products/",
+            {"search": "masala", "category": self.sweets_category.slug},
+        )
+        self.assertEqual(no_match.status_code, status.HTTP_200_OK)
+        self.assertEqual(no_match.data, [])
+
+        response = self.client.get(f"/api/marketplace/shops/{self.shop.slug}/products/", {"search": "other"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, [])
+
+    def test_public_shop_categories_are_limited_to_published_products_in_the_shop(self):
+        response = self.client.get(f"/api/marketplace/shops/{self.shop.slug}/categories/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [{"slug": category["slug"], "product_count": category["product_count"]} for category in response.data],
+            [{"slug": "snacks", "product_count": 1}],
+        )
 
     def test_session_cart_add_update_and_remove(self):
         added = self.client.post(
