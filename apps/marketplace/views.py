@@ -422,6 +422,8 @@ class MarketplaceSearchView(APIView):
         q = request.query_params.get("q", "").strip()
         category_slug = request.query_params.get("category", "").strip()
         shop_slug = request.query_params.get("shop", "").strip()
+        country = request.query_params.get("country", "").strip()
+        city = request.query_params.get("city", "").strip()
         min_price = request.query_params.get("min_price")
         max_price = request.query_params.get("max_price")
         in_stock = request.query_params.get("in_stock", "").lower() in ("true", "1", "yes")
@@ -452,6 +454,12 @@ class MarketplaceSearchView(APIView):
         if shop_slug:
             products_qs = products_qs.filter(shop__slug=shop_slug)
             shops_qs = shops_qs.filter(slug=shop_slug)
+        if country:
+            products_qs = products_qs.filter(shop__country__iexact=country)
+            shops_qs = shops_qs.filter(country__iexact=country)
+        if city:
+            products_qs = products_qs.filter(shop__city__iexact=city)
+            shops_qs = shops_qs.filter(city__iexact=city)
         if min_price:
             try:
                 products_qs = products_qs.filter(price__gte=float(min_price))

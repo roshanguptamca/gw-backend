@@ -42,6 +42,12 @@ class MarketplaceAPITests(TestCase):
             shop.is_approved = True
             shop.delivery_available = True
             shop.save()
+        self.shop.city = "Zoetermeer"
+        self.shop.country = "Netherlands"
+        self.shop.save(update_fields=["city", "country"])
+        self.other_shop.city = "Utrecht"
+        self.other_shop.country = "Netherlands"
+        self.other_shop.save(update_fields=["city", "country"])
         self.snacks_category = Category.objects.create(shop=self.shop, name="Snacks", slug="snacks")
         self.sweets_category = Category.objects.create(shop=self.shop, name="Sweets", slug="sweets")
         self.other_category = Category.objects.create(shop=self.other_shop, name="Snacks", slug="snacks")
@@ -209,6 +215,13 @@ class MarketplaceAPITests(TestCase):
             [{"slug": category["slug"], "product_count": category["product_count"]} for category in response.data],
             [{"slug": "snacks", "product_count": 1}],
         )
+
+    def test_marketplace_search_filters_active_shops_and_products_by_country_and_city(self):
+        response = self.client.get("/api/marketplace/search/", {"country": "Netherlands", "city": "Zoetermeer"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item["id"] for item in response.data["shops"]], [self.shop.id])
+        self.assertEqual([item["id"] for item in response.data["products"]], [self.product.id])
 
     def test_session_cart_add_update_and_remove(self):
         added = self.client.post(
