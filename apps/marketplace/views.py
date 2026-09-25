@@ -85,11 +85,46 @@ class PublicShopViewSet(viewsets.ReadOnlyModelViewSet):
         shop = self.get_object()
         products = (
             Product.objects.filter(shop=shop, is_active=True, is_approved=True)
-            .select_related("shop", "category")
+            .select_related("shop", "shop__settings", "category")
             .prefetch_related("images")
             .order_by("-is_featured", "name")
         )
+        search = request.query_params.get("search", "").strip()
+        category_slug = request.query_params.get("category", "").strip()
+        if search:
+            products = products.filter(
+                Q(name__icontains=search)
+                | Q(description__icontains=search)
+                | Q(sku__icontains=search)
+                | Q(category__name__icontains=search)
+            )
+        if category_slug:
+            products = products.filter(category__slug=category_slug)
         return Response(PublicProductSerializer(products, many=True, context={"request": request}).data)
+
+    @action(detail=True, methods=["get"])
+    def categories(self, request, slug=None):
+        shop = self.get_object()
+        categories = (
+            Category.objects.filter(
+                is_active=True,
+                products__shop=shop,
+                products__is_active=True,
+                products__is_approved=True,
+            )
+            .annotate(
+                product_count=Count(
+                    "products",
+                    filter=Q(
+                        products__shop=shop,
+                        products__is_active=True,
+                        products__is_approved=True,
+                    ),
+                )
+            )
+            .order_by("name")
+        )
+        return Response(PublicCategorySerializer(categories, many=True).data)
 
     @action(detail=True, methods=["get"])
     def campaigns(self, request, slug=None):
