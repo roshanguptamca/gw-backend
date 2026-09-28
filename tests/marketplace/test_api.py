@@ -48,9 +48,17 @@ class MarketplaceAPITests(TestCase):
         self.other_shop.city = "Utrecht"
         self.other_shop.country = "Netherlands"
         self.other_shop.save(update_fields=["city", "country"])
-        self.snacks_category = Category.objects.create(shop=self.shop, name="Snacks", slug="snacks")
-        self.sweets_category = Category.objects.create(shop=self.shop, name="Sweets", slug="sweets")
-        self.other_category = Category.objects.create(shop=self.other_shop, name="Snacks", slug="snacks")
+        # New shops are seeded with default categories (including "Snacks"),
+        # so reuse them instead of creating conflicting duplicates.
+        self.snacks_category, _ = Category.objects.get_or_create(
+            shop=self.shop, slug="snacks", defaults={"name": "Snacks", "is_active": True}
+        )
+        self.sweets_category, _ = Category.objects.get_or_create(
+            shop=self.shop, slug="sweets", defaults={"name": "Sweets", "is_active": True}
+        )
+        self.other_category, _ = Category.objects.get_or_create(
+            shop=self.other_shop, slug="snacks", defaults={"name": "Snacks", "is_active": True}
+        )
         self.product = Product.objects.create(
             shop=self.shop,
             category=self.snacks_category,
@@ -553,7 +561,9 @@ class MarketplaceSearchAPITests(TestCase):
         self.shop.save()
         from apps.marketplace.models import Category
 
-        self.cat = Category.objects.create(shop=self.shop, name="Books", slug="books", is_active=True)
+        self.cat, _ = Category.objects.get_or_create(
+            shop=self.shop, slug="books", defaults={"name": "Books", "is_active": True}
+        )
         self.product = Product.objects.create(
             shop=self.shop,
             name="Python Book",
