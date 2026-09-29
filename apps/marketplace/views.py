@@ -2,7 +2,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Count, Q, Sum
 from django.utils import timezone
 
-from rest_framework import mixins, status, viewsets
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -631,23 +631,20 @@ class SellerSettingsView(APIView):
 
     def patch(self, request):
         shop = request.user.seller_profile.shop
-        # Extract shop-level fields before passing to settings serializer
         shop_fields = {}
         data = request.data.copy() if hasattr(request.data, "copy") else dict(request.data)
         for field in ("pickup_available", "delivery_available"):
             if field in data:
-                val = data.pop(field)
-                if isinstance(val, str):
-                    shop_fields[field] = val.lower() not in ("false", "0", "")
-                else:
-                    shop_fields[field] = bool(val)
+                shop_fields[field] = data.pop(field)
+        serializer = ShopSettingsSerializer(shop.settings, data=data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        boolean_field = serializers.BooleanField()
+        shop_fields = {field: boolean_field.run_validation(value) for field, value in shop_fields.items()}
+        serializer.save()
         if shop_fields:
             for attr, value in shop_fields.items():
                 setattr(shop, attr, value)
             shop.save(update_fields=list(shop_fields.keys()) + ["updated_at"])
-        serializer = ShopSettingsSerializer(shop.settings, data=data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
         response_data = serializer.data
         response_data["pickup_available"] = shop.pickup_available
         response_data["delivery_available"] = shop.delivery_available

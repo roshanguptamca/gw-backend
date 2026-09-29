@@ -3,6 +3,7 @@ import re
 import threading
 import time
 from decimal import Decimal
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from django.contrib.auth import get_user_model
@@ -10,11 +11,30 @@ from django.core.mail import send_mail
 from django.db import IntegrityError, OperationalError, transaction
 from django.db.models import F, Q
 from django.utils import timezone
+from django.utils.html import escape
 from django.utils.text import slugify
 
 from rest_framework import serializers
+from rest_framework.exceptions import APIException
 
 logger = logging.getLogger(__name__)
+
+
+class ShopMinimumOrderNotMet(APIException):
+    status_code = 400
+    default_code = "SHOP_MINIMUM_ORDER_NOT_MET"
+
+    def __init__(self, shop, subtotal, minimum):
+        self.detail = {
+            "code": self.default_code,
+            "message": "The minimum order for this shop has not been reached.",
+            "shop_id": shop.id,
+            "shop_name": shop.name,
+            "minimum_order_amount": str(minimum),
+            "current_subtotal": str(subtotal),
+            "remaining_amount": str((minimum - subtotal).quantize(Decimal("0.01"))),
+        }
+
 
 # SQLite only allows a single writer at a time. Even with WAL mode and a
 # 20s busy_timeout configured, a request can still occasionally hit
@@ -187,15 +207,23 @@ def _create_order_atomic(payload, user=None):
 
     settings = getattr(shop, "settings", None)
     if settings and subtotal < settings.min_order_amount:
-        raise serializers.ValidationError({"total": "Order total is below this shop minimum."})
+        raise ShopMinimumOrderNotMet(shop, subtotal, settings.min_order_amount)
+
+    order_type = payload.get("order_type", "pickup")
+    delivery_address = (payload.get("delivery_address") or "").strip()
+    if order_type == "delivery":
+        if not shop.delivery_available:
+            raise serializers.ValidationError({"order_type": "Delivery is not available for this shop."})
+        if not delivery_address:
+            raise serializers.ValidationError({"delivery_address": "A delivery address is required."})
+    elif not shop.pickup_available:
+        raise serializers.ValidationError({"order_type": "Pickup is not available for this shop."})
 
     coupon = active_coupon_for_shop(shop, payload.get("coupon_code"))
     discount_total = calculate_discount(coupon, subtotal)
     delivery_fee = Decimal("0.00")
     delivery_zone = payload.get("delivery_zone") or ""
-    if payload.get("order_type") == "delivery":
-        if not shop.delivery_available:
-            raise serializers.ValidationError({"order_type": "Delivery is not available for this shop."})
+    if order_type == "delivery":
         if settings:
             if settings.free_delivery_above and subtotal >= settings.free_delivery_above:
                 delivery_fee = Decimal("0.00")
@@ -206,10 +234,40 @@ def _create_order_atomic(payload, user=None):
         else:
             # No shop settings — use safe defaults rather than free
             delivery_fee = Decimal("10.00") if delivery_zone == "international" else Decimal("5.00")
-    elif not shop.pickup_available:
-        raise serializers.ValidationError({"order_type": "Pickup is not available for this shop."})
-
     total = (subtotal - discount_total + delivery_fee).quantize(Decimal("0.01"))
+    pickup_address = ", ".join(
+        value
+        for value in (
+            settings.pickup_address_line_1 if settings else "",
+            settings.pickup_address_line_2 if settings else "",
+            (
+                " ".join(value for value in (settings.pickup_postal_code, settings.pickup_city) if value)
+                if settings
+                else ""
+            ),
+            settings.pickup_country if settings else "",
+        )
+        if value
+    )
+    fulfillment_snapshot = {
+        "order_type": order_type,
+        "shop_name": shop.name,
+        "shop_address": pickup_address or shop.address,
+        "shop_phone": shop.phone,
+        "shop_email": shop.email,
+        "whatsapp_url": settings.whatsapp_url if settings else "",
+        "whatsapp_group_url": settings.whatsapp_group_url if settings else "",
+        "minimum_order_amount": str(settings.min_order_amount) if settings else "0.00",
+        "currency": settings.currency if settings else "EUR",
+        "pickup_address_line_1": settings.pickup_address_line_1 if settings else "",
+        "pickup_address_line_2": settings.pickup_address_line_2 if settings else "",
+        "pickup_postal_code": settings.pickup_postal_code if settings else "",
+        "pickup_city": settings.pickup_city if settings else "",
+        "pickup_country": settings.pickup_country if settings else "",
+        "delivery_area": shop.delivery_area if order_type == "delivery" else "",
+        "pickup_instructions": settings.pickup_instructions if settings and order_type == "pickup" else "",
+        "delivery_instructions": settings.delivery_notes if settings and order_type == "delivery" else "",
+    }
     order = Order.objects.create(
         shop=shop,
         customer=user if user and user.is_authenticated else None,
@@ -217,8 +275,9 @@ def _create_order_atomic(payload, user=None):
         customer_name=payload["customer_name"],
         customer_email=payload.get("customer_email", ""),
         customer_phone=payload["customer_phone"],
-        delivery_address=payload.get("delivery_address", ""),
-        order_type=payload.get("order_type", "pickup"),
+        delivery_address=delivery_address,
+        fulfillment_snapshot=fulfillment_snapshot,
+        order_type=order_type,
         delivery_zone=delivery_zone,
         payment_method=payload.get("payment_method", "cash"),
         subtotal=subtotal,
@@ -407,32 +466,91 @@ def send_buyer_confirmation_email(order):
     """Send HTML order confirmation to buyer (if email provided)."""
     if not order.customer_email:
         return
-    currency = getattr(getattr(order.shop, "settings", None), "currency", "EUR")
+    snapshot = order.fulfillment_snapshot or {}
+    currency = snapshot.get("currency") or getattr(getattr(order.shop, "settings", None), "currency", "EUR")
+    order_date = timezone.localtime(order.created_at).strftime("%d %B %Y, %H:%M")
+    shop_email = snapshot.get("shop_email", "")
+    shop_phone = snapshot.get("shop_phone", "")
+    whatsapp_group_url = snapshot.get("whatsapp_group_url", "")
+    if whatsapp_group_url:
+        parsed_group_url = urlsplit(whatsapp_group_url)
+        if (
+            parsed_group_url.scheme != "https"
+            or parsed_group_url.hostname != "chat.whatsapp.com"
+            or not re.fullmatch(r"/[A-Za-z0-9]+/?", parsed_group_url.path)
+            or parsed_group_url.query
+            or parsed_group_url.fragment
+            or parsed_group_url.username
+            or parsed_group_url.password
+        ):
+            whatsapp_group_url = ""
     items_html = "".join(
-        f"<tr><td>{item.product_name}</td><td style='text-align:center'>{item.quantity}</td>"
-        f"<td style='text-align:right'>{item.unit_price} {currency}</td>"
-        f"<td style='text-align:right'>{item.line_total} {currency}</td></tr>"
+        f"<tr><td>{escape(item.product_name)}</td><td style='text-align:center'>{item.quantity}</td>"
+        f"<td style='text-align:right'>{item.unit_price} {escape(currency)}</td>"
+        f"<td style='text-align:right'>{item.line_total} {escape(currency)}</td></tr>"
         for item in order.items.all()
     )
     delivery_label = "🚚 Delivery" if order.order_type == "delivery" else "🏪 Pickup"
+    fulfillment_address = order.delivery_address if order.order_type == "delivery" else snapshot.get("shop_address", "")
+    instructions = snapshot.get(
+        "delivery_instructions" if order.order_type == "delivery" else "pickup_instructions", ""
+    )
+    contact_html = "".join(
+        f"<p><strong>Shop {label}:</strong> {escape(value)}</p>"
+        for label, value in (("email", shop_email), ("phone", shop_phone))
+        if value
+    )
+    whatsapp_html = (
+        f'<p><a href="{escape(whatsapp_group_url)}">Join the shop WhatsApp group</a></p>' if whatsapp_group_url else ""
+    )
     html_message = f"""
-    <h2>Order Confirmed – {order.order_number}</h2>
-    <p>Thank you, <strong>{order.customer_name}</strong>! Your order from <strong>{order.shop.name}</strong> has been placed.</p>
+    <h2>Order Confirmed – {escape(order.order_number)}</h2>
+    <p>Thank you, <strong>{escape(order.customer_name)}</strong>! Your order from <strong>{escape(snapshot.get("shop_name") or order.shop.name)}</strong> has been placed.</p>
+    <p><strong>Order date:</strong> {escape(order_date)}</p>
+    {contact_html}
+    {whatsapp_html}
     <table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%">
       <thead><tr><th>Product</th><th>Qty</th><th>Unit price</th><th>Total</th></tr></thead>
       <tbody>{items_html}</tbody>
     </table>
     <p><strong>Delivery method:</strong> {delivery_label}</p>
-    {"<p><strong>Delivery fee:</strong> " + str(order.delivery_fee) + " " + currency + "</p>" if order.delivery_fee else ""}
-    {"<p><strong>Discount:</strong> -" + str(order.discount_total) + " " + currency + "</p>" if order.discount_total else ""}
-    <p><strong>Grand total:</strong> {order.total} {currency}</p>
-    <p><strong>Status:</strong> {order.status}</p>
+    {f"<p><strong>{'Delivery address' if order.order_type == 'delivery' else 'Pickup address'}:</strong> {escape(fulfillment_address)}</p>" if fulfillment_address else ""}
+    {f"<p><strong>Instructions:</strong> {escape(instructions)}</p>" if instructions else ""}
+    <p><strong>Contact:</strong> {escape(order.customer_phone)}{f" · {escape(order.customer_email)}" if order.customer_email else ""}</p>
+    <p><strong>Shop subtotal:</strong> {order.subtotal} {escape(currency)}</p>
+    <p><strong>Fulfilment cost:</strong> {order.delivery_fee} {escape(currency)}</p>
+    {f"<p><strong>Discount:</strong> -{order.discount_total} {escape(currency)}</p>" if order.discount_total else ""}
+    <p><strong>Grand total:</strong> {order.total} {escape(currency)}</p>
+    <p><strong>Status:</strong> {escape(order.status)}</p>
+    {f"<p><strong>Your note:</strong> {escape(order.customer_note)}</p>" if order.customer_note else ""}
     """
+    plain_items = "\n".join(
+        f"- {item.quantity} x {item.product_name}: {item.line_total} {currency}" for item in order.items.all()
+    )
+    plain_message = (
+        f"Order {order.order_number} confirmed from {snapshot.get('shop_name') or order.shop.name}.\n"
+        f"Order date: {order_date}\n"
+        f"{'Shop email: ' + shop_email + chr(10) if shop_email else ''}"
+        f"{'Shop phone: ' + shop_phone + chr(10) if shop_phone else ''}"
+        f"{'WhatsApp group: ' + whatsapp_group_url + chr(10) if whatsapp_group_url else ''}"
+        f"Thank you, {order.customer_name}.\n\n"
+        f"Items:\n{plain_items}\n"
+        f"Subtotal: {order.subtotal} {currency}\n"
+        f"Discount: {order.discount_total} {currency}\n"
+        f"Delivery fee: {order.delivery_fee} {currency}\n"
+        f"Grand total: {order.total} {currency}\n"
+        f"Status: {order.status}\n"
+        f"Delivery method: {delivery_label}\n"
+        f"Contact: {order.customer_phone}{' / ' + order.customer_email if order.customer_email else ''}\n"
+        f"{'Address: ' + fulfillment_address + chr(10) if fulfillment_address else ''}"
+        f"{'Instructions: ' + instructions + chr(10) if instructions else ''}"
+        f"{'Your note: ' + order.customer_note if order.customer_note else ''}"
+    )
 
     def _send():
         send_mail(
-            subject=f"Order {order.order_number} confirmed – {order.shop.name}",
-            message=f"Order {order.order_number} confirmed. Total: {order.total} {currency}.",
+            subject=f"Order {order.order_number} confirmed – {snapshot.get('shop_name') or order.shop.name}",
+            message=plain_message,
             from_email=None,
             recipient_list=[order.customer_email],
             html_message=html_message,
@@ -444,23 +562,42 @@ def send_buyer_confirmation_email(order):
 
 def send_seller_notification_email(order):
     """Notify seller of new order."""
-    seller_email = getattr(order.shop.owner, "email", None)
+    settings = getattr(order.shop, "settings", None)
+    seller_email = (settings.notification_email if settings else "") or getattr(order.shop.owner, "email", None)
     if not seller_email:
         return
-    currency = getattr(getattr(order.shop, "settings", None), "currency", "EUR")
+    snapshot = order.fulfillment_snapshot or {}
+    currency = snapshot.get("currency") or getattr(settings, "currency", "EUR")
+    order_date = timezone.localtime(order.created_at).strftime("%d %B %Y, %H:%M")
     delivery_label = "🚚 Delivery" if order.order_type == "delivery" else "🏪 Pickup"
+    fulfillment_address = order.delivery_address if order.order_type == "delivery" else snapshot.get("shop_address", "")
+    instructions = snapshot.get(
+        "delivery_instructions" if order.order_type == "delivery" else "pickup_instructions", ""
+    )
+    items = "\n".join(
+        f"- {item.quantity} x {item.product_name} at {item.unit_price} {currency} = {item.line_total} {currency}"
+        for item in order.items.all()
+    )
     message = (
-        f"New order {order.order_number} received!\n\n"
+        f"New order {order.order_number} received for {snapshot.get('shop_name') or order.shop.name}!\n\n"
+        f"Order date: {order_date}\n"
         f"Customer: {order.customer_name}\n"
         f"Phone: {order.customer_phone}\n"
         f"Email: {order.customer_email or 'not provided'}\n"
         f"Delivery method: {delivery_label}\n"
+        f"{'Address: ' + fulfillment_address + chr(10) if fulfillment_address else ''}"
+        f"{'Instructions: ' + instructions + chr(10) if instructions else ''}"
+        f"{'Customer note: ' + order.customer_note + chr(10) if order.customer_note else ''}"
+        f"Items:\n{items}\n"
+        f"Subtotal: {order.subtotal} {currency}\n"
+        f"Discount: {order.discount_total} {currency}\n"
+        f"Delivery fee: {order.delivery_fee} {currency}\n"
         f"Total: {order.total} {currency}\n"
     )
 
     def _send():
         send_mail(
-            subject=f"New order {order.order_number} – {order.shop.name}",
+            subject=f"New order {order.order_number} – {snapshot.get('shop_name') or order.shop.name}",
             message=message,
             from_email=None,
             recipient_list=[seller_email],
