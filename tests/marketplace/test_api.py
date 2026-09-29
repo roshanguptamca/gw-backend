@@ -516,8 +516,6 @@ class BuyerOrderAPITests(TestCase):
         )
         self.shop.is_approved = True
         self.shop.save()
-        from apps.marketplace.models import ShopSettings
-
         ShopSettings.objects.get_or_create(shop=self.shop)
 
         self.buyer = User.objects.create_user(
