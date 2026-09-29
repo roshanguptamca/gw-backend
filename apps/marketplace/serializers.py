@@ -1,10 +1,13 @@
 import re
+from decimal import Decimal
+from urllib.parse import urlsplit
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Max
+from django.utils.html import strip_tags
 
 from rest_framework import serializers
 
@@ -52,6 +55,9 @@ class CategorySerializer(serializers.ModelSerializer):
 
 
 class ShopSettingsSerializer(serializers.ModelSerializer):
+    whatsapp_url = serializers.URLField(max_length=500, required=False, allow_blank=True)
+    whatsapp_group_url = serializers.URLField(max_length=500, required=False, allow_blank=True)
+
     class Meta:
         model = ShopSettings
         fields = [
@@ -62,8 +68,16 @@ class ShopSettingsSerializer(serializers.ModelSerializer):
             "international_delivery_fee",
             "free_delivery_above",
             "delivery_notes",
+            "pickup_instructions",
+            "pickup_address_line_1",
+            "pickup_address_line_2",
+            "pickup_postal_code",
+            "pickup_city",
+            "pickup_country",
             "order_acceptance_mode",
             "whatsapp_number",
+            "whatsapp_url",
+            "whatsapp_group_url",
             "bank_transfer_instructions",
             "notification_email",
             "new_order_email_enabled",
@@ -71,6 +85,52 @@ class ShopSettingsSerializer(serializers.ModelSerializer):
             "low_stock_notification_enabled",
             "supported_delivery_countries",
         ]
+        extra_kwargs = {
+            "min_order_amount": {"min_value": Decimal("0.00")},
+        }
+
+    def validate_whatsapp_url(self, value):
+        return self._validate_whatsapp_url(value)
+
+    def validate_whatsapp_group_url(self, value):
+        value = self._validate_whatsapp_url(value)
+        if value:
+            parsed = urlsplit(value)
+            if (
+                parsed.hostname != "chat.whatsapp.com"
+                or not re.fullmatch(r"/[A-Za-z0-9]+/?", parsed.path)
+                or parsed.query
+                or parsed.fragment
+            ):
+                raise serializers.ValidationError("Enter a valid WhatsApp group invite link.")
+        return value
+
+    def validate_pickup_instructions(self, value):
+        if value != strip_tags(value):
+            raise serializers.ValidationError("HTML is not allowed in pickup instructions.")
+        return value
+
+    def validate_delivery_notes(self, value):
+        if value != strip_tags(value):
+            raise serializers.ValidationError("HTML is not allowed in delivery instructions.")
+        return value
+
+    @staticmethod
+    def _validate_whatsapp_url(value):
+        if not value:
+            return value
+        parsed_url = urlsplit(value)
+        hostname = (parsed_url.hostname or "").lower()
+        is_whatsapp_host = hostname in {
+            "wa.me",
+            "api.whatsapp.com",
+            "whatsapp.com",
+            "www.whatsapp.com",
+            "chat.whatsapp.com",
+        }
+        if parsed_url.scheme != "https" or not is_whatsapp_host or parsed_url.username or parsed_url.password:
+            raise serializers.ValidationError("Enter a secure WhatsApp link (https://wa.me/... or whatsapp.com).")
+        return value
 
 
 class ShopSerializer(serializers.ModelSerializer):
@@ -131,6 +191,16 @@ class ShopSerializer(serializers.ModelSerializer):
 
     def validate_logo(self, value):
         return validate_image_upload(value, max_bytes=SHOP_LOGO_MAX_BYTES)
+
+    def validate_description(self, value):
+        if value != strip_tags(value):
+            raise serializers.ValidationError("HTML is not allowed in the shop description.")
+        return value
+
+    def validate_short_description(self, value):
+        if value != strip_tags(value):
+            raise serializers.ValidationError("HTML is not allowed in the shop description.")
+        return value
 
     def validate_banner_image(self, value):
         return validate_image_upload(value, max_bytes=SHOP_BANNER_MAX_BYTES)
@@ -338,6 +408,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "customer_email",
             "customer_phone",
             "delivery_address",
+            "fulfillment_snapshot",
             "order_type",
             "delivery_zone",
             "status",
@@ -363,6 +434,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "discount_total",
             "delivery_fee",
             "total",
+            "fulfillment_snapshot",
             "created_at",
             "updated_at",
         ]
@@ -585,6 +657,8 @@ class AdminProductApprovalSerializer(serializers.Serializer):
 
 
 class PublicShopSerializer(ShopSerializer):
+    settings = serializers.SerializerMethodField()
+
     class Meta(ShopSerializer.Meta):
         fields = [
             "id",
@@ -611,6 +685,35 @@ class PublicShopSerializer(ShopSerializer):
             "product_count",
         ]
         read_only_fields = fields
+
+    def get_settings(self, shop):
+        settings = getattr(shop, "settings", None)
+        if not settings:
+            return None
+        return PublicShopSettingsSerializer(settings).data
+
+
+class PublicShopSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ShopSettings
+        fields = [
+            "currency",
+            "min_order_amount",
+            "delivery_fee",
+            "local_delivery_fee",
+            "international_delivery_fee",
+            "free_delivery_above",
+            "delivery_notes",
+            "pickup_instructions",
+            "whatsapp_number",
+            "whatsapp_url",
+            "whatsapp_group_url",
+            "pickup_address_line_1",
+            "pickup_address_line_2",
+            "pickup_postal_code",
+            "pickup_city",
+            "pickup_country",
+        ]
 
 
 class PublicProductSerializer(ProductSerializer):

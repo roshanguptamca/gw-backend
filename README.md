@@ -276,6 +276,20 @@ instead of relying only on server logs. `Order.buyer_email_sent_at` and
 `Order.seller_email_sent_at` are updated the moment each email succeeds, so
 the order list/detail views also show at a glance whether emails went out.
 
+Shop fulfilment is configured through `GET/PATCH /api/seller/settings/` (scoped
+to the authenticated seller). Existing shop-level `pickup_available` and
+`delivery_available` control available methods; settings include
+`whatsapp_group_url`, the `pickup_address_*` fields, `pickup_instructions`,
+`delivery_notes`, and the decimal `min_order_amount`. Public
+`GET /api/marketplace/shops/{slug}/` exposes only public-safe settings, not
+seller notification or bank details. Each `POST /api/marketplace/orders/`
+contains items from one shop and an `order_type`; the server recalculates
+prices, checks that shop's minimum and method, and stores an order-time
+`fulfillment_snapshot`. An unmet minimum returns HTTP 400 with
+`SHOP_MINIMUM_ORDER_NOT_MET`, the shop ID/name, minimum, subtotal, and amount
+remaining. Buyer and seller emails use the snapshot so later seller edits do
+not alter historical fulfilment instructions.
+
 Locally, with `EMAIL_HOST_PASSWORD` and `BREVO_API_KEY` unset, `EMAIL_BACKEND`
 falls back to `django.core.mail.backends.console.EmailBackend`, so all three
 emails (verification, buyer confirmation, seller notification) print straight

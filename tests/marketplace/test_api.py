@@ -8,7 +8,7 @@ from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from apps.marketplace.models import Category, Coupon, Order, OrderEmailLog, OrderItem, Product, Shop
+from apps.marketplace.models import Category, Coupon, Order, OrderEmailLog, OrderItem, Product, Shop, ShopSettings
 from apps.marketplace.services import create_seller_with_shop
 
 User = get_user_model()
@@ -165,6 +165,92 @@ class MarketplaceAPITests(TestCase):
         self.product.refresh_from_db()
         self.assertEqual(self.product.stock_quantity, 8)
 
+    def test_shop_minimum_uses_server_price_and_rejects_orders_below_threshold(self):
+        self.shop.settings.min_order_amount = Decimal("5.00")
+        self.shop.settings.save(update_fields=["min_order_amount"])
+        response = self.client.post(
+            "/api/orders/",
+            {
+                "shop_id": self.shop.id,
+                "customer_name": "Rohan",
+                "customer_email": "rohan@example.com",
+                "customer_phone": "+31600000000",
+                "order_type": "pickup",
+                "items": [{"product_id": self.product.id, "quantity": 1, "unit_price": "0.01"}],
+                "terms_accepted": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["code"], "SHOP_MINIMUM_ORDER_NOT_MET")
+        self.assertEqual(response.data["shop_id"], self.shop.id)
+        self.assertEqual(response.data["shop_name"], self.shop.name)
+        self.assertEqual(response.data["minimum_order_amount"], "5.00")
+        self.assertEqual(response.data["current_subtotal"], "4.99")
+        self.assertEqual(response.data["remaining_amount"], "0.01")
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock_quantity, 10)
+        self.assertFalse(Order.objects.exists())
+
+    def test_each_shop_minimum_is_independent_in_a_multi_shop_checkout(self):
+        self.shop.settings.min_order_amount = Decimal("5.00")
+        self.shop.settings.save(update_fields=["min_order_amount"])
+        self.other_shop.settings.min_order_amount = Decimal("15.00")
+        self.other_shop.settings.save(update_fields=["min_order_amount"])
+
+        def order_for(shop, product, quantity):
+            return self.client.post(
+                "/api/marketplace/orders/",
+                {
+                    "shop_id": shop.id,
+                    "customer_name": "Buyer",
+                    "customer_email": "buyer@example.com",
+                    "customer_phone": "+31600000000",
+                    "order_type": "pickup",
+                    "items": [{"product_id": product.id, "quantity": quantity}],
+                    "terms_accepted": True,
+                },
+                format="json",
+            )
+
+        first = order_for(self.shop, self.product, 2)
+        second = order_for(self.other_shop, self.other_product, 1)
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(second.data["shop_id"], self.other_shop.id)
+        self.assertEqual(second.data["minimum_order_amount"], "15.00")
+        self.assertEqual(second.data["current_subtotal"], "9.00")
+        self.assertEqual(second.data["remaining_amount"], "6.00")
+        self.assertEqual(list(Order.objects.values_list("shop_id", flat=True)), [self.shop.id])
+
+    def test_multi_shop_seller_notifications_contain_only_their_own_items(self):
+        with patch("apps.marketplace.services.threading.Thread", _SyncThread):
+            for shop, product in ((self.shop, self.product), (self.other_shop, self.other_product)):
+                response = self.client.post(
+                    "/api/marketplace/orders/",
+                    {
+                        "shop_id": shop.id,
+                        "customer_name": "Buyer",
+                        "customer_email": "buyer@example.com",
+                        "customer_phone": "+31600000000",
+                        "order_type": "pickup",
+                        "items": [{"product_id": product.id, "quantity": 1}],
+                        "terms_accepted": True,
+                    },
+                    format="json",
+                )
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        first_mail = next(message for message in mail.outbox if self.seller_user.email in message.to)
+        second_mail = next(message for message in mail.outbox if self.other_user.email in message.to)
+        self.assertIn(self.product.name, first_mail.body)
+        self.assertNotIn(self.other_product.name, first_mail.body)
+        self.assertIn(self.other_product.name, second_mail.body)
+        self.assertNotIn(self.product.name, second_mail.body)
+        self.assertEqual(first_mail.to, [self.seller_user.email])
+        self.assertEqual(second_mail.to, [self.other_user.email])
+
     def test_seller_order_status_transition_is_validated(self):
         order = Order.objects.create(
             shop=self.shop,
@@ -190,6 +276,118 @@ class MarketplaceAPITests(TestCase):
         self.assertEqual(detail.data["slug"], self.shop.slug)
         self.assertEqual(products.status_code, status.HTTP_200_OK)
         self.assertEqual([item["id"] for item in products.data], [self.product.id])
+
+    def test_seller_settings_update_is_scoped_and_validates_public_whatsapp_url(self):
+        self.client.force_authenticate(self.seller_user)
+        response = self.client.patch(
+            "/api/seller/settings/",
+            {
+                "pickup_available": False,
+                "delivery_available": True,
+                "min_order_amount": "12.50",
+                "pickup_instructions": "Use the side entrance.",
+                "delivery_notes": "Leave at the front desk.",
+                "whatsapp_group_url": "https://chat.whatsapp.com/abcdef",
+                "pickup_address_line_1": "10 Shop Street",
+                "pickup_address_line_2": "Unit 2",
+                "pickup_postal_code": "1234AB",
+                "pickup_city": "Zoetermeer",
+                "pickup_country": "Netherlands",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(Decimal(response.data["min_order_amount"]), Decimal("12.50"))
+        self.assertEqual(response.data["delivery_notes"], "Leave at the front desk.")
+        self.assertNotIn("delivery_instructions", response.data)
+        self.assertEqual(response.data["whatsapp_group_url"], "https://chat.whatsapp.com/abcdef")
+        self.assertEqual(response.data["pickup_address_line_1"], "10 Shop Street")
+        self.assertEqual(response.data["pickup_address_line_2"], "Unit 2")
+        self.assertEqual(response.data["pickup_postal_code"], "1234AB")
+        self.assertEqual(response.data["pickup_city"], "Zoetermeer")
+        self.assertEqual(response.data["pickup_country"], "Netherlands")
+        self.assertFalse(response.data["pickup_available"])
+        self.assertTrue(response.data["delivery_available"])
+        self.shop.refresh_from_db()
+        self.other_shop.refresh_from_db()
+        self.assertFalse(self.shop.pickup_available)
+        self.assertTrue(self.shop.delivery_available)
+        self.assertEqual(self.other_shop.settings.min_order_amount, Decimal("0.00"))
+
+        response = self.client.patch(
+            "/api/seller/settings/",
+            {"whatsapp_group_url": "https://attacker.example/redirect"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.shop.refresh_from_db()
+        self.assertFalse(self.shop.pickup_available)
+        self.assertEqual(self.shop.settings.whatsapp_group_url, "https://chat.whatsapp.com/abcdef")
+
+        for invalid in (
+            "https://wa.me/31612345678",
+            "javascript:alert(1)",
+            "https://chat.whatsapp.com.evil.test/abcdef",
+        ):
+            with self.subTest(url=invalid):
+                rejected = self.client.patch("/api/seller/settings/", {"whatsapp_group_url": invalid}, format="json")
+                self.assertEqual(rejected.status_code, status.HTTP_400_BAD_REQUEST)
+        rejected = self.client.patch(
+            "/api/seller/settings/", {"pickup_instructions": "<script>alert(1)</script>"}, format="json"
+        )
+        self.assertEqual(rejected.status_code, status.HTTP_400_BAD_REQUEST)
+        rejected = self.client.patch(
+            "/api/seller/settings/", {"delivery_notes": "<img src=x onerror=alert(1)>"}, format="json"
+        )
+        self.assertEqual(rejected.status_code, status.HTTP_400_BAD_REQUEST)
+        removed = self.client.patch("/api/seller/settings/", {"whatsapp_group_url": ""}, format="json")
+        self.assertEqual(removed.status_code, status.HTTP_200_OK)
+        self.assertEqual(removed.data["whatsapp_group_url"], "")
+
+        response = self.client.patch(
+            "/api/seller/settings/",
+            {"min_order_amount": "-0.01"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self.shop.settings.min_order_amount, Decimal("12.50"))
+
+    def test_public_shop_settings_are_whitelisted_and_include_fulfilment_configuration(self):
+        self.shop.address = "10 High Street"
+        self.shop.delivery_area = "Zoetermeer"
+        self.shop.save(update_fields=["address", "delivery_area"])
+        self.shop.settings.min_order_amount = Decimal("15.00")
+        self.shop.settings.pickup_instructions = "Use the side entrance."
+        self.shop.settings.delivery_notes = "Leave at the front desk."
+        self.shop.settings.whatsapp_url = "https://wa.me/31612345678"
+        self.shop.settings.whatsapp_group_url = "https://chat.whatsapp.com/abcdef"
+        self.shop.settings.pickup_address_line_1 = "10 Pickup Lane"
+        self.shop.settings.pickup_address_line_2 = "Unit 4"
+        self.shop.settings.pickup_postal_code = "1234AB"
+        self.shop.settings.pickup_city = "Zoetermeer"
+        self.shop.settings.pickup_country = "Netherlands"
+        self.shop.settings.notification_email = "private-notifications@example.com"
+        self.shop.settings.bank_transfer_instructions = "Private payment details."
+        self.shop.settings.save()
+
+        response = self.client.get(f"/api/marketplace/shops/{self.shop.slug}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["address"], "10 High Street")
+        self.assertEqual(response.data["delivery_area"], "Zoetermeer")
+        self.assertEqual(Decimal(response.data["settings"]["min_order_amount"]), Decimal("15.00"))
+        self.assertEqual(response.data["settings"]["pickup_instructions"], "Use the side entrance.")
+        self.assertEqual(response.data["settings"]["delivery_notes"], "Leave at the front desk.")
+        self.assertNotIn("delivery_instructions", response.data["settings"])
+        self.assertEqual(response.data["settings"]["whatsapp_url"], "https://wa.me/31612345678")
+        self.assertEqual(response.data["settings"]["whatsapp_group_url"], "https://chat.whatsapp.com/abcdef")
+        self.assertEqual(response.data["settings"]["pickup_address_line_1"], "10 Pickup Lane")
+        self.assertEqual(response.data["settings"]["pickup_address_line_2"], "Unit 4")
+        self.assertEqual(response.data["settings"]["pickup_postal_code"], "1234AB")
+        self.assertEqual(response.data["settings"]["pickup_city"], "Zoetermeer")
+        self.assertEqual(response.data["settings"]["pickup_country"], "Netherlands")
+        self.assertNotIn("notification_email", response.data["settings"])
+        self.assertNotIn("bank_transfer_instructions", response.data["settings"])
 
     def test_public_shop_products_search_and_category_filters_are_scoped_to_the_shop(self):
         for params in (
@@ -318,8 +516,6 @@ class BuyerOrderAPITests(TestCase):
         )
         self.shop.is_approved = True
         self.shop.save()
-        from apps.marketplace.models import ShopSettings
-
         ShopSettings.objects.get_or_create(shop=self.shop)
 
         self.buyer = User.objects.create_user(
@@ -937,6 +1133,72 @@ class OrderCheckoutAccountCreationTests(TestCase):
         self.assertIsNotNone(order.buyer_email_sent_at)
         self.assertIsNotNone(order.seller_email_sent_at)
 
+    def test_order_snapshot_and_notifications_include_shop_scoped_fulfilment_and_contacts(self):
+        self.shop.address = "10 Shop Street"
+        self.shop.save(update_fields=["address"])
+        self.shop.settings.pickup_instructions = "Use the side entrance."
+        self.shop.settings.pickup_address_line_1 = "10 Checkout Street"
+        self.shop.settings.pickup_city = "Zoetermeer"
+        self.shop.settings.whatsapp_group_url = "https://chat.whatsapp.com/abcdef"
+        self.shop.settings.min_order_amount = Decimal("5.00")
+        self.shop.settings.notification_email = "orders-shop6@example.com"
+        self.shop.settings.save(
+            update_fields=[
+                "pickup_instructions",
+                "pickup_address_line_1",
+                "pickup_city",
+                "whatsapp_group_url",
+                "min_order_amount",
+                "notification_email",
+            ]
+        )
+        with patch("apps.marketplace.services.threading.Thread", _SyncThread):
+            response = self.client.post(
+                "/api/marketplace/orders/",
+                self._order_payload(customer_note="Please call when ready."),
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        snapshot = response.data["fulfillment_snapshot"]
+        self.assertEqual(snapshot["shop_address"], "10 Checkout Street, Zoetermeer")
+        self.assertEqual(snapshot["pickup_instructions"], "Use the side entrance.")
+        self.assertEqual(snapshot["order_type"], "pickup")
+        self.assertEqual(snapshot["minimum_order_amount"], "5.00")
+        self.assertEqual(snapshot["whatsapp_group_url"], "https://chat.whatsapp.com/abcdef")
+
+        seller_mail = next(message for message in mail.outbox if "orders-shop6@example.com" in message.to)
+        self.assertNotIn(self.seller_user.email, seller_mail.to)
+        self.assertIn("New Buyer", seller_mail.body)
+        self.assertIn("+31600000111", seller_mail.body)
+        self.assertIn("guest-checkout@example.com", seller_mail.body)
+        self.assertIn("Test Product", seller_mail.body)
+        self.assertIn("10 Checkout Street, Zoetermeer", seller_mail.body)
+        self.assertIn("Use the side entrance.", seller_mail.body)
+        self.assertIn("Please call when ready.", seller_mail.body)
+        self.assertIn("Order date:", seller_mail.body)
+
+        buyer_mail = next(message for message in mail.outbox if "guest-checkout@example.com" in message.to)
+        self.assertIn("Test Product", buyer_mail.body)
+        self.assertIn("Grand total: 5.00 EUR", buyer_mail.body)
+        self.assertIn("+31600000111", buyer_mail.alternatives[0][0])
+        self.assertIn("10 Checkout Street, Zoetermeer", buyer_mail.alternatives[0][0])
+        self.assertIn("Use the side entrance.", buyer_mail.alternatives[0][0])
+        self.assertIn("Shop subtotal:", buyer_mail.alternatives[0][0])
+        self.assertIn("Order date:", buyer_mail.alternatives[0][0])
+        self.assertIn("Join the shop WhatsApp group", buyer_mail.alternatives[0][0])
+        self.assertIn("https://chat.whatsapp.com/abcdef", buyer_mail.body)
+
+        self.shop.settings.pickup_instructions = "New instructions, not for this order."
+        self.shop.settings.whatsapp_group_url = ""
+        self.shop.settings.save(update_fields=["pickup_instructions", "whatsapp_group_url"])
+        from apps.marketplace.services import send_buyer_confirmation_email
+
+        send_buyer_confirmation_email(Order.objects.get(pk=response.data["id"]))
+        self.assertIn("Use the side entrance.", mail.outbox[-1].body)
+        self.assertIn("https://chat.whatsapp.com/abcdef", mail.outbox[-1].body)
+        self.assertNotIn("New instructions, not for this order.", mail.outbox[-1].body)
+
     def test_failed_email_is_logged_with_error_and_flag_not_set(self):
         with (
             patch("apps.marketplace.services.threading.Thread", _SyncThread),
@@ -1028,6 +1290,51 @@ class DeliveryFeeAPITests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(Decimal(response.data["delivery_fee"]), Decimal("4.50"))
         self.assertEqual(Decimal(response.data["total"]), Decimal("14.50"))
+
+    def test_delivery_requires_an_address_and_snapshots_shop_instructions(self):
+        missing_address = self.client.post(
+            "/api/marketplace/orders/",
+            self._payload(order_type="delivery", delivery_zone="local"),
+            format="json",
+        )
+        self.assertEqual(missing_address.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("delivery_address", missing_address.data)
+
+        self.shop.address = "10 Shop Street"
+        self.shop.delivery_area = "Zoetermeer"
+        self.shop.save(update_fields=["address", "delivery_area"])
+        self.shop.settings.delivery_notes = "Call on arrival."
+        self.shop.settings.save(update_fields=["delivery_notes"])
+        with patch("apps.marketplace.services.threading.Thread", _SyncThread):
+            response = self.client.post(
+                "/api/marketplace/orders/",
+                self._payload(
+                    order_type="delivery",
+                    delivery_zone="local",
+                    delivery_address="Buyer Street 2",
+                ),
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["fulfillment_snapshot"]["delivery_area"], "Zoetermeer")
+        self.assertEqual(response.data["fulfillment_snapshot"]["delivery_instructions"], "Call on arrival.")
+        self.assertEqual(response.data["delivery_address"], "Buyer Street 2")
+
+    def test_unavailable_fulfilment_method_is_rejected(self):
+        self.shop.pickup_available = False
+        self.shop.delivery_available = False
+        self.shop.save(update_fields=["pickup_available", "delivery_available"])
+        for order_type, payload in (
+            ("pickup", self._payload(order_type="pickup")),
+            (
+                "delivery",
+                self._payload(order_type="delivery", delivery_address="Buyer Street 2"),
+            ),
+        ):
+            with self.subTest(order_type=order_type):
+                response = self.client.post("/api/marketplace/orders/", payload, format="json")
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertIn("order_type", response.data)
 
     def test_delivery_order_above_free_threshold_has_zero_fee(self):
         with patch("apps.marketplace.services.threading.Thread", _SyncThread):
