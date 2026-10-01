@@ -67,6 +67,7 @@ INSTALLED_APPS = [
     "apps.insurance_explainer",
     "apps.contact",
     "apps.driving_theory",
+    "apps.dutch_practice.apps.DutchPracticeConfig",
     "apps.resumes",
     "apps.jobs",
     "apps.ai_services",

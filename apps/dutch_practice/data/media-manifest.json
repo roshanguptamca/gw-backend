@@ -1,0 +1,230 @@
+{
+  "generator": "Piper nl_NL-pim-medium + original ffmpeg graphics",
+  "voice_dataset_license": "CC0 (Pim model card)",
+  "clips": [
+    {
+      "question": "a1-listening-1",
+      "file": "a1-listening-1.mp4",
+      "sha256": "d5d60acfbc7093286fd7500e7026b8374f70b91f9a58b3eb7235f265d5b4ac99",
+      "duration_seconds": 7.024,
+      "bytes": 45491
+    },
+    {
+      "question": "a1-listening-2",
+      "file": "a1-listening-2.mp4",
+      "sha256": "bc20e766a7c210fd2706b20817dba82231be641e5fe717480d42ba5a40e24e7a",
+      "duration_seconds": 5.619,
+      "bytes": 38509
+    },
+    {
+      "question": "a1-listening-3",
+      "file": "a1-listening-3.mp4",
+      "sha256": "2d19ffb7d6d10ed8fe4a11361ddae00196576ba3430e79c9d05fdb47d1acf9a7",
+      "duration_seconds": 7.094,
+      "bytes": 46055
+    },
+    {
+      "question": "a1-listening-4",
+      "file": "a1-listening-4.mp4",
+      "sha256": "96f6cd00e225866e5c7dd5396cc8422b442b75fe1f3dda5c5fff705d0fb5f48e",
+      "duration_seconds": 8.278,
+      "bytes": 53178
+    },
+    {
+      "question": "a1-listening-5",
+      "file": "a1-listening-5.mp4",
+      "sha256": "07776e876be81228719d11e486c6bdda483b629f33c9bf034fe22a7195f40f79",
+      "duration_seconds": 5.654,
+      "bytes": 37894
+    },
+    {
+      "question": "a1-listening-6",
+      "file": "a1-listening-6.mp4",
+      "sha256": "c1e80ddd041db71d03e921c11dfbb4dfb37a1a62f1564f664400653a3927b24c",
+      "duration_seconds": 5.132,
+      "bytes": 35346
+    },
+    {
+      "question": "a1-listening-7",
+      "file": "a1-listening-7.mp4",
+      "sha256": "c00c8d37aaeb6409adbf51ae6b12c9c4bb0c2b62a80a95439bb2355308ef1057",
+      "duration_seconds": 5.968,
+      "bytes": 40089
+    },
+    {
+      "question": "a1-listening-8",
+      "file": "a1-listening-8.mp4",
+      "sha256": "41ae3225b9f4953f54583617d322ffa2e6bcbd8749cd02f0e59a43f2c6ea19d6",
+      "duration_seconds": 4.748,
+      "bytes": 32832
+    },
+    {
+      "question": "a2-listening-1",
+      "file": "a2-listening-1.mp4",
+      "sha256": "371ed85b736eac125d607034dec72bcc342478166594a2972736052570b2d1ec",
+      "duration_seconds": 13.769,
+      "bytes": 84980
+    },
+    {
+      "question": "a2-listening-2",
+      "file": "a2-listening-2.mp4",
+      "sha256": "be656c89ac11d9ef46ae99a57f42bce6c5100ec88d13298f6c376adbe5843694",
+      "duration_seconds": 13.084,
+      "bytes": 80357
+    },
+    {
+      "question": "a2-listening-3",
+      "file": "a2-listening-3.mp4",
+      "sha256": "654c65723359d437cf8137559d1610056af27f55b710856f84897bb3bf4162ee",
+      "duration_seconds": 12.934,
+      "bytes": 79202
+    },
+    {
+      "question": "a2-listening-4",
+      "file": "a2-listening-4.mp4",
+      "sha256": "026620d8434c61beefaa9a115416899dd1111d29fdaaa4958cbf5b4ff165af0e",
+      "duration_seconds": 14.756,
+      "bytes": 90045
+    },
+    {
+      "question": "a2-listening-5",
+      "file": "a2-listening-5.mp4",
+      "sha256": "c948527e0a5173bfb5827857accf470fec161858a51f4f14dedbc48f8fe0a1d2",
+      "duration_seconds": 10.577,
+      "bytes": 65953
+    },
+    {
+      "question": "a2-listening-6",
+      "file": "a2-listening-6.mp4",
+      "sha256": "ce43247ff90c86ad2de24aee89044f668b2b77ba4da5f97ed8178fc39652e1ac",
+      "duration_seconds": 10.913,
+      "bytes": 68551
+    },
+    {
+      "question": "a2-listening-7",
+      "file": "a2-listening-7.mp4",
+      "sha256": "b0dda9734397a0b44ff2460853d80b4e3d9721c7a5e4e547112796fdd58ddc82",
+      "duration_seconds": 10.612,
+      "bytes": 66244
+    },
+    {
+      "question": "a2-listening-8",
+      "file": "a2-listening-8.mp4",
+      "sha256": "4f667bb4da21381e6c22fe20d42dac3fa55a1ca00f85865550b6d4b375078da9",
+      "duration_seconds": 12.608,
+      "bytes": 77342
+    },
+    {
+      "question": "b1-listening-1",
+      "file": "b1-listening-1.mp4",
+      "sha256": "dbdc6cc4b924e578126ff0a95bd3c4ddb8d9cdf7e187c2f00e19e66d8335b3d9",
+      "duration_seconds": 19.4,
+      "bytes": 116675
+    },
+    {
+      "question": "b1-listening-2",
+      "file": "b1-listening-2.mp4",
+      "sha256": "4ba9111d46c94fdd971b989eea11f31732d0871a8b5dd7cd7d17b46a4d5dd4f6",
+      "duration_seconds": 17.786,
+      "bytes": 106071
+    },
+    {
+      "question": "b1-listening-3",
+      "file": "b1-listening-3.mp4",
+      "sha256": "402a465d7998df03d884afbb4664d5ef0b73dd74e690f4912f1d377fc0c4b0a8",
+      "duration_seconds": 14.965,
+      "bytes": 91729
+    },
+    {
+      "question": "b1-listening-4",
+      "file": "b1-listening-4.mp4",
+      "sha256": "ce0b31eac5487d0b3207f6ebf00197c959676c13a16138a198c12f54de015b39",
+      "duration_seconds": 16.382,
+      "bytes": 99755
+    },
+    {
+      "question": "b1-listening-5",
+      "file": "b1-listening-5.mp4",
+      "sha256": "2d8013b60c399a3868ca7109b365a6e0990bd5aa3b212a941310adb739642d02",
+      "duration_seconds": 16.149,
+      "bytes": 97324
+    },
+    {
+      "question": "b1-listening-6",
+      "file": "b1-listening-6.mp4",
+      "sha256": "b6b14464320c26866247b0a18ef6f49a64bf845a3b3672c6f208c9be8e1e12cd",
+      "duration_seconds": 17.949,
+      "bytes": 109704
+    },
+    {
+      "question": "b1-listening-7",
+      "file": "b1-listening-7.mp4",
+      "sha256": "3d57f1573b324817d75f4a4a89ab020c617ae26f82c5904d94142bad2d015dac",
+      "duration_seconds": 16.649,
+      "bytes": 102389
+    },
+    {
+      "question": "b1-listening-8",
+      "file": "b1-listening-8.mp4",
+      "sha256": "d5842fb8c375a539e6a654e9e3785487aa02af184ec2a54f57c71f497725c17d",
+      "duration_seconds": 16.068,
+      "bytes": 98683
+    },
+    {
+      "question": "b2-listening-1",
+      "file": "b2-listening-1.mp4",
+      "sha256": "bb60de0b8218d32f09c5665343ea8e34bec263ac2f6a0096da0b12c5c2507862",
+      "duration_seconds": 26.61,
+      "bytes": 162551
+    },
+    {
+      "question": "b2-listening-2",
+      "file": "b2-listening-2.mp4",
+      "sha256": "0eb0ee37e403d6483f0745a29bdc8cf537fa9c042c38ddd281037587d9acea31",
+      "duration_seconds": 24.067,
+      "bytes": 147937
+    },
+    {
+      "question": "b2-listening-3",
+      "file": "b2-listening-3.mp4",
+      "sha256": "9e964f2b69c75fc562cf0eb49f80b08112d1b964a062f4ed4c661582880d056e",
+      "duration_seconds": 24.718,
+      "bytes": 150721
+    },
+    {
+      "question": "b2-listening-4",
+      "file": "b2-listening-4.mp4",
+      "sha256": "3d465468de0061a5fb4f435a42631c630792e5eb410abbd72b6886ade5c6d883",
+      "duration_seconds": 22.93,
+      "bytes": 139905
+    },
+    {
+      "question": "b2-listening-5",
+      "file": "b2-listening-5.mp4",
+      "sha256": "fe929413ef724611e5754ff71cebb7c4bfa1a36a6ed9755f2a9e4ec547e647ab",
+      "duration_seconds": 24.23,
+      "bytes": 147350
+    },
+    {
+      "question": "b2-listening-6",
+      "file": "b2-listening-6.mp4",
+      "sha256": "c54bd345c16715498253523231fa8a8c77a5eb32f646987f23ae3fce0a5b799e",
+      "duration_seconds": 25.252,
+      "bytes": 152426
+    },
+    {
+      "question": "b2-listening-7",
+      "file": "b2-listening-7.mp4",
+      "sha256": "b6217e6f454485d8915d672f463af6b052d4561b9e8d9f6118eec730f7f37741",
+      "duration_seconds": 23.023,
+      "bytes": 139919
+    },
+    {
+      "question": "b2-listening-8",
+      "file": "b2-listening-8.mp4",
+      "sha256": "79c62fb1f64480a78b9fe9fb440a1b36df1557dceaf31899e4acce1eae0ca1eb",
+      "duration_seconds": 23.917,
+      "bytes": 146203
+    }
+  ]
+}
