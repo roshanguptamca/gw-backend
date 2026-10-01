@@ -276,6 +276,7 @@ class ProductAdmin(admin.ModelAdmin):
         "sku",
         "category",
         "price",
+        "selling_unit",
         "stock_quantity",
         "cloudinary_image",
         "is_active",
@@ -287,6 +288,7 @@ class ProductAdmin(admin.ModelAdmin):
         "is_active",
         "is_approved",
         "is_featured",
+        "selling_unit",
         "category",
     ]
     list_select_related = ["shop", "category"]

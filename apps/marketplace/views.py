@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from . import ordering
 from .cloudinary_service import delete_cloudinary_image
 from .models import (
     Campaign,
@@ -125,6 +126,16 @@ class PublicShopViewSet(viewsets.ReadOnlyModelViewSet):
             .order_by("name")
         )
         return Response(PublicCategorySerializer(categories, many=True).data)
+
+    @action(detail=True, methods=["get"], url_path="pickup-slots")
+    def pickup_slots(self, request, slug=None):
+        """Selectable pickup slots for this shop, honouring the longest preparation time of
+        the given products (``?product_ids=1,2``). Only this shop's products are considered."""
+        shop = self.get_object()
+        raw_ids = request.query_params.get("product_ids", "")
+        product_ids = [int(value) for value in raw_ids.split(",") if value.strip().isdigit()][:100]
+        products = Product.objects.filter(shop=shop, is_active=True, is_approved=True, id__in=product_ids)
+        return Response(ordering.pickup_schedule_payload(shop, products, ordering.current_time()))
 
     @action(detail=True, methods=["get"])
     def campaigns(self, request, slug=None):

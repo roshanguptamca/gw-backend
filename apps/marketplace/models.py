@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 
@@ -103,6 +104,23 @@ class ShopSettings(models.Model):
     cancellation_request_email_enabled = models.BooleanField(default=True)
     low_stock_notification_enabled = models.BooleanField(default=False)
     supported_delivery_countries = models.JSONField(default=list, blank=True)
+    # Pickup scheduling. Pickup windows come from Shop.opening_hours; these
+    # settings control how those windows are split into selectable slots.
+    pickup_slot_minutes = models.PositiveSmallIntegerField(
+        default=30,
+        validators=[MinValueValidator(5), MaxValueValidator(24 * 60)],
+        help_text="Length of each selectable pickup slot in minutes.",
+    )
+    pickup_timezone = models.CharField(
+        max_length=64,
+        default="Europe/Amsterdam",
+        help_text="IANA timezone used for opening hours and pickup slots.",
+    )
+    pickup_booking_window_days = models.PositiveSmallIntegerField(
+        default=14,
+        validators=[MinValueValidator(1), MaxValueValidator(90)],
+        help_text="How many days ahead (after preparation time) buyers can choose a pickup slot.",
+    )
 
     def __str__(self):
         return f"Settings for {self.shop}"
@@ -128,6 +146,23 @@ class Category(models.Model):
         return self.name
 
 
+class SellingUnit(models.TextChoices):
+    PIECE = "PIECE", "Piece"
+    PACK = "PACK", "Pack"
+    PLATE = "PLATE", "Plate"
+    BOX = "BOX", "Box"
+    TRAY = "TRAY", "Tray"
+    BOTTLE = "BOTTLE", "Bottle"
+    WEIGHT = "WEIGHT", "Weight / volume"
+
+
+class MeasureUnit(models.TextChoices):
+    GRAM = "GRAM", "Gram"
+    KILOGRAM = "KILOGRAM", "Kilogram"
+    MILLILITRE = "MILLILITRE", "Millilitre"
+    LITRE = "LITRE", "Litre"
+
+
 class Product(models.Model):
     shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name="products")
     category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True, related_name="products")
@@ -151,8 +186,44 @@ class Product(models.Model):
     is_active = models.BooleanField(default=True)
     is_approved = models.BooleanField(default=False)
     is_featured = models.BooleanField(default=False)
+    # Canonical order lead time (advance notice). Exposed as hours in the API.
     preparation_time_minutes = models.PositiveIntegerField(default=0)
+    # Legacy field kept for compatibility; derived from weight_value/weight_unit
+    # for mass-based products on save.
     weight_grams = models.PositiveIntegerField(null=True, blank=True)
+    selling_unit = models.CharField(max_length=20, choices=SellingUnit.choices, default=SellingUnit.PIECE)
+    units_per_pack = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1)],
+        help_text="Physical pieces contained in one selling unit (e.g. 2 pieces per pack).",
+    )
+    weight_value = models.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0.001"))],
+        help_text="Weight or volume of one selling unit.",
+    )
+    weight_unit = models.CharField(max_length=20, choices=MeasureUnit.choices, blank=True)
+    minimum_order_quantity = models.PositiveIntegerField(
+        null=True, blank=True, validators=[MinValueValidator(1)], help_text="Minimum number of selling units."
+    )
+    minimum_physical_units = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1)],
+        help_text="Minimum physical pieces (selling units × pieces per pack).",
+    )
+    minimum_order_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0.00"))],
+        help_text="Minimum amount that must be spent on this product.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -167,6 +238,18 @@ class Product(models.Model):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        derived_grams = None
+        if self.weight_value is not None and self.weight_unit in (MeasureUnit.GRAM, MeasureUnit.KILOGRAM):
+            factor = Decimal("1000") if self.weight_unit == MeasureUnit.KILOGRAM else Decimal("1")
+            derived_grams = int((self.weight_value * factor).to_integral_value())
+        if derived_grams is not None and derived_grams != self.weight_grams:
+            self.weight_grams = derived_grams
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
+                kwargs["update_fields"] = {*update_fields, "weight_grams"}
+        super().save(*args, **kwargs)
 
 
 class ProductImage(models.Model):
@@ -240,6 +323,8 @@ class Order(models.Model):
     customer_phone = models.CharField(max_length=30)
     delivery_address = models.TextField(blank=True)
     fulfillment_snapshot = models.JSONField(default=dict, blank=True)
+    pickup_slot_start = models.DateTimeField(null=True, blank=True)
+    pickup_slot_end = models.DateTimeField(null=True, blank=True)
     order_type = models.CharField(max_length=30, choices=ORDER_TYPE_CHOICES, default="pickup")
     delivery_zone = models.CharField(max_length=30, choices=DELIVERY_ZONE_CHOICES, blank=True, null=True, default="")
     status = models.CharField(max_length=30, choices=ORDER_STATUS, default=STATUS_PENDING)
@@ -276,6 +361,16 @@ class OrderItem(models.Model):
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
     quantity = models.PositiveIntegerField()
     line_total = models.DecimalField(max_digits=10, decimal_places=2)
+    # Snapshot of the product's selling format and rules at purchase time so
+    # later catalogue changes never alter historical orders.
+    sku = models.CharField(max_length=80, blank=True)
+    selling_unit = models.CharField(max_length=20, choices=SellingUnit.choices, blank=True)
+    units_per_pack = models.PositiveIntegerField(null=True, blank=True)
+    weight_value = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
+    weight_unit = models.CharField(max_length=20, choices=MeasureUnit.choices, blank=True)
+    physical_quantity = models.PositiveIntegerField(null=True, blank=True)
+    total_weight_value = models.DecimalField(max_digits=12, decimal_places=3, null=True, blank=True)
+    ordering_rules_snapshot = models.JSONField(default=dict, blank=True)
 
     def __str__(self):
         return f"{self.quantity} x {self.product_name}"
