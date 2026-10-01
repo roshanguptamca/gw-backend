@@ -491,6 +491,7 @@ class CloudinaryDjangoAdminTests(TestCase):
                 "is_active": "on",
                 "preparation_time_minutes": "0",
                 "weight_grams": "",
+                "selling_unit": "PIECE",
                 "images-TOTAL_FORMS": "0",
                 "images-INITIAL_FORMS": "0",
                 "images-MIN_NUM_FORMS": "0",
