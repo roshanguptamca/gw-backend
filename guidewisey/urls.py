@@ -16,6 +16,7 @@ urlpatterns = [
     path("api/insurance/", include("apps.insurance_explainer.urls")),
     path("api/contact/", include("apps.contact.urls")),
     path("api/driving/", include("apps.driving_theory.urls")),
+    path("api/dutch-practice/", include("apps.dutch_practice.urls")),
     path("api/", include("apps.resumes.urls")),
     path("api/", include("apps.templates_app.urls")),
     path("api/", include("apps.autocomplete.urls")),

@@ -1,0 +1,2294 @@
+{
+  "version": 2,
+  "status": "multi-skill-preview",
+  "copyright": "Original GuideWisey exercises. PDFs consulted for teaching methods only; no source passages, questions, photographs or recordings imported.",
+  "questions": [
+    {
+      "id": "a1-reading-1-1",
+      "level": "A1",
+      "skill": "reading",
+      "text": "De winkel is open van maandag tot zaterdag. Op zondag is de winkel dicht.",
+      "prompt": "Wanneer is de winkel dicht?",
+      "options": [
+        "Op maandag",
+        "Op zondag",
+        "Op zaterdag"
+      ],
+      "answer": 1,
+      "explanation": "Op zondag is de winkel dicht.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a1-reading-1-2",
+      "level": "A1",
+      "skill": "reading",
+      "text": "De winkel is open van maandag tot zaterdag. Op zondag is de winkel dicht.",
+      "prompt": "Wanneer kunt u naar de winkel?",
+      "options": [
+        "Op zaterdag",
+        "Alleen op zondag",
+        "Nooit op maandag"
+      ],
+      "answer": 0,
+      "explanation": "Zaterdag is een openingsdag.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a1-reading-2-1",
+      "level": "A1",
+      "skill": "reading",
+      "text": "Ik ben Sara. Ik woon in Leiden. Ik ga met de fiets naar mijn werk.",
+      "prompt": "Waar woont Sara?",
+      "options": [
+        "In Delft",
+        "In Leiden",
+        "In Utrecht"
+      ],
+      "answer": 1,
+      "explanation": "Sara zegt dat ze in Leiden woont.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a1-reading-2-2",
+      "level": "A1",
+      "skill": "reading",
+      "text": "Ik ben Sara. Ik woon in Leiden. Ik ga met de fiets naar mijn werk.",
+      "prompt": "Hoe gaat Sara naar haar werk?",
+      "options": [
+        "Met de trein",
+        "Met de bus",
+        "Met de fiets"
+      ],
+      "answer": 2,
+      "explanation": "Sara gaat met de fiets.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a1-reading-3-1",
+      "level": "A1",
+      "skill": "reading",
+      "text": "Beste Ali, kom je morgen eten? We eten om zes uur. Neem je broer mee. Groetjes, Noor.",
+      "prompt": "Hoe laat gaan ze eten?",
+      "options": [
+        "Om zes uur",
+        "Om zeven uur",
+        "Om vijf uur"
+      ],
+      "answer": 0,
+      "explanation": "In het bericht staat zes uur.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a1-reading-3-2",
+      "level": "A1",
+      "skill": "reading",
+      "text": "Beste Ali, kom je morgen eten? We eten om zes uur. Neem je broer mee. Groetjes, Noor.",
+      "prompt": "Wie mag Ali meenemen?",
+      "options": [
+        "Zijn buurman",
+        "Zijn broer",
+        "Zijn vader"
+      ],
+      "answer": 1,
+      "explanation": "Noor vraagt Ali zijn broer mee te nemen.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a1-reading-4-1",
+      "level": "A1",
+      "skill": "reading",
+      "text": "De taalles begint om negen uur. Het lokaal is op de eerste verdieping. Neem een pen mee.",
+      "prompt": "Waar is de taalles?",
+      "options": [
+        "Op de begane grond",
+        "Op de tweede verdieping",
+        "Op de eerste verdieping"
+      ],
+      "answer": 2,
+      "explanation": "Het lokaal is op de eerste verdieping.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a1-reading-4-2",
+      "level": "A1",
+      "skill": "reading",
+      "text": "De taalles begint om negen uur. Het lokaal is op de eerste verdieping. Neem een pen mee.",
+      "prompt": "Wat moet u meenemen?",
+      "options": [
+        "Een pen",
+        "Een fiets",
+        "Een jas voor de docent"
+      ],
+      "answer": 0,
+      "explanation": "In de tekst staat: Neem een pen mee.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a2-reading-1-1",
+      "level": "A2",
+      "skill": "reading",
+      "text": "U heeft dinsdag om 10.15 uur een afspraak bij de tandarts. Kunt u niet komen? Bel dan uiterlijk maandag om 12.00 uur. Neem uw identiteitsbewijs mee.",
+      "prompt": "Wanneer moet u bellen als u niet kunt komen?",
+      "options": [
+        "Dinsdag na de afspraak",
+        "Uiterlijk maandag om twaalf uur",
+        "Woensdag voor twaalf uur"
+      ],
+      "answer": 1,
+      "explanation": "U moet uiterlijk maandag om 12.00 uur bellen.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a2-reading-1-2",
+      "level": "A2",
+      "skill": "reading",
+      "text": "U heeft dinsdag om 10.15 uur een afspraak bij de tandarts. Kunt u niet komen? Bel dan uiterlijk maandag om 12.00 uur. Neem uw identiteitsbewijs mee.",
+      "prompt": "Wat moet u meenemen naar de afspraak?",
+      "options": [
+        "Een identiteitsbewijs",
+        "Een pasfoto",
+        "Een brief van uw werkgever"
+      ],
+      "answer": 0,
+      "explanation": "Het identiteitsbewijs wordt genoemd.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a2-reading-2-1",
+      "level": "A2",
+      "skill": "reading",
+      "text": "Vanaf volgende week stopt bus 12 niet bij het station. Er zijn werkzaamheden. U kunt bij het ziekenhuis uitstappen en daar bus 8 naar het station nemen.",
+      "prompt": "Waarom stopt bus 12 niet bij het station?",
+      "options": [
+        "Er zijn te weinig reizigers",
+        "De chauffeur is ziek",
+        "Er zijn werkzaamheden"
+      ],
+      "answer": 2,
+      "explanation": "Werkzaamheden zijn de reden voor de wijziging.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a2-reading-2-2",
+      "level": "A2",
+      "skill": "reading",
+      "text": "Vanaf volgende week stopt bus 12 niet bij het station. Er zijn werkzaamheden. U kunt bij het ziekenhuis uitstappen en daar bus 8 naar het station nemen.",
+      "prompt": "Hoe kunt u toch bij het station komen?",
+      "options": [
+        "Bus 8 nemen bij het ziekenhuis",
+        "Lopen vanaf de bibliotheek",
+        "Bus 12 blijven volgen"
+      ],
+      "answer": 0,
+      "explanation": "U stapt bij het ziekenhuis over op bus 8.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a2-reading-3-1",
+      "level": "A2",
+      "skill": "reading",
+      "text": "Op zaterdag organiseert de bibliotheek een gratis activiteit voor kinderen van zes tot tien jaar. De activiteit begint om 14.00 uur. Ouders moeten hun kind vooraf aanmelden bij de balie.",
+      "prompt": "Voor wie is de activiteit bedoeld?",
+      "options": [
+        "Voor alle volwassenen",
+        "Voor kinderen van zes tot tien jaar",
+        "Alleen voor kinderen ouder dan tien"
+      ],
+      "answer": 1,
+      "explanation": "De leeftijdsgroep staat in de tekst.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a2-reading-3-2",
+      "level": "A2",
+      "skill": "reading",
+      "text": "Op zaterdag organiseert de bibliotheek een gratis activiteit voor kinderen van zes tot tien jaar. De activiteit begint om 14.00 uur. Ouders moeten hun kind vooraf aanmelden bij de balie.",
+      "prompt": "Wat moeten ouders vooraf doen?",
+      "options": [
+        "Een kaartje kopen",
+        "Een boek lenen",
+        "Hun kind aanmelden"
+      ],
+      "answer": 2,
+      "explanation": "Ouders moeten hun kind vooraf aanmelden.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a2-reading-4-1",
+      "level": "A2",
+      "skill": "reading",
+      "text": "Beste bewoner, donderdag wordt het water tussen 9.00 en 11.00 uur afgesloten. De monteur werkt aan de leiding. Vul vooraf een fles met water. Na 11.00 uur kunt u de kraan weer gebruiken.",
+      "prompt": "Wanneer kunt u de kraan weer gebruiken?",
+      "options": [
+        "Na elf uur",
+        "Voor negen uur op vrijdag",
+        "Pas volgende week"
+      ],
+      "answer": 0,
+      "explanation": "Na 11.00 uur is de afsluiting voorbij.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a2-reading-4-2",
+      "level": "A2",
+      "skill": "reading",
+      "text": "Beste bewoner, donderdag wordt het water tussen 9.00 en 11.00 uur afgesloten. De monteur werkt aan de leiding. Vul vooraf een fles met water. Na 11.00 uur kunt u de kraan weer gebruiken.",
+      "prompt": "Welk advies krijgt de bewoner?",
+      "options": [
+        "De monteur bellen",
+        "Vooraf een fles met water vullen",
+        "De kraan twee dagen openlaten"
+      ],
+      "answer": 1,
+      "explanation": "Een fles vullen is het gegeven advies.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b1-reading-1-1",
+      "level": "B1",
+      "skill": "reading",
+      "text": "Het bedrijf probeert drie maanden lang een nieuw rooster. Medewerkers mogen een uur eerder beginnen, maar moeten dit een week van tevoren aan hun leidinggevende melden. Na de proef bespreekt het team of de verandering goed werkt. Het aantal werkuren blijft gelijk.",
+      "prompt": "Wat is een voorwaarde om eerder te beginnen?",
+      "options": [
+        "Een extra uur werken",
+        "Dit een week vooraf melden",
+        "Toestemming van alle collega's vragen"
+      ],
+      "answer": 1,
+      "explanation": "De medewerker moet de leidinggevende een week vooraf informeren.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b1-reading-1-2",
+      "level": "B1",
+      "skill": "reading",
+      "text": "Het bedrijf probeert drie maanden lang een nieuw rooster. Medewerkers mogen een uur eerder beginnen, maar moeten dit een week van tevoren aan hun leidinggevende melden. Na de proef bespreekt het team of de verandering goed werkt. Het aantal werkuren blijft gelijk.",
+      "prompt": "Wat gebeurt er na drie maanden?",
+      "options": [
+        "Het team beoordeelt het nieuwe rooster",
+        "Alle medewerkers krijgen minder uren",
+        "Het bedrijf sluit een afdeling"
+      ],
+      "answer": 0,
+      "explanation": "Na de proef wordt besproken of het rooster goed werkt.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b1-reading-2-1",
+      "level": "B1",
+      "skill": "reading",
+      "text": "De gemeente wil dat meer mensen de fiets gebruiken. Daarom komen er extra fietsenrekken bij het winkelcentrum. Enkele winkeliers zijn bang dat daardoor parkeerplaatsen verdwijnen. De gemeente zegt dat de rekken naast het plein komen en dat het aantal autoparkeerplaatsen niet verandert.",
+      "prompt": "Waarover maken enkele winkeliers zich zorgen?",
+      "options": [
+        "Dat fietsen verboden worden",
+        "Dat het plein wordt gesloten",
+        "Dat er minder parkeerplaatsen komen"
+      ],
+      "answer": 2,
+      "explanation": "Hun zorg gaat over het verdwijnen van parkeerplaatsen.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b1-reading-2-2",
+      "level": "B1",
+      "skill": "reading",
+      "text": "De gemeente wil dat meer mensen de fiets gebruiken. Daarom komen er extra fietsenrekken bij het winkelcentrum. Enkele winkeliers zijn bang dat daardoor parkeerplaatsen verdwijnen. De gemeente zegt dat de rekken naast het plein komen en dat het aantal autoparkeerplaatsen niet verandert.",
+      "prompt": "Hoe reageert de gemeente op die zorg?",
+      "options": [
+        "Ze zegt dat het aantal parkeerplaatsen gelijk blijft",
+        "Ze stelt het plan definitief uit",
+        "Ze geeft automobilisten gratis fietsen"
+      ],
+      "answer": 0,
+      "explanation": "De rekken veranderen het aantal autoparkeerplaatsen niet.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b1-reading-3-1",
+      "level": "B1",
+      "skill": "reading",
+      "text": "Studenten kunnen een laptop lenen bij de opleiding. De normale leentermijn is twee weken. Wie de laptop langer nodig heeft, moet vóór de laatste leendag een verlenging aanvragen. Een verlenging is alleen mogelijk als geen andere student de laptop heeft gereserveerd.",
+      "prompt": "Wanneer kan een student de laptop langer houden?",
+      "options": [
+        "Altijd na een mondeling verzoek",
+        "Als niemand hem heeft gereserveerd en tijdig verlenging is aangevraagd",
+        "Alleen als de student een nieuwe laptop koopt"
+      ],
+      "answer": 1,
+      "explanation": "Beide voorwaarden moeten worden vervuld.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b1-reading-3-2",
+      "level": "B1",
+      "skill": "reading",
+      "text": "Studenten kunnen een laptop lenen bij de opleiding. De normale leentermijn is twee weken. Wie de laptop langer nodig heeft, moet vóór de laatste leendag een verlenging aanvragen. Een verlenging is alleen mogelijk als geen andere student de laptop heeft gereserveerd.",
+      "prompt": "Waarom kan een aanvraag worden afgewezen?",
+      "options": [
+        "De student heeft geen fiets",
+        "De laptop is langer dan een jaar oud",
+        "Een andere student heeft de laptop gereserveerd"
+      ],
+      "answer": 2,
+      "explanation": "Een reservering door een ander verhindert verlenging.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b1-reading-4-1",
+      "level": "B1",
+      "skill": "reading",
+      "text": "De sportvereniging heeft te weinig vrijwilligers voor het jeugdtoernooi. Ouders kunnen helpen bij de inschrijving of bij het klaarzetten van materialen. Ervaring is niet nodig: vooraf krijgen alle helpers uitleg. Wie alleen in de ochtend beschikbaar is, kan zich ook aanmelden.",
+      "prompt": "Wat wil de vereniging met dit bericht bereiken?",
+      "options": [
+        "Nieuwe vrijwilligers vinden",
+        "Het toernooi annuleren",
+        "Alleen ervaren trainers aannemen"
+      ],
+      "answer": 0,
+      "explanation": "Het bericht vraagt ouders om te helpen.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b1-reading-4-2",
+      "level": "B1",
+      "skill": "reading",
+      "text": "De sportvereniging heeft te weinig vrijwilligers voor het jeugdtoernooi. Ouders kunnen helpen bij de inschrijving of bij het klaarzetten van materialen. Ervaring is niet nodig: vooraf krijgen alle helpers uitleg. Wie alleen in de ochtend beschikbaar is, kan zich ook aanmelden.",
+      "prompt": "Wie kan zich aanmelden?",
+      "options": [
+        "Alleen mensen die de hele dag kunnen",
+        "Ook iemand die alleen in de ochtend kan",
+        "Alleen iemand met ervaring"
+      ],
+      "answer": 1,
+      "explanation": "Beschikbaarheid in de ochtend is voldoende.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b2-reading-1-1",
+      "level": "B2",
+      "skill": "reading",
+      "text": "Een werkgever overweegt vergaderingen standaard online te houden. Dat zou reistijd besparen, maar een interne evaluatie laat zien dat nieuwe medewerkers tijdens online overleg minder gemakkelijk vragen stellen. De ondernemingsraad pleit daarom voor een gemengde aanpak: praktische afstemming kan online, terwijl bijeenkomsten gericht op samenwerking bij voorkeur op kantoor plaatsvinden. Het voorstel gaat dus niet uit van één vorm voor alle soorten overleg.",
+      "prompt": "Welke overweging ondersteunt de gemengde aanpak?",
+      "options": [
+        "Online overleg is voor iedere medewerker verboden",
+        "Het doel van het overleg vraagt soms om persoonlijk contact",
+        "Reistijd speelt geen rol in het voorstel"
+      ],
+      "answer": 1,
+      "explanation": "De aanpak onderscheidt praktische afstemming van samenwerking en houdt rekening met nieuwe medewerkers.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b2-reading-1-2",
+      "level": "B2",
+      "skill": "reading",
+      "text": "Een werkgever overweegt vergaderingen standaard online te houden. Dat zou reistijd besparen, maar een interne evaluatie laat zien dat nieuwe medewerkers tijdens online overleg minder gemakkelijk vragen stellen. De ondernemingsraad pleit daarom voor een gemengde aanpak: praktische afstemming kan online, terwijl bijeenkomsten gericht op samenwerking bij voorkeur op kantoor plaatsvinden. Het voorstel gaat dus niet uit van één vorm voor alle soorten overleg.",
+      "prompt": "Wat is de functie van de laatste zin?",
+      "options": [
+        "Het voorstel afbakenen",
+        "Bewijzen dat alle vergaderingen online moeten",
+        "Een nieuwe financiële eis toevoegen"
+      ],
+      "answer": 0,
+      "explanation": "De zin verduidelijkt dat het voorstel geen uniforme vergadervorm voorschrijft.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b2-reading-2-1",
+      "level": "B2",
+      "skill": "reading",
+      "text": "Een stadsbibliotheek schaft boetes voor te laat ingeleverde boeken af. Volgens de directeur vormen kleine schulden voor sommige bezoekers een drempel om terug te komen. Critici vrezen dat boeken daardoor langer wegblijven. De bibliotheek blijft echter herinneringen versturen en blokkeert tijdelijk nieuwe uitleningen wanneer een boek langdurig niet wordt teruggebracht. Het afschaffen van boetes betekent volgens de directeur daarom niet dat verantwoordelijkheden verdwijnen.",
+      "prompt": "Welke aanname ligt achter het besluit?",
+      "options": [
+        "Boetes kunnen bezoekers ervan weerhouden terug te komen",
+        "Alle bezoekers verliezen geleende boeken",
+        "Herinneringen zijn wettelijk verboden"
+      ],
+      "answer": 0,
+      "explanation": "De directeur noemt kleine schulden als drempel voor terugkeer.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b2-reading-2-2",
+      "level": "B2",
+      "skill": "reading",
+      "text": "Een stadsbibliotheek schaft boetes voor te laat ingeleverde boeken af. Volgens de directeur vormen kleine schulden voor sommige bezoekers een drempel om terug te komen. Critici vrezen dat boeken daardoor langer wegblijven. De bibliotheek blijft echter herinneringen versturen en blokkeert tijdelijk nieuwe uitleningen wanneer een boek langdurig niet wordt teruggebracht. Het afschaffen van boetes betekent volgens de directeur daarom niet dat verantwoordelijkheden verdwijnen.",
+      "prompt": "Hoe wordt de kritiek in de tekst gerelativeerd?",
+      "options": [
+        "Door te stellen dat critici geen boeken lezen",
+        "Door alle regels af te schaffen",
+        "Door andere maatregelen te noemen die blijven gelden"
+      ],
+      "answer": 2,
+      "explanation": "Herinneringen en tijdelijke blokkering blijven middelen om inlevering te bevorderen.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b2-reading-3-1",
+      "level": "B2",
+      "skill": "reading",
+      "text": "Een onderzoek naar een kortere werkweek meldt een hogere tevredenheid onder deelnemers. De bedrijven deden vrijwillig mee en pasten tegelijk hun werkprocessen aan. De onderzoekers waarschuwen dat de resultaten daarom niet zonder meer naar iedere sector kunnen worden vertaald. Bovendien is niet vastgesteld welk deel van de verbetering door de kortere werkweek en welk deel door de aangepaste processen is veroorzaakt.",
+      "prompt": "Waarom is voorzichtigheid bij de interpretatie nodig?",
+      "options": [
+        "Deelnemers werkten helemaal niet",
+        "De kortere werkweek was niet de enige verandering",
+        "Tevredenheid werd niet onderzocht"
+      ],
+      "answer": 1,
+      "explanation": "Ook processen veranderden; de afzonderlijke effecten zijn niet vastgesteld.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b2-reading-3-2",
+      "level": "B2",
+      "skill": "reading",
+      "text": "Een onderzoek naar een kortere werkweek meldt een hogere tevredenheid onder deelnemers. De bedrijven deden vrijwillig mee en pasten tegelijk hun werkprocessen aan. De onderzoekers waarschuwen dat de resultaten daarom niet zonder meer naar iedere sector kunnen worden vertaald. Bovendien is niet vastgesteld welk deel van de verbetering door de kortere werkweek en welk deel door de aangepaste processen is veroorzaakt.",
+      "prompt": "Welke conclusie wordt door de tekst ondersteund?",
+      "options": [
+        "Elke sector zal hetzelfde resultaat bereiken",
+        "Procesaanpassingen hadden zeker geen invloed",
+        "De uitkomsten zijn positief, maar beperkt generaliseerbaar"
+      ],
+      "answer": 2,
+      "explanation": "Vrijwillige deelname en gelijktijdige wijzigingen beperken de generaliseerbaarheid.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b2-reading-4-1",
+      "level": "B2",
+      "skill": "reading",
+      "text": "De gemeente wil bewoners eerder betrekken bij de herinrichting van een park. Tijdens eerdere projecten konden zij pas reageren toen het ontwerp vrijwel vaststond. Hoewel het nieuwe traject meer tijd kost, verwacht de projectleider dat bezwaren daardoor eerder zichtbaar worden. Zij benadrukt dat inspraak niet betekent dat alle wensen worden uitgevoerd: de gemeente moet ook rekening houden met veiligheid, budget en de belangen van toekomstige gebruikers.",
+      "prompt": "Welk voordeel verwacht de projectleider van het nieuwe traject?",
+      "options": [
+        "Dat bezwaren eerder in beeld komen",
+        "Dat ieder voorstel automatisch wordt aangenomen",
+        "Dat overleg volledig overbodig wordt"
+      ],
+      "answer": 0,
+      "explanation": "Vroege betrokkenheid maakt bezwaren eerder zichtbaar.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b2-reading-4-2",
+      "level": "B2",
+      "skill": "reading",
+      "text": "De gemeente wil bewoners eerder betrekken bij de herinrichting van een park. Tijdens eerdere projecten konden zij pas reageren toen het ontwerp vrijwel vaststond. Hoewel het nieuwe traject meer tijd kost, verwacht de projectleider dat bezwaren daardoor eerder zichtbaar worden. Zij benadrukt dat inspraak niet betekent dat alle wensen worden uitgevoerd: de gemeente moet ook rekening houden met veiligheid, budget en de belangen van toekomstige gebruikers.",
+      "prompt": "Waarom kunnen niet alle bewonerswensen worden uitgevoerd?",
+      "options": [
+        "Alleen toekomstige gebruikers mogen reageren",
+        "De gemeente moet verschillende randvoorwaarden en belangen afwegen",
+        "Het ontwerp staat al definitief vast"
+      ],
+      "answer": 1,
+      "explanation": "Veiligheid, budget en andere gebruikers beperken welke wensen uitvoerbaar zijn.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a1-listening-1",
+      "level": "A1",
+      "skill": "listening",
+      "transcript": "Hallo, ik ben Omar. Ik woon in Delft. Mijn broer woont in Rotterdam.",
+      "prompt": "Waar woont Omar?",
+      "options": [
+        "In Delft",
+        "In Rotterdam",
+        "In Gouda"
+      ],
+      "answer": 0,
+      "explanation": "Omar woont in Delft; zijn broer woont in Rotterdam.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "a1-listening-2",
+      "level": "A1",
+      "skill": "listening",
+      "transcript": "De trein naar Utrecht vertrekt om tien uur. U moet op spoor vier zijn.",
+      "prompt": "Van welk spoor vertrekt de trein?",
+      "options": [
+        "Spoor twee",
+        "Spoor vier",
+        "Spoor tien"
+      ],
+      "answer": 1,
+      "explanation": "De trein vertrekt van spoor vier.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "a1-listening-3",
+      "level": "A1",
+      "skill": "listening",
+      "transcript": "Wilt u thee of koffie? Voor mij graag thee. Zonder suiker, alstublieft.",
+      "prompt": "Wat wil de klant drinken?",
+      "options": [
+        "Koffie met suiker",
+        "Thee met suiker",
+        "Thee zonder suiker"
+      ],
+      "answer": 2,
+      "explanation": "De klant vraagt om thee zonder suiker.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "a1-listening-4",
+      "level": "A1",
+      "skill": "listening",
+      "transcript": "Dag Noor, ik ben bij de supermarkt. Ik koop brood en appels. Melk hebben we nog thuis.",
+      "prompt": "Wat koopt de spreker?",
+      "options": [
+        "Brood en melk",
+        "Brood en appels",
+        "Alleen melk"
+      ],
+      "answer": 1,
+      "explanation": "De spreker koopt brood en appels; melk is nog thuis.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "a1-listening-5",
+      "level": "A1",
+      "skill": "listening",
+      "transcript": "De les is vandaag in lokaal vijf. Lokaal drie is dicht.",
+      "prompt": "In welk lokaal is de les?",
+      "options": [
+        "Lokaal drie",
+        "Lokaal vier",
+        "Lokaal vijf"
+      ],
+      "answer": 2,
+      "explanation": "De les is vandaag in lokaal vijf.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "a1-listening-6",
+      "level": "A1",
+      "skill": "listening",
+      "transcript": "Ik werk op maandag en dinsdag. Op woensdag ben ik vrij.",
+      "prompt": "Wanneer is de spreker vrij?",
+      "options": [
+        "Op woensdag",
+        "Op maandag",
+        "Op dinsdag"
+      ],
+      "answer": 0,
+      "explanation": "Woensdag is de vrije dag.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "a1-listening-7",
+      "level": "A1",
+      "skill": "listening",
+      "transcript": "Kom je met de bus? Nee, ik kom te voet. Ik woon dichtbij.",
+      "prompt": "Hoe komt de spreker?",
+      "options": [
+        "Met de bus",
+        "Met de fiets",
+        "Te voet"
+      ],
+      "answer": 2,
+      "explanation": "De spreker zegt te voet te komen.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "a1-listening-8",
+      "level": "A1",
+      "skill": "listening",
+      "transcript": "Mijn tas is blauw. De rode tas is van mijn zus.",
+      "prompt": "Welke kleur heeft de tas van de spreker?",
+      "options": [
+        "Rood",
+        "Blauw",
+        "Groen"
+      ],
+      "answer": 1,
+      "explanation": "De blauwe tas is van de spreker.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "a2-listening-1",
+      "level": "A2",
+      "skill": "listening",
+      "transcript": "Goedemiddag, u spreekt met de kapper. Uw afspraak op vrijdag om drie uur kan niet doorgaan. U kunt zaterdag om elf uur komen. Wilt u ons bellen als die tijd niet past?",
+      "prompt": "Wanneer is de nieuwe afspraak?",
+      "options": [
+        "Vrijdag om drie uur",
+        "Zaterdag om elf uur",
+        "Zaterdag om drie uur"
+      ],
+      "answer": 1,
+      "explanation": "De kapper biedt zaterdag om elf uur aan.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "a2-listening-2",
+      "level": "A2",
+      "skill": "listening",
+      "transcript": "Beste reizigers, de lift naar het perron is kapot. Gebruik de trap aan de andere kant van de hal. Heeft u hulp nodig? Meld u dan bij de informatiebalie.",
+      "prompt": "Waar kunnen reizigers hulp vragen?",
+      "options": [
+        "Bij de informatiebalie",
+        "In de lift",
+        "Buiten het station"
+      ],
+      "answer": 0,
+      "explanation": "De omroep verwijst naar de informatiebalie.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "a2-listening-3",
+      "level": "A2",
+      "skill": "listening",
+      "transcript": "Hoi Samira, de sportles begint vanavond een halfuur later. Niet om zeven uur, maar om half acht. Neem een fles water mee. We trainen buiten.",
+      "prompt": "Hoe laat begint de sportles?",
+      "options": [
+        "Om zeven uur",
+        "Om acht uur",
+        "Om half acht"
+      ],
+      "answer": 2,
+      "explanation": "Half acht is 19.30 uur; de les is een halfuur later.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "a2-listening-4",
+      "level": "A2",
+      "skill": "listening",
+      "transcript": "Ik wil deze broek terugbrengen. Hij is te klein. Heeft u de bon? Ja, hier is hij. Wilt u uw geld terug of een andere maat? Ik wil graag een grotere maat.",
+      "prompt": "Wat wil de klant?",
+      "options": [
+        "Een grotere maat",
+        "Een andere kleur",
+        "Geld terug"
+      ],
+      "answer": 0,
+      "explanation": "De klant kiest voor een grotere maat.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "a2-listening-5",
+      "level": "A2",
+      "skill": "listening",
+      "transcript": "De kookles gaat morgen niet door, omdat de docent ziek is. De volgende les is dinsdag. U hoeft voor de gemiste les niet te betalen.",
+      "prompt": "Waarom gaat de kookles niet door?",
+      "options": [
+        "De keuken is te klein",
+        "De docent is ziek",
+        "Er zijn geen deelnemers"
+      ],
+      "answer": 1,
+      "explanation": "De docent is ziek.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "a2-listening-6",
+      "level": "A2",
+      "skill": "listening",
+      "transcript": "Uw pakket ligt bij de buren op nummer achttien. Zij zijn vandaag vanaf vijf uur thuis. Neem uw bericht mee als u het pakket ophaalt.",
+      "prompt": "Waar ligt het pakket?",
+      "options": [
+        "Op nummer acht",
+        "Bij de supermarkt",
+        "Bij de buren op nummer achttien"
+      ],
+      "answer": 2,
+      "explanation": "Het pakket is bezorgd bij de buren op nummer achttien.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "a2-listening-7",
+      "level": "A2",
+      "skill": "listening",
+      "transcript": "Hoi, ik kan niet mee naar de film. Ik moet vanavond werken. Zullen we zondag samen naar het park gaan? Dan ben ik vrij.",
+      "prompt": "Wat stelt de spreker voor?",
+      "options": [
+        "Vanavond naar de film gaan",
+        "Zondag naar het park gaan",
+        "Zondag samen werken"
+      ],
+      "answer": 1,
+      "explanation": "De spreker stelt een bezoek aan het park op zondag voor.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "a2-listening-8",
+      "level": "A2",
+      "skill": "listening",
+      "transcript": "Voor de excursie verzamelen we om negen uur bij de school. De bus vertrekt om kwart over negen. Neem zelf een lunch mee. Drinken krijgt u in de bus.",
+      "prompt": "Wat moeten deelnemers zelf meenemen?",
+      "options": [
+        "Een lunch",
+        "Drinken",
+        "Een buskaart"
+      ],
+      "answer": 0,
+      "explanation": "Een lunch moet zelf worden meegenomen.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "b1-listening-1",
+      "level": "B1",
+      "skill": "listening",
+      "transcript": "We krijgen veel vragen over de nieuwe openingstijden. Op donderdag blijven we nu tot acht uur open. Dat betekent niet dat alle diensten beschikbaar zijn: voor een paspoortaanvraag heeft u ook op die avond een afspraak nodig. Zonder afspraak kunt u wel een document ophalen.",
+      "prompt": "Wat kan iemand zonder afspraak op donderdagavond doen?",
+      "options": [
+        "Een paspoort aanvragen",
+        "Een document ophalen",
+        "Alle diensten gebruiken"
+      ],
+      "answer": 1,
+      "explanation": "Ophalen kan zonder afspraak; een paspoortaanvraag vereist een afspraak.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "b1-listening-2",
+      "level": "B1",
+      "skill": "listening",
+      "transcript": "Ik wil graag minder papier gebruiken in ons team. Daarom stel ik voor dat we de agenda voortaan alleen digitaal delen. Voor collega's die moeite hebben met het systeem organiseren we eerst een korte uitleg. Daarna kijken we of het voor iedereen goed werkt.",
+      "prompt": "Wat wil de spreker eerst doen voor sommige collega's?",
+      "options": [
+        "Hun werk overnemen",
+        "Nieuwe computers kopen",
+        "Uitleg geven over het systeem"
+      ],
+      "answer": 2,
+      "explanation": "Er komt eerst uitleg voor collega's die moeite hebben met het systeem.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "b1-listening-3",
+      "level": "B1",
+      "skill": "listening",
+      "transcript": "De fietsroute is bijna klaar. Alleen de brug moet nog worden gecontroleerd. Zolang dat niet is gebeurd, blijft de oude route open. We verwachten volgende week te kunnen zeggen wanneer de nieuwe route gebruikt kan worden.",
+      "prompt": "Waarom blijft de oude route voorlopig open?",
+      "options": [
+        "De brug is nog niet gecontroleerd",
+        "De nieuwe route is te lang",
+        "De gemeente heeft het plan gestopt"
+      ],
+      "answer": 0,
+      "explanation": "De controle van de brug is nog niet afgerond.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "b1-listening-4",
+      "level": "B1",
+      "skill": "listening",
+      "transcript": "We zoeken iemand die iedere woensdag helpt bij het huiswerk. Je hoeft geen docent te zijn. Het is wel belangrijk dat je rustig kunt uitleggen en drie maanden beschikbaar bent. Ervaren vrijwilligers helpen je bij de eerste bijeenkomsten.",
+      "prompt": "Welke eis geldt voor een nieuwe vrijwilliger?",
+      "options": [
+        "Een diploma als docent hebben",
+        "Drie maanden beschikbaar zijn",
+        "Elke werkdag helpen"
+      ],
+      "answer": 1,
+      "explanation": "Beschikbaarheid gedurende drie maanden is een eis.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "b1-listening-5",
+      "level": "B1",
+      "skill": "listening",
+      "transcript": "Mijn eerste baan begon vroeg in de ochtend. Ik vond dat lastig, maar ik leerde goed plannen. Nu werk ik later op de dag. Toch maak ik nog steeds de avond ervoor een lijstje met taken. Die gewoonte helpt me om rustig te beginnen.",
+      "prompt": "Welke gewoonte heeft de spreker behouden?",
+      "options": [
+        "Altijd vroeg beginnen",
+        "Nooit een planning maken",
+        "De avond ervoor taken opschrijven"
+      ],
+      "answer": 2,
+      "explanation": "De spreker maakt nog steeds de avond ervoor een takenlijst.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "b1-listening-6",
+      "level": "B1",
+      "skill": "listening",
+      "transcript": "Er was discussie over het schoolfeest. Sommige ouders wilden dure activiteiten. Anderen vonden dat alle gezinnen mee moesten kunnen doen. We hebben gekozen voor gratis spelletjes. Wie wil, kan een vrijwillige bijdrage doen, maar dat hoeft niet.",
+      "prompt": "Waarom is voor gratis spelletjes gekozen?",
+      "options": [
+        "Zodat alle gezinnen kunnen meedoen",
+        "Omdat niemand activiteiten wilde",
+        "Omdat het feest niet doorgaat"
+      ],
+      "answer": 0,
+      "explanation": "Toegankelijkheid voor alle gezinnen was de reden.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "b1-listening-7",
+      "level": "B1",
+      "skill": "listening",
+      "transcript": "Het nieuwe systeem verstuurt automatisch een bericht als uw boek bijna terug moet. Dat is handig, maar controleer uw inleverdatum zelf ook. Soms belandt een bericht in de spam. U blijft verantwoordelijk voor het op tijd terugbrengen.",
+      "prompt": "Welk advies geeft de spreker?",
+      "options": [
+        "Wachten totdat de bibliotheek belt",
+        "Zelf ook de inleverdatum controleren",
+        "Alle berichten verwijderen"
+      ],
+      "answer": 1,
+      "explanation": "Automatische herinneringen vervangen de eigen controle niet.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "b1-listening-8",
+      "level": "B1",
+      "skill": "listening",
+      "transcript": "De cursus is populair, maar de avondgroep zit vol. Er zijn nog plaatsen in de zaterdaggroep. Als u alleen 's avonds kunt, zetten we uw naam op de wachtlijst. We kunnen niet beloven dat er binnenkort een plaats vrijkomt.",
+      "prompt": "Wat geldt voor iemand op de wachtlijst?",
+      "options": [
+        "Die persoon heeft zeker volgende week een plaats",
+        "Die persoon moet verplicht op zaterdag komen",
+        "Een plaats in de avondgroep is niet gegarandeerd"
+      ],
+      "answer": 2,
+      "explanation": "De spreker doet geen toezegging over een vrijgekomen plaats.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "b2-listening-1",
+      "level": "B2",
+      "skill": "listening",
+      "transcript": "Bij de proef met gedeelde werkplekken daalde het ruimtegebruik, maar het ziekteverzuim veranderde nauwelijks. Toch noemen sommige managers de proef een groot succes. Ik vind dat voorbarig: kostenbesparing is relevant, maar we hadden ook betere samenwerking als doel. Daarover hebben we nog geen betrouwbare gegevens. Laten we dus eerst bepalen welke effecten we werkelijk hebben gemeten.",
+      "prompt": "Waarom vindt de spreker het oordeel voorbarig?",
+      "options": [
+        "Niet alle beoogde effecten zijn betrouwbaar onderzocht",
+        "De ruimtebesparing is onmogelijk",
+        "Ziekteverzuim is het enige doel"
+      ],
+      "answer": 0,
+      "explanation": "Over betere samenwerking ontbreken betrouwbare gegevens; ruimtebesparing alleen is geen volledige evaluatie.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "b2-listening-2",
+      "level": "B2",
+      "skill": "listening",
+      "transcript": "Een digitaal loket kan procedures versnellen, mits inwoners ermee kunnen omgaan. Wie geen computer heeft, profiteert daar niet vanzelf van. Daarom stel ik voor naast het loket een telefonische hulplijn te houden. Dat is geen afwijzing van digitalisering, maar een manier om te voorkomen dat efficiëntie ten koste gaat van bereikbaarheid.",
+      "prompt": "Wat is het doel van de voorgestelde hulplijn?",
+      "options": [
+        "Het digitale loket geheel vervangen",
+        "Ook minder digitaal vaardige inwoners toegang bieden",
+        "Alle procedures ingewikkelder maken"
+      ],
+      "answer": 1,
+      "explanation": "De hulplijn moet toegankelijkheid naast digitalisering behouden.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "b2-listening-3",
+      "level": "B2",
+      "skill": "listening",
+      "transcript": "De subsidie wordt nu vooral aangevraagd door verenigingen die ervaring hebben met formulieren. Kleine buurtgroepen hebben vaak even goede ideeën, maar vinden de aanvraag ingewikkeld. Als we alleen de beoordelingscriteria versoepelen, lossen we dat probleem niet op. Het zou beter zijn ondersteuning bij de aanvraag te bieden, zonder de kwaliteitseisen te verlagen.",
+      "prompt": "Welke oplossing heeft de voorkeur van de spreker?",
+      "options": [
+        "Iedere aanvraag goedkeuren",
+        "De kwaliteitseisen afschaffen",
+        "Hulp bieden bij het aanvragen"
+      ],
+      "answer": 2,
+      "explanation": "Ondersteuning richt zich op de aanvraagbarrière zonder inhoudelijke kwaliteitseisen te verlagen.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "b2-listening-4",
+      "level": "B2",
+      "skill": "listening",
+      "transcript": "Na de aanleg van de nieuwe bushalte steeg het aantal reizigers. Dat lijkt een duidelijk resultaat, maar in dezelfde periode werd parkeren in het centrum duurder. Het is dus moeilijk te bepalen hoeveel van de stijging aan de halte te danken is. Een vergelijking met een wijk waar de parkeertarieven gelijk bleven, zou meer inzicht kunnen geven.",
+      "prompt": "Welke kanttekening maakt de spreker?",
+      "options": [
+        "Er waren helemaal geen reizigers",
+        "Een andere verandering kan de stijging mede verklaren",
+        "Parkeertarieven zijn overal gelijk gebleven"
+      ],
+      "answer": 1,
+      "explanation": "Duurder parkeren veranderde tegelijk met de aanleg van de halte.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "b2-listening-5",
+      "level": "B2",
+      "skill": "listening",
+      "transcript": "Wij willen studenten meer keuze geven in de opleiding. Dat betekent echter niet dat elk vak optioneel wordt. Zonder een gemeenschappelijke basis wordt samenwerken later lastig. Mijn voorstel is daarom de eerste periode vast te leggen en pas daarna ruimte voor specialisatie te bieden. Zo combineren we zelfstandigheid met gedeelde kennis.",
+      "prompt": "Welke verhouding bepleit de spreker?",
+      "options": [
+        "Eerst een gezamenlijke basis, daarna meer keuze",
+        "Vanaf het begin uitsluitend vrije keuze",
+        "Gedurende de hele opleiding geen keuze"
+      ],
+      "answer": 0,
+      "explanation": "Een vaste eerste periode wordt gevolgd door ruimte voor specialisatie.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "b2-listening-6",
+      "level": "B2",
+      "skill": "listening",
+      "transcript": "Sommige bewoners noemen de nieuwe fietsstrook onveilig omdat zij fietsers nu dichter bij hun tuin zien. Uit metingen blijkt echter dat auto's langzamer rijden dan voorheen. De beleving en de gemeten verkeerssituatie vallen hier dus niet samen. We moeten beide serieus nemen, maar kunnen niet op basis van alleen die eerste reacties concluderen dat het risico is toegenomen.",
+      "prompt": "Wat benadrukt de spreker?",
+      "options": [
+        "Dat bewoners nooit gehoord mogen worden",
+        "Dat metingen alle reacties overbodig maken",
+        "Dat veiligheidsbeleving en gemeten situatie kunnen verschillen"
+      ],
+      "answer": 2,
+      "explanation": "De spreker onderscheidt beleving van meetbare veranderingen en wil beide meewegen.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "b2-listening-7",
+      "level": "B2",
+      "skill": "listening",
+      "transcript": "Het voorstel om alle bijeenkomsten op te nemen lijkt handig voor afwezige deelnemers. Toch is terugkijken niet altijd een volwaardig alternatief. Bij vertrouwelijke gesprekken kan opname deelnemers terughoudender maken. Ik zou daarom per bijeenkomst beslissen of een opname passend is en waar nodig alleen een korte samenvatting delen.",
+      "prompt": "Wat adviseert de spreker?",
+      "options": [
+        "Alle bijeenkomsten verplicht opnemen",
+        "Per bijeenkomst beoordelen of opname geschikt is",
+        "Nooit iets delen met afwezige deelnemers"
+      ],
+      "answer": 1,
+      "explanation": "De spreker kiest voor een afweging per bijeenkomst en noemt een samenvatting als alternatief.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "b2-listening-8",
+      "level": "B2",
+      "skill": "listening",
+      "transcript": "Een goed voorbereid debat vraagt meer dan twee tegengestelde meningen. Deelnemers moeten ook weten op welke gegevens die meningen gebaseerd zijn. Anders praten zij langs elkaar heen: de een bespreekt kosten, terwijl de ander vooral bereikbaarheid bedoelt. Door vooraf doelen en begrippen te verduidelijken, kunnen we verschil van inzicht beter onderzoeken.",
+      "prompt": "Wat moet volgens de spreker vóór het debat gebeuren?",
+      "options": [
+        "Doelen en gebruikte begrippen verduidelijken",
+        "Eén mening verbieden",
+        "Alleen de goedkoopste oplossing kiezen"
+      ],
+      "answer": 0,
+      "explanation": "Verduidelijking maakt de uitgangspunten van argumenten vergelijkbaar.",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-listening"
+      ],
+      "audioMode": "browser-tts"
+    },
+    {
+      "id": "a1-writing-1",
+      "level": "A1",
+      "skill": "writing",
+      "prompt": "U bent nieuw in de taalles. Schrijf drie zinnen: uw naam, uw woonplaats en welke taal u spreekt.",
+      "modelAnswer": "Ik heet Lina. Ik woon in Gouda. Ik spreek Arabisch.",
+      "criteria": [
+        "Uw naam noemen",
+        "Uw woonplaats noemen",
+        "Een taal noemen"
+      ],
+      "taskType": "introduction",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a1-writing-2",
+      "level": "A1",
+      "skill": "writing",
+      "prompt": "Schrijf een bericht aan een vriend. Nodig hem uit voor thee op zaterdag om drie uur.",
+      "modelAnswer": "Hoi Amir, kom je zaterdag om drie uur thee drinken? Groetjes, Lina.",
+      "criteria": [
+        "Een uitnodiging geven",
+        "Zaterdag noemen",
+        "Drie uur noemen"
+      ],
+      "taskType": "message",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a1-writing-3",
+      "level": "A1",
+      "skill": "writing",
+      "prompt": "Vul een kort formulier in met een verzonnen naam, woonplaats en telefoonnummer. Gebruik geen echte persoonlijke gegevens.",
+      "modelAnswer": "Naam: Lina de Jong. Woonplaats: Gouda. Telefoonnummer: 0000000000 (voorbeeld).",
+      "criteria": [
+        "Alle drie velden invullen",
+        "Duidelijke veldnamen gebruiken",
+        "Verzonnen gegevens gebruiken"
+      ],
+      "taskType": "form",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a1-writing-4",
+      "level": "A1",
+      "skill": "writing",
+      "prompt": "Schrijf twee zinnen over uw dag: hoe laat u opstaat en wat u daarna doet.",
+      "modelAnswer": "Ik sta om zeven uur op. Daarna ontbijt ik.",
+      "criteria": [
+        "Een tijd noemen",
+        "Een volgende activiteit noemen",
+        "Twee begrijpelijke zinnen schrijven"
+      ],
+      "taskType": "description",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a1-writing-5",
+      "level": "A1",
+      "skill": "writing",
+      "prompt": "U wilt brood en twee appels kopen. Schrijf een kort boodschappenlijstje.",
+      "modelAnswer": "Brood\nTwee appels",
+      "criteria": [
+        "Brood opschrijven",
+        "Appels opschrijven",
+        "Het aantal twee noemen"
+      ],
+      "taskType": "list",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a1-writing-6",
+      "level": "A1",
+      "skill": "writing",
+      "prompt": "Uw pen is weg. Schrijf een korte vraag aan de docent om een pen te lenen.",
+      "modelAnswer": "Mag ik een pen lenen, alstublieft?",
+      "criteria": [
+        "Om een pen vragen",
+        "Een vraag formuleren",
+        "Beleefd schrijven"
+      ],
+      "taskType": "message",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a1-writing-7",
+      "level": "A1",
+      "skill": "writing",
+      "prompt": "Schrijf twee zinnen over uw familie. Noem één persoon en vertel waar die woont.",
+      "modelAnswer": "Mijn zus heet Noor. Zij woont in Utrecht.",
+      "criteria": [
+        "Een familielid noemen",
+        "Vertellen waar die woont",
+        "Twee zinnen schrijven"
+      ],
+      "taskType": "description",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a1-writing-8",
+      "level": "A1",
+      "skill": "writing",
+      "prompt": "U bent morgen niet op school. Schrijf een kort bericht aan de docent. Zeg dat u ziek bent.",
+      "modelAnswer": "Beste docent, morgen kom ik niet naar school. Ik ben ziek. Groetjes, Lina.",
+      "criteria": [
+        "Morgen noemen",
+        "Afwezigheid melden",
+        "Ziekte als reden noemen"
+      ],
+      "taskType": "message",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a2-writing-1",
+      "level": "A2",
+      "skill": "writing",
+      "prompt": "Uw afspraak bij de kapper is vrijdag om 14.00 uur. U moet werken. Schrijf een bericht: zeg dat u niet kunt komen, geef de reden en vraag om zaterdag.",
+      "modelAnswer": "Beste kapper, vrijdag om 14.00 uur kan ik niet komen, omdat ik moet werken. Kan ik zaterdag een afspraak maken? Met vriendelijke groet, Lina.",
+      "criteria": [
+        "De afspraak noemen",
+        "Werk als reden geven",
+        "Om een afspraak op zaterdag vragen"
+      ],
+      "taskType": "message",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a2-writing-2",
+      "level": "A2",
+      "skill": "writing",
+      "prompt": "Een vriend komt voor het eerst bij u op bezoek. Schrijf een bericht: nodig hem uit op zondag, zeg dat u bij het station woont en vraag of hij om 15.00 uur kan komen.",
+      "modelAnswer": "Hoi Amir, kom je zondag op bezoek? Ik woon vlak bij het station. Kun je om 15.00 uur komen? Groetjes, Lina.",
+      "criteria": [
+        "Zondag noemen",
+        "De locatie bij het station beschrijven",
+        "Naar 15.00 uur vragen"
+      ],
+      "taskType": "invitation",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a2-writing-3",
+      "level": "A2",
+      "skill": "writing",
+      "prompt": "U heeft uw tas in de bus laten liggen. Schrijf aan de vervoerder: beschrijf een blauwe tas, noem bus 6 en vraag hoe u de tas terugkrijgt.",
+      "modelAnswer": "Geachte medewerker, ik heb mijn blauwe tas in bus 6 laten liggen. Hoe kan ik mijn tas terugkrijgen? Met vriendelijke groet, Lina.",
+      "criteria": [
+        "De blauwe tas beschrijven",
+        "Bus 6 noemen",
+        "Vragen hoe u de tas terugkrijgt"
+      ],
+      "taskType": "message",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a2-writing-4",
+      "level": "A2",
+      "skill": "writing",
+      "prompt": "U wilt deelnemen aan een sportcursus. Vul deze velden in: naam (verzonnen), gewenste sport en beschikbare dag. Schrijf ook één vraag over de prijs.",
+      "modelAnswer": "Naam: Lina de Jong (voorbeeld). Sport: badminton. Beschikbare dag: donderdag. Hoeveel kost de cursus?",
+      "criteria": [
+        "De drie velden invullen",
+        "Een dag noemen",
+        "Een vraag over de prijs stellen"
+      ],
+      "taskType": "form",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a2-writing-5",
+      "level": "A2",
+      "skill": "writing",
+      "prompt": "Uw buren maken 's avonds veel lawaai. Schrijf een beleefd briefje: vertel het probleem, zeg dat uw kind wil slapen en vraag of het stiller kan.",
+      "modelAnswer": "Beste buren, 's avonds hoor ik veel lawaai. Mijn kind wil slapen. Wilt u het wat stiller maken? Alvast bedankt, Lina.",
+      "criteria": [
+        "Het lawaai benoemen",
+        "Het slapende kind noemen",
+        "Beleefd om minder lawaai vragen"
+      ],
+      "taskType": "note",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a2-writing-6",
+      "level": "A2",
+      "skill": "writing",
+      "prompt": "U heeft een stoel gekocht. Een poot is kapot. Schrijf een bericht aan de winkel: vertel het probleem en vraag om een oplossing.",
+      "modelAnswer": "Beste medewerker, ik heb bij u een stoel gekocht. Een poot is kapot. Kunt u de stoel vervangen of repareren? Met vriendelijke groet, Lina.",
+      "criteria": [
+        "De aankoop noemen",
+        "De kapotte poot beschrijven",
+        "Om een oplossing vragen"
+      ],
+      "taskType": "complaint",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a2-writing-7",
+      "level": "A2",
+      "skill": "writing",
+      "prompt": "U kunt morgen niet helpen bij het schoolfeest. Schrijf een bericht: bied uw excuses aan, zeg dat u moet werken en bied hulp op vrijdag aan.",
+      "modelAnswer": "Beste organisatie, sorry, morgen kan ik niet helpen bij het schoolfeest. Ik moet werken. Vrijdag kan ik wel helpen. Groetjes, Lina.",
+      "criteria": [
+        "Excuses aanbieden",
+        "Werk als reden noemen",
+        "Hulp op vrijdag aanbieden"
+      ],
+      "taskType": "message",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a2-writing-8",
+      "level": "A2",
+      "skill": "writing",
+      "prompt": "Schrijf een korte tekst over uw buurt. Noem een winkel, een plek waar u graag komt en waarom u die plek leuk vindt.",
+      "modelAnswer": "In mijn buurt is een kleine supermarkt. Ik ga graag naar het park. Het is rustig en ik kan daar wandelen.",
+      "criteria": [
+        "Een winkel noemen",
+        "Een favoriete plek beschrijven",
+        "Een reden geven"
+      ],
+      "taskType": "description",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b1-writing-1",
+      "level": "B1",
+      "skill": "writing",
+      "prompt": "Maak de zin af: Ik wil de cursus op zaterdag volgen, omdat ...",
+      "modelAnswer": "Ik wil de cursus op zaterdag volgen, omdat ik doordeweeks werk.",
+      "criteria": [
+        "Een passende reden geven",
+        "Een volledige zin maken",
+        "Het werkwoord passend plaatsen na omdat"
+      ],
+      "taskType": "sentence",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b1-writing-2",
+      "level": "B1",
+      "skill": "writing",
+      "prompt": "Maak de zin af: Als ik de opdracht niet begrijp, ...",
+      "modelAnswer": "Als ik de opdracht niet begrijp, vraag ik mijn docent om uitleg.",
+      "criteria": [
+        "Een passende handeling noemen",
+        "De voorwaardelijke betekenis behouden",
+        "De hoofdzin begrijpelijk opbouwen"
+      ],
+      "taskType": "sentence",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b1-writing-3",
+      "level": "B1",
+      "skill": "writing",
+      "prompt": "U gaat verhuizen en wilt een dag vrij. Schrijf een e-mail aan uw leidinggevende. Noem de dag, leg uw verzoek uit en stel voor hoe u uw werk overdraagt.",
+      "modelAnswer": "Beste mevrouw Bakker, ik verhuis volgende vrijdag en wil graag die dag vrij nemen. Ik rond de urgente taken donderdag af en bespreek de overige taken vooraf met mijn collega. Is dit mogelijk? Met vriendelijke groet, Lina.",
+      "criteria": [
+        "Een concrete dag noemen",
+        "Het verlofverzoek onderbouwen",
+        "Werkoverdracht voorstellen"
+      ],
+      "taskType": "email",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b1-writing-4",
+      "level": "B1",
+      "skill": "writing",
+      "prompt": "Uw opleiding begint een projectgroep. Schrijf een korte aanmelding: leg uw belangstelling uit, noem een nuttige vaardigheid en vermeld wanneer u beschikbaar bent.",
+      "modelAnswer": "Beste projectleider, ik wil graag meedoen aan de projectgroep over duurzaam reizen. Het onderwerp interesseert mij, omdat ik vaak met het openbaar vervoer reis. Ik kan goed informatie verzamelen en ben op woensdagmiddag beschikbaar. Met vriendelijke groet, Lina.",
+      "criteria": [
+        "Belangstelling toelichten",
+        "Een relevante vaardigheid noemen",
+        "Beschikbaarheid aangeven"
+      ],
+      "taskType": "email",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b1-writing-5",
+      "level": "B1",
+      "skill": "writing",
+      "prompt": "Schrijf een bericht voor nieuwe vrijwilligers. Leg uit waar zij zich zaterdag om 9.00 uur melden, wat zij meenemen en wie vragen beantwoordt.",
+      "modelAnswer": "Welkom! Meld u zaterdag om 9.00 uur bij de ingang van het buurthuis. Neem een fles water mee. U krijgt daar uitleg over de taken. Heeft u vragen? Vraag het aan de coördinator bij de balie.",
+      "criteria": [
+        "Plaats en tijd duidelijk aangeven",
+        "Iets om mee te nemen noemen",
+        "Een aanspreekpunt noemen"
+      ],
+      "taskType": "instructions",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b1-writing-6",
+      "level": "B1",
+      "skill": "writing",
+      "prompt": "U volgde een cursus die onverwacht werd verplaatst. Schrijf een klacht: beschrijf wat er gebeurde, leg het gevolg voor u uit en vraag om een oplossing.",
+      "modelAnswer": "Geachte medewerker, mijn avondcursus is zonder overleg naar de ochtend verplaatst. Daardoor kan ik niet meer deelnemen, want ik werk overdag. Kunt u mij een plaats in een andere avondgroep aanbieden? Met vriendelijke groet, Lina.",
+      "criteria": [
+        "De wijziging beschrijven",
+        "Het persoonlijke gevolg uitleggen",
+        "Een concrete oplossing vragen"
+      ],
+      "taskType": "complaint",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b1-writing-7",
+      "level": "B1",
+      "skill": "writing",
+      "prompt": "Schrijf voor de buurtwebsite een kort verslag van een opruimdag. Noem wie hielpen, wat jullie deden en wat een volgende keer beter kan.",
+      "modelAnswer": "Zaterdag hielpen twaalf buurtbewoners tijdens de opruimdag. We verzamelden afval rond het plein en brachten het naar de containers. De samenwerking was prettig. Volgende keer hebben we meer handschoenen nodig, zodat iedereen meteen kan beginnen.",
+      "criteria": [
+        "Deelnemers noemen",
+        "Activiteiten beschrijven",
+        "Een verbeterpunt geven"
+      ],
+      "taskType": "report",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b1-writing-8",
+      "level": "B1",
+      "skill": "writing",
+      "prompt": "Een collega zoekt een cursus Nederlands. Schrijf een advies: raad een avondcursus aan, geef twee redenen en leg uit hoe de collega zich kan aanmelden.",
+      "modelAnswer": "Hoi Amir, ik raad je de avondcursus in het buurthuis aan. Je kunt er na je werk naartoe en de groepen zijn klein. Op de website van het buurthuis staat een aanmeldformulier. Je kunt ook bij de balie om hulp vragen. Groetjes, Lina.",
+      "criteria": [
+        "Een cursus adviseren",
+        "Twee redenen geven",
+        "De aanmelding uitleggen"
+      ],
+      "taskType": "advice",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b2-writing-1",
+      "level": "B2",
+      "skill": "writing",
+      "prompt": "Maak de zin af: Hoewel het aantal deelnemers is gestegen, ...",
+      "modelAnswer": "Hoewel het aantal deelnemers is gestegen, blijft de beschikbare ruimte voldoende.",
+      "criteria": [
+        "Een passende tegenstelling formuleren",
+        "De hoofdzin grammaticaal aansluiten",
+        "Geen tegenstrijdige logica gebruiken"
+      ],
+      "taskType": "sentence",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b2-writing-2",
+      "level": "B2",
+      "skill": "writing",
+      "prompt": "Maak de zin af: De projectleider stelde voor de proef te verlengen, zodat ...",
+      "modelAnswer": "De projectleider stelde voor de proef te verlengen, zodat ook de effecten op langere termijn onderzocht konden worden.",
+      "criteria": [
+        "Een doel van de verlenging formuleren",
+        "De betekenis van zodat behouden",
+        "Een samenhangende zin schrijven"
+      ],
+      "taskType": "sentence",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b2-writing-3",
+      "level": "B2",
+      "skill": "writing",
+      "prompt": "Schrijf een voorstel aan uw opleiding voor een rustige studieruimte. Beschrijf het probleem, vergelijk twee oplossingen en onderbouw uw voorkeur. Gebruik ongeveer 120–160 woorden; dit is een oefenrichtlijn.",
+      "modelAnswer": "Beste opleidingscoördinator,\nVeel studenten vinden tussen de lessen geen rustige plek om opdrachten af te maken. In de kantine is het vaak druk en praten groepen door elkaar. Vooral studenten die thuis weinig ruimte hebben, kunnen daardoor moeilijk zelfstandig werken. Zij blijven nu soms langer op school zonder hun geplande werk af te krijgen.\nWe zouden extra stiltezones in de kantine kunnen aanwijzen. Dat kost weinig, maar het omgevingsgeluid blijft hoorbaar. Een andere mogelijkheid is een leeg lokaal op vaste tijden als studieruimte te openen. Daar kunnen duidelijke afspraken gelden over gesprekken en telefoons.\nIk geef de voorkeur aan het lokaal. Een proef van zes weken op drie middagen lijkt haalbaar. Met een eenvoudige reserveringslijst houden we het gebruik bij. Daarna kunnen studenten en docenten beoordelen of uitbreiding nodig is.\nMet vriendelijke groet,\nLina",
+      "criteria": [
+        "Een probleem en gevolgen uitleggen",
+        "Twee oplossingen vergelijken",
+        "De voorkeur onderbouwen",
+        "Een logische structuur en passende toon gebruiken"
+      ],
+      "taskType": "proposal",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b2-writing-4",
+      "level": "B2",
+      "skill": "writing",
+      "prompt": "Gegevens van een fictieve bibliotheek: cursusdeelnemers in januari 40, februari 55, maart 50. Schrijf een korte toelichting voor collega's: beschrijf het verloop, noem een beperking van deze gegevens en stel een vervolgvraag.",
+      "modelAnswer": "Het aantal cursusdeelnemers steeg van 40 in januari naar 55 in februari. In maart daalde het licht naar 50, maar bleef het boven het januariniveau. Deze drie aantallen zeggen niets over de reden van de veranderingen. Ook weten we niet of dezelfde mensen meerdere keren meetellen. Het is daarom zinvol te onderzoeken of extra publiciteit in februari nieuwe deelnemers aantrok.",
+      "criteria": [
+        "De stijging en daling correct beschrijven",
+        "Geen oorzaak als bewezen presenteren",
+        "Een beperking noemen",
+        "Een relevante vervolgvraag stellen"
+      ],
+      "taskType": "data-description",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b2-writing-5",
+      "level": "B2",
+      "skill": "writing",
+      "prompt": "Uw organisatie wil alle trainingen online aanbieden. Schrijf een reactie met een voordeel, een nadeel en een onderbouwd alternatief.",
+      "modelAnswer": "Beste collega's, online trainingen verminderen reistijd en maken deelname voor collega's op andere locaties gemakkelijker. Toch zijn ze minder geschikt voor oefeningen waarbij deelnemers samen materialen gebruiken. Ik stel daarom voor de theoretische onderdelen online aan te bieden en praktijkbijeenkomsten op locatie te houden. Zo behouden we flexibiliteit zonder het oefenen in de praktijk te beperken.",
+      "criteria": [
+        "Een relevant voordeel geven",
+        "Een relevant nadeel geven",
+        "Een alternatief onderbouwen",
+        "Verbindingswoorden gebruiken"
+      ],
+      "taskType": "argument",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b2-writing-6",
+      "level": "B2",
+      "skill": "writing",
+      "prompt": "U bent projectleider. Een leverancier leverde later dan afgesproken, waardoor uw team extra kosten maakte. Schrijf een zakelijke klacht: beschrijf de afspraak en gevolgen, vraag om een concrete oplossing en stel een redelijke reactietermijn.",
+      "modelAnswer": "Geachte heer of mevrouw, volgens onze afspraak zouden de materialen maandag worden geleverd. Ze kwamen echter pas donderdag aan. Daardoor moesten we een werkdag opnieuw plannen en extra opslagruimte huren. Ik verzoek u toe te lichten waarom de levering is vertraagd en een voorstel voor vergoeding van de extra kosten te doen. Graag ontvang ik binnen tien werkdagen uw reactie. Met vriendelijke groet, Lina.",
+      "criteria": [
+        "Afspraak en afwijking onderscheiden",
+        "Gevolgen toelichten",
+        "Een concrete oplossing verzoeken",
+        "Een zakelijke toon en reactietermijn gebruiken"
+      ],
+      "taskType": "complaint",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b2-writing-7",
+      "level": "B2",
+      "skill": "writing",
+      "prompt": "Vat twee fictieve standpunten samen en geef een afgewogen advies. Standpunt A: een sporthal moet langer open om meer mensen te bereiken. Standpunt B: langere opening kost personeel en energie. Schrijf ongeveer 100 woorden.",
+      "modelAnswer": "Voorstanders van ruimere openingstijden willen de sporthal toegankelijker maken voor mensen die overdag werken. Tegenstanders wijzen op extra personeels- en energiekosten. Beide standpunten zijn begrijpelijk: bereikbaarheid is belangrijk, maar uitbreiding moet financieel haalbaar zijn. Een proef op twee avonden per week lijkt daarom verstandig. Tijdens de proef kan de beheerder het aantal bezoekers en de extra kosten bijhouden. Ook kan hij gebruikers vragen welke tijden zij werkelijk nodig hebben. Op basis daarvan kan worden besloten of langere opening voldoende waarde biedt. Een permanente uitbreiding zonder voorafgaande evaluatie zou te weinig rekening houden met de onzekerheid over de vraag.",
+      "criteria": [
+        "Beide standpunten correct weergeven",
+        "Een afgewogen advies formuleren",
+        "Uitleggen hoe het advies beoordeeld kan worden"
+      ],
+      "taskType": "summary-advice",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "b2-writing-8",
+      "level": "B2",
+      "skill": "writing",
+      "prompt": "Een buurtgroep wil een parkeerterrein deels vergroenen. Schrijf een bijdrage voor de nieuwsbrief: bespreek twee belangen, doe een voorstel en leg uit hoe bewoners bij de beslissing worden betrokken.",
+      "modelAnswer": "Een groener plein kan schaduw bieden en de buurt aantrekkelijker maken. Tegelijk hebben sommige bewoners een parkeerplaats dichtbij huis nodig. Ik stel voor eerst een klein deel van het terrein te vergroenen, terwijl de toegankelijke parkeerplaatsen behouden blijven. Vooraf kan de buurtgroep reacties verzamelen op een bewonersavond en via een formulier. Na een proefperiode moet worden bekeken hoe de ruimte wordt gebruikt.",
+      "criteria": [
+        "Twee belangen bespreken",
+        "Een concreet voorstel doen",
+        "Bewonersbetrokkenheid uitleggen",
+        "Een samenhangende tekst schrijven"
+      ],
+      "taskType": "proposal",
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": []
+    },
+    {
+      "id": "a1-speaking-1",
+      "level": "A1",
+      "skill": "speaking",
+      "prompt": "Vertel hoe u heet en waar u woont.",
+      "modelAnswer": "Ik heet Lina. Ik woon in Gouda.",
+      "criteria": [
+        "Uw naam noemen",
+        "Uw woonplaats noemen"
+      ],
+      "responseSeconds": 20,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "a1-speaking-2",
+      "level": "A1",
+      "skill": "speaking",
+      "prompt": "U bent in een café. Vraag om een glas water.",
+      "modelAnswer": "Mag ik een glas water, alstublieft?",
+      "criteria": [
+        "Om water vragen",
+        "Beleefd spreken"
+      ],
+      "responseSeconds": 20,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "a1-speaking-3",
+      "level": "A1",
+      "skill": "speaking",
+      "prompt": "Vertel wat u graag in uw vrije tijd doet.",
+      "modelAnswer": "Ik wandel graag. Ik speel ook badminton.",
+      "criteria": [
+        "Een activiteit noemen",
+        "Een eenvoudige begrijpelijke zin gebruiken"
+      ],
+      "responseSeconds": 20,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "a1-speaking-4",
+      "level": "A1",
+      "skill": "speaking",
+      "prompt": "Vraag in de winkel hoeveel het brood kost.",
+      "modelAnswer": "Hoeveel kost dit brood?",
+      "criteria": [
+        "Naar de prijs vragen",
+        "Het brood noemen"
+      ],
+      "responseSeconds": 20,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "a1-speaking-5",
+      "level": "A1",
+      "skill": "speaking",
+      "prompt": "Vertel welke dag u naar de taalles gaat.",
+      "modelAnswer": "Ik ga op dinsdag naar de taalles.",
+      "criteria": [
+        "Een dag noemen",
+        "De taalles noemen"
+      ],
+      "responseSeconds": 20,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "a1-speaking-6",
+      "level": "A1",
+      "skill": "speaking",
+      "prompt": "Vraag de docent om de vraag te herhalen.",
+      "modelAnswer": "Kunt u de vraag herhalen, alstublieft?",
+      "criteria": [
+        "Om herhaling vragen",
+        "Een beleefde vraag formuleren"
+      ],
+      "responseSeconds": 20,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "a1-speaking-7",
+      "level": "A1",
+      "skill": "speaking",
+      "prompt": "Vertel hoe u naar uw werk of school gaat.",
+      "modelAnswer": "Ik ga met de fiets naar mijn werk.",
+      "criteria": [
+        "Een vervoermiddel noemen",
+        "Werk of school noemen"
+      ],
+      "responseSeconds": 20,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "a1-speaking-8",
+      "level": "A1",
+      "skill": "speaking",
+      "prompt": "Vertel over iemand in uw familie.",
+      "modelAnswer": "Mijn broer heet Amir. Hij woont in Delft.",
+      "criteria": [
+        "Een familielid noemen",
+        "Eén gegeven over die persoon vertellen"
+      ],
+      "responseSeconds": 20,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "a2-speaking-1",
+      "level": "A2",
+      "skill": "speaking",
+      "prompt": "U belt de kapper. Vraag om een afspraak op zaterdag en zeg dat u 's ochtends kunt.",
+      "modelAnswer": "Goedemorgen, ik wil graag een afspraak op zaterdag. Ik kan 's ochtends. Heeft u dan tijd?",
+      "criteria": [
+        "Een afspraak vragen",
+        "Zaterdag en ochtend noemen",
+        "Beleefd spreken"
+      ],
+      "responseSeconds": 30,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "a2-speaking-2",
+      "level": "A2",
+      "skill": "speaking",
+      "prompt": "Uw buur vraagt waarom u morgen niet kunt helpen. Zeg dat u moet werken en bied hulp op zondag aan.",
+      "modelAnswer": "Morgen moet ik werken. Daarom kan ik niet helpen. Zondag kan ik wel. Zal ik dan komen?",
+      "criteria": [
+        "Werk als reden noemen",
+        "Hulp op zondag aanbieden"
+      ],
+      "responseSeconds": 30,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "a2-speaking-3",
+      "level": "A2",
+      "skill": "speaking",
+      "prompt": "U zoekt de bibliotheek. Vraag een voorbijganger waar die is en hoe u erheen kunt lopen.",
+      "modelAnswer": "Pardon, waar is de bibliotheek? Kunt u uitleggen hoe ik erheen kan lopen?",
+      "criteria": [
+        "Naar de bibliotheek vragen",
+        "Naar de looproute vragen"
+      ],
+      "responseSeconds": 30,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "a2-speaking-4",
+      "level": "A2",
+      "skill": "speaking",
+      "prompt": "Vertel over uw ontbijt. Noem wat u eet en drinkt.",
+      "modelAnswer": "Ik eet 's ochtends brood met kaas. Ik drink een kop thee.",
+      "criteria": [
+        "Eten noemen",
+        "Drinken noemen",
+        "Begrijpelijk spreken"
+      ],
+      "responseSeconds": 30,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "a2-speaking-5",
+      "level": "A2",
+      "skill": "speaking",
+      "prompt": "U kreeg een verkeerde maat schoenen. Leg het probleem aan de winkelmedewerker uit en vraag om een grotere maat.",
+      "modelAnswer": "Deze schoenen zijn te klein. Mag ik ze ruilen voor een grotere maat?",
+      "criteria": [
+        "Het probleem uitleggen",
+        "Om een grotere maat vragen"
+      ],
+      "responseSeconds": 30,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "a2-speaking-6",
+      "level": "A2",
+      "skill": "speaking",
+      "prompt": "Een vriend wil u bezoeken. Vertel wanneer u thuis bent en nodig hem uit voor koffie.",
+      "modelAnswer": "Ik ben zaterdag na twee uur thuis. Kom je dan koffie drinken?",
+      "criteria": [
+        "Een tijd noemen",
+        "Een uitnodiging doen"
+      ],
+      "responseSeconds": 30,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "a2-speaking-7",
+      "level": "A2",
+      "skill": "speaking",
+      "prompt": "U komt te laat bij de les. Bied uw excuses aan en leg uit dat uw bus vertraging had.",
+      "modelAnswer": "Sorry dat ik te laat ben. Mijn bus had vertraging.",
+      "criteria": [
+        "Excuses aanbieden",
+        "De vertraging noemen"
+      ],
+      "responseSeconds": 30,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "a2-speaking-8",
+      "level": "A2",
+      "skill": "speaking",
+      "prompt": "Vertel waarom u Nederlands leert. Geef één reden en vertel hoe u oefent.",
+      "modelAnswer": "Ik leer Nederlands omdat ik met mijn buren wil praten. Ik oefen elke dag met korte teksten.",
+      "criteria": [
+        "Een reden geven",
+        "Een oefenactiviteit noemen"
+      ],
+      "responseSeconds": 30,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "b1-speaking-1",
+      "level": "B1",
+      "skill": "speaking",
+      "prompt": "Vraag een collega om een taak over te nemen en leg kort uit waarom.",
+      "modelAnswer": "Kun je vanmiddag de telefoontjes beantwoorden? Ik moet een verslag afmaken.",
+      "criteria": [
+        "Een concreet verzoek doen",
+        "Een reden geven"
+      ],
+      "responseSeconds": 20,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "b1-speaking-2",
+      "level": "B1",
+      "skill": "speaking",
+      "prompt": "U begrijpt een instructie niet. Vraag de trainer om een voorbeeld.",
+      "modelAnswer": "Kunt u een voorbeeld geven? Ik begrijp nog niet hoe ik de tabel moet invullen.",
+      "criteria": [
+        "Om een voorbeeld vragen",
+        "Aangeven wat onduidelijk is"
+      ],
+      "responseSeconds": 20,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "b1-speaking-3",
+      "level": "B1",
+      "skill": "speaking",
+      "prompt": "Een klant wacht al lang. Bied uw excuses aan en vertel dat u gaat controleren wat er aan de hand is.",
+      "modelAnswer": "Mijn excuses voor het wachten. Ik controleer meteen waarom uw bestelling nog niet klaar is.",
+      "criteria": [
+        "Excuses aanbieden",
+        "Een volgende stap noemen"
+      ],
+      "responseSeconds": 20,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "b1-speaking-4",
+      "level": "B1",
+      "skill": "speaking",
+      "prompt": "Een vriend zoekt een sportclub. Geef één tip met een reden.",
+      "modelAnswer": "Kijk eens bij de club in het buurthuis. Daar kun je eerst een proefles volgen.",
+      "criteria": [
+        "Een tip geven",
+        "Een reden of voordeel noemen"
+      ],
+      "responseSeconds": 20,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "b1-speaking-5",
+      "level": "B1",
+      "skill": "speaking",
+      "prompt": "Stel uw team voor om een wekelijkse korte bijeenkomst te houden. Geef twee voordelen.",
+      "modelAnswer": "Ik stel voor dat we iedere maandag kort overleggen. Dan weten we wie welke taak heeft en kunnen we problemen op tijd bespreken. Zo voorkomen we dubbel werk.",
+      "criteria": [
+        "Een concreet voorstel doen",
+        "Twee voordelen uitleggen"
+      ],
+      "responseSeconds": 30,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "b1-speaking-6",
+      "level": "B1",
+      "skill": "speaking",
+      "prompt": "Vertel over een probleem tijdens een groepsopdracht en leg uit hoe u het heeft opgelost.",
+      "modelAnswer": "Tijdens onze groepsopdracht maakten twee mensen hetzelfde onderdeel. We hebben daarna de taken opnieuw verdeeld en afspraken opgeschreven. Daardoor konden we op tijd klaar zijn.",
+      "criteria": [
+        "Een probleem beschrijven",
+        "De oplossing uitleggen",
+        "De volgorde duidelijk maken"
+      ],
+      "responseSeconds": 30,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "b1-speaking-7",
+      "level": "B1",
+      "skill": "speaking",
+      "prompt": "Een nieuwe vrijwilliger weet niet wat hij moet doen. Leg uit hoe hij zich meldt en wie hem helpt.",
+      "modelAnswer": "Meld je eerst bij de balie van het buurthuis. De coördinator geeft je een naamkaartje en legt je taak uit. Als je daarna vragen hebt, kun je bij haar terugkomen.",
+      "criteria": [
+        "Stappen in volgorde uitleggen",
+        "Een aanspreekpunt noemen"
+      ],
+      "responseSeconds": 30,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "b1-speaking-8",
+      "level": "B1",
+      "skill": "speaking",
+      "prompt": "Vergelijk reizen met de fiets en met de bus. Vertel welke u voor uw dagelijkse reis kiest en waarom.",
+      "modelAnswer": "De fiets is goedkoop en ik hoef niet op een bus te wachten. De bus is prettiger bij slecht weer, maar de rit duurt voor mij langer. Daarom kies ik meestal voor de fiets.",
+      "criteria": [
+        "Twee mogelijkheden vergelijken",
+        "Een keuze maken",
+        "De keuze onderbouwen"
+      ],
+      "responseSeconds": 30,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "b2-speaking-1",
+      "level": "B2",
+      "skill": "speaking",
+      "prompt": "Een collega zegt dat een voorstel zeker zal werken. Formuleer beleefd een voorbehoud.",
+      "modelAnswer": "Het voorstel klinkt veelbelovend, maar we hebben nog geen gegevens over de kosten. Ik zou eerst een proef uitvoeren.",
+      "criteria": [
+        "Beleefd reageren",
+        "Een relevante onzekerheid noemen"
+      ],
+      "responseSeconds": 20,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "b2-speaking-2",
+      "level": "B2",
+      "skill": "speaking",
+      "prompt": "Vraag een spreker een onduidelijk begrip toe te lichten.",
+      "modelAnswer": "Kunt u toelichten wat u hier met toegankelijkheid bedoelt? Gaat het om de prijs of om de bereikbaarheid?",
+      "criteria": [
+        "Een verduidelijkingsvraag stellen",
+        "Een concreet onderscheid noemen"
+      ],
+      "responseSeconds": 20,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "b2-speaking-3",
+      "level": "B2",
+      "skill": "speaking",
+      "prompt": "Een collega wil direct een besluit nemen. Stel een korte vervolgstap voor met een reden.",
+      "modelAnswer": "Ik stel voor eerst de betrokken gebruikers te raadplegen, zodat we weten welke gevolgen het besluit voor hen heeft.",
+      "criteria": [
+        "Een vervolgstap voorstellen",
+        "Die stap onderbouwen"
+      ],
+      "responseSeconds": 20,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "b2-speaking-4",
+      "level": "B2",
+      "skill": "speaking",
+      "prompt": "Geef een beleefde reactie op het voorstel om elk overleg op te nemen. Noem een bezwaar.",
+      "modelAnswer": "Voor informatieve bijeenkomsten kan dat handig zijn. Bij vertrouwelijk overleg kan een opname mensen echter terughoudender maken.",
+      "criteria": [
+        "Beleefd reageren",
+        "Een relevant bezwaar toelichten"
+      ],
+      "responseSeconds": 20,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "b2-speaking-5",
+      "level": "B2",
+      "skill": "speaking",
+      "prompt": "Vergelijk twee oplossingen voor een drukke studieruimte: reserveren of extra ruimte openen. Geef een voorkeur met argumenten.",
+      "modelAnswer": "Reserveren kan de bestaande ruimte beter verdelen, maar lost een tekort aan plaatsen niet op. Een extra lokaal vraagt beheer, maar biedt werkelijk meer capaciteit. Als de drukte structureel is, geef ik daarom de voorkeur aan een extra lokaal.",
+      "criteria": [
+        "Twee oplossingen vergelijken",
+        "Een voorkeur onderbouwen",
+        "Een samenhangend antwoord geven"
+      ],
+      "responseSeconds": 30,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "b2-speaking-6",
+      "level": "B2",
+      "skill": "speaking",
+      "prompt": "Bespreek deze fictieve uitkomst: na een nieuwe bushalte steeg het gebruik, maar parkeren werd tegelijk duurder. Leg uit waarom een oorzakelijke conclusie lastig is.",
+      "modelAnswer": "De stijging kan door de nieuwe halte komen, maar duurder parkeren kan mensen ook naar de bus hebben gestuurd. Omdat beide veranderingen tegelijk plaatsvonden, kunnen we hun effecten niet scheiden. Een vergelijkbare wijk zonder tariefwijziging zou nuttig zijn voor verder onderzoek.",
+      "criteria": [
+        "Twee mogelijke verklaringen noemen",
+        "De onzekerheid uitleggen",
+        "Een vervolgstap voorstellen"
+      ],
+      "responseSeconds": 30,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "b2-speaking-7",
+      "level": "B2",
+      "skill": "speaking",
+      "prompt": "Een organisatie wil een subsidieaanvraag eenvoudiger maken. Geef een voorstel dat toegankelijkheid en kwaliteit combineert.",
+      "modelAnswer": "We kunnen een korter formulier en een spreekuur voor vragen aanbieden. De inhoudelijke criteria moeten duidelijk blijven, zodat alle voorstellen op dezelfde kwaliteit worden beoordeeld. Zo maken we de aanvraag toegankelijker zonder automatisch lagere eisen te stellen.",
+      "criteria": [
+        "Een concreet voorstel doen",
+        "Twee belangen afwegen",
+        "Het verwachte effect toelichten"
+      ],
+      "responseSeconds": 30,
+      "preparationSeconds": 15,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    },
+    {
+      "id": "b2-speaking-8",
+      "level": "B2",
+      "skill": "speaking",
+      "prompt": "Bereid een betoog voor over een gemengde werkweek: thuis en op kantoor. Bespreek voordelen en nadelen, geef een voorbeeld, reageer op een mogelijk bezwaar en eindig met een onderbouwde aanbeveling.",
+      "modelAnswer": "Een gemengde werkweek kan werknemers helpen zich te concentreren en toch goed samen te werken. Thuis werken bespaart reistijd en is handig voor taken waarvoor rust nodig is. Op kantoor kunnen collega's gemakkelijker vragen stellen en elkaar leren kennen. Vooral nieuwe medewerkers kunnen daarvan profiteren.\nEr zijn ook nadelen. Wanneer iedereen zelf andere kantoordagen kiest, zien teamleden elkaar weinig. Bovendien heeft niet iedereen thuis een geschikte werkplek. Een medewerker die veel contact met klanten heeft, kan ook minder vrij kiezen dan iemand die vooral zelfstandig schrijft.\nIk zou daarom duidelijke afspraken per team maken. Een team kan bijvoorbeeld twee gezamenlijke kantoordagen kiezen voor overleg en begeleiding. Op andere dagen kan de locatie afhangen van de taak. Wie thuis niet goed kan werken, moet altijd naar kantoor kunnen komen.\nEen mogelijk bezwaar is dat zulke afspraken de vrijheid beperken. Toch zorgen gezamenlijke momenten juist voor voorspelbaarheid. Ik raad daarom een proefperiode aan, met regelmatige evaluatie van samenwerking, werkdruk en toegankelijkheid.",
+      "criteria": [
+        "Een duidelijke positie innemen",
+        "Voordelen en nadelen bespreken",
+        "Een voorbeeld geven",
+        "Een bezwaar beantwoorden",
+        "Met een aanbeveling afsluiten"
+      ],
+      "responseSeconds": 120,
+      "preparationSeconds": 30,
+      "provenance": "original",
+      "reviewStatus": "draft",
+      "sourceIds": [
+        "nt2-roleplay"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+[
+  {
+    "id": "hapklaar-sport",
+    "title": "Hapklaar Nederlands: Sport en nieuwjaarstraditie",
+    "author": "Pauline Degrave",
+    "file": "hapklaar-nederlands-sport.pdf",
+    "url": "https://oer.uclouvain.be/jspui/bitstream/20.500.12279/827/1/Hapklaar%20Nederlands%204%20UCLouvain.pdf",
+    "pageUrl": "https://oer.uclouvain.be/jspui/handle/20.500.12279/827",
+    "license": "CC BY-NC-SA 4.0",
+    "use": "Pedagogical reference only; no text, photographs, video or questions imported.",
+    "retrievedAt": "2026-09-30",
+    "sizeBytes": 1447504,
+    "sha256": "1ecd9dc8bebc23a1d5494e87f3b0bbddfdecc1650c02572a0c4e33094c76c9cb",
+    "pageCount": 12
+  },
+  {
+    "id": "nt2-listening",
+    "title": "Begrijpend luisteren: adviezen co-teaching NT2",
+    "author": "NT2-begeleiding Enschede",
+    "file": "nt2-begrijpend-luisteren.pdf",
+    "url": "https://nt2begeleidingenschede.nl/gallery/Begrijpend%20luisteren%3B%20adviezen%20co-teaching%20Nt2.pdf",
+    "pageUrl": "https://nt2begeleidingenschede.nl/Downloads",
+    "license": "Publisher permits use with website attribution; not a Creative Commons licence",
+    "use": "Teaching-method reference only; no copied content.",
+    "retrievedAt": "2026-09-30",
+    "sizeBytes": 174070,
+    "sha256": "722fda4fe95f65cc4998fd654c37ddad780935154c0146d189fc118a3b109aec",
+    "pageCount": 3
+  },
+  {
+    "id": "nt2-roleplay",
+    "title": "Rollenspel: adviezen co-teaching NT2",
+    "author": "NT2-begeleiding Enschede",
+    "file": "nt2-rollenspel.pdf",
+    "url": "https://nt2begeleidingenschede.nl/gallery/Rollenspel%20%3B%20adviezen%20co-teaching%20Nt2.pdf",
+    "pageUrl": "https://nt2begeleidingenschede.nl/Downloads",
+    "license": "Publisher permits use with website attribution; not a Creative Commons licence",
+    "use": "Teaching-method reference only; no copied content.",
+    "retrievedAt": "2026-09-30",
+    "sizeBytes": 168738,
+    "sha256": "e081cab9fce180d90bec4644a106de0db46469414308c301b555a235f615fdaf",
+    "pageCount": 2
+  },
+  {
+    "id": "knm-2024-curriculum",
+    "title": "Eindtermen Kennis van de Nederlandse Maatschappij — Staatscourant 2024, 15802",
+    "author": "Ministerie van Sociale Zaken en Werkgelegenheid",
+    "fileUrl": "https://zoek.officielebekendmakingen.nl/stcrt-2024-15802.pdf",
+    "pageUrl": "https://zoek.officielebekendmakingen.nl/stcrt-2024-15802.html",
+    "rightsNote": "Official curriculum publication; used to identify topics, not a copied/adapted question bank. Official exam questions excluded.",
+    "effectiveFrom": "2025-07-01",
+    "retrievedAt": "2026-09-30",
+    "pageCount": 14,
+    "bytes": 1130358,
+    "sha256": "c2adfc14f39214fde4a272c1623ba25357d405b2111e142062b1b698b636ac31"
+  }
+]

@@ -220,3 +220,7 @@ media/
 *.local
 .env.local
 .env.*.local
+
+# Versioned Dutch-practice clips are migration inputs, not user uploads.
+!apps/dutch_practice/data/media/
+!apps/dutch_practice/data/media/*.mp4
