@@ -5,6 +5,9 @@ from . import views
 app_name = "dutch_practice"
 urlpatterns = [
     path("attempts/<uuid:attempt_id>/questions/<int:position>/media/", views.MediaView.as_view(), name="media"),
+    path(
+        "attempts/<uuid:attempt_id>/questions/<int:position>/playback/", views.PlaybackView.as_view(), name="playback"
+    ),
     path("catalog/", views.CatalogView.as_view(), name="catalog"),
     path("attempts/", views.AttemptsView.as_view(), name="attempts"),
     path("attempts/<uuid:attempt_id>/", views.AttemptView.as_view(), name="attempt"),
