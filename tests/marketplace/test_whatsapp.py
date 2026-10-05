@@ -413,6 +413,9 @@ class MetaProviderTests(SimpleTestCase):
         for status, code, retryable in (
             (429, 130429, True),
             (400, 131056, True),
+            (503, 2, True),
+            (500, 131000, True),
+            (500, 131016, True),
             (401, 190, False),
             (400, 132001, False),
             (400, 131026, False),
@@ -453,6 +456,14 @@ class MetaProviderTests(SimpleTestCase):
 
 
 class WhatsAppSchedulerTests(SimpleTestCase):
+    @patch("apps.future_wise.apps._scheduler_started", False)
+    @patch("apps.future_wise.apps._start_background_scheduler")
+    def test_pytest_startup_never_starts_live_notification_scheduler(self, start_scheduler):
+        from django.apps import apps
+
+        apps.get_app_config("future_wise").ready()
+        start_scheduler.assert_not_called()
+
     def assert_registered(self, scheduler):
         registrations = [
             call

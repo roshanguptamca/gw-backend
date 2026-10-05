@@ -62,8 +62,8 @@ class FutureWiseConfig(AppConfig):
 
         connection_created.connect(_enable_sqlite_wal)
 
-        # Never start inside management commands that don't need it
-        if len(sys.argv) >= 2 and sys.argv[1] in _NO_SCHEDULER_COMMANDS:
+        # Tests must never dispatch live notifications against the configured DB.
+        if "pytest" in sys.modules or (len(sys.argv) >= 2 and sys.argv[1] in _NO_SCHEDULER_COMMANDS):
             return
 
         # Guard: only start once per process

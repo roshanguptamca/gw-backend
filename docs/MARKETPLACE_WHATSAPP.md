@@ -86,7 +86,7 @@ Official documentation reviewed on 5 October 2026:
 - [Service messages and the 24-hour customer service window](https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/send-messages)
 - [Template fundamentals, approval, positional parameters and languages](https://developers.facebook.com/documentation/business-messaging/whatsapp/templates/overview)
 - [Cloud API Messages endpoint](https://developers.facebook.com/documentation/business-messaging/whatsapp/reference/whatsapp-business-phone-number/message-api)
-- [Error codes and explicit throttling rejections](https://developers.facebook.com/documentation/business-messaging/whatsapp/support/error-codes)
+- [Error codes and explicit transient/throttling rejections](https://developers.facebook.com/documentation/business-messaging/whatsapp/support/error-codes)
 
 Outside the 24-hour customer service window, only pre-approved templates can be
 sent. An automatic checkout alert cannot assume the seller has opened that
@@ -200,7 +200,9 @@ npm run typecheck
 ```
 
 Tests inject a fake provider or patch `requests.post`; **they never send live
-WhatsApp messages**. They cover creation/rollback, disabled/missing number,
+WhatsApp messages**. Scheduler auto-start is disabled under pytest and Django's
+test command, so tests cannot dispatch against the configured application DB.
+They cover creation/rollback, disabled/missing number,
 failure isolation, data snapshots, pickup/delivery, per-shop isolation,
 bounded retries, duplicate claims, interrupted workers, provider payloads,
 phone validation, ownership and public serialization.
@@ -216,7 +218,8 @@ creation/claim/send timestamps, next attempt and sanitized error. Inspect
 - Workers use an atomic conditional claim so multiple schedulers cannot send
   the same record concurrently. Network calls do not hold a DB transaction open.
 - Requests have a 5-second connection / 15-second read timeout.
-- Explicit rate-limit rejections (HTTP 429 / documented throttling codes) are
+- Explicit rate-limit or documented temporary rejection codes (HTTP 429;
+  codes 2, 4, 80007, 130429, 131000, 131016, 131056) are
   retried after 30, 60 and 120 seconds: at most **four total attempts**.
 - Permanent rejections or missing setup become `failed`; changing the shop
   number or disabling alerts before delivery makes the record `skipped`.

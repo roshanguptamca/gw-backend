@@ -23,6 +23,7 @@ from .validators import normalize_whatsapp_phone
 logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 4
 CLAIM_TIMEOUT = timedelta(minutes=5)
+RETRYABLE_ERROR_CODES = {2, 4, 80007, 130429, 131000, 131016, 131056}
 TEMPLATE_BODY = (
     "New order - {{1}}\nAn order has been placed in your shop.\n"
     "Order: {{2}}\nCustomer: {{3}}\nPhone: {{4}}\nEmail: {{5}}\n"
@@ -110,9 +111,9 @@ class MetaCloudWhatsAppProvider:
         code = error.get("code") if isinstance(error, dict) else None
         if not isinstance(code, int):
             code = None
-        # Only explicit throttling rejections are retried. Neither raw response
+        # Only documented explicit transient rejections are retried. Neither raw response
         # text nor exception strings are retained (they may contain PII/secrets).
-        retryable = response.status_code == 429 or code in {4, 80007, 130429, 131056}
+        retryable = response.status_code == 429 or code in RETRYABLE_ERROR_CODES
         safe_code = str(code) if isinstance(code, int) else "unavailable"
         return DeliveryResult(
             error=f"Meta rejected request (HTTP {response.status_code}, code {safe_code}).",
