@@ -22,6 +22,7 @@ from django_apscheduler.models import DjangoJobExecution
 
 from apps.future_wise.tasks import cleanup_unverified_reminders, dispatch_due_reminders, expire_unverified_reminders
 from apps.jobs.tasks import delete_expired_temp_data_job
+from apps.marketplace.whatsapp import dispatch_order_whatsapp_notifications
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,15 @@ class Command(BaseCommand):
         scheduler = BlockingScheduler(timezone=getattr(settings, "TIME_ZONE", "UTC"))
         scheduler.add_jobstore(DjangoJobStore(), "default")
 
+        scheduler.add_job(
+            dispatch_order_whatsapp_notifications,
+            trigger=IntervalTrigger(seconds=5),
+            id="dispatch_order_whatsapp_notifications",
+            name="Dispatch Marketplace seller WhatsApp notifications",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
         # Dispatch due reminders every minute
         scheduler.add_job(
             dispatch_due_reminders,
@@ -89,6 +99,7 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS("✅ FutureWise scheduler starting (DB-backed, no Redis)"))
         self.stdout.write("   Jobs registered:")
+        self.stdout.write("   • dispatch_order_whatsapp_notifications — every 5 s")
         self.stdout.write("   • dispatch_due_reminders          — every 60 s")
         self.stdout.write("   • expire_unverified_reminders     — every 10 min")
         self.stdout.write("   • cleanup_unverified_reminders    — every hour")

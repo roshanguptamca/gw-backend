@@ -83,6 +83,7 @@ def _start_background_scheduler():
         from apscheduler.triggers.interval import IntervalTrigger
 
         from apps.future_wise.tasks import dispatch_due_reminders, expire_unverified_reminders
+        from apps.marketplace.whatsapp import dispatch_order_whatsapp_notifications
 
         scheduler = BackgroundScheduler(timezone=getattr(settings, "TIME_ZONE", "UTC"))
 
@@ -97,6 +98,16 @@ def _start_background_scheduler():
             from django_apscheduler.jobstores import DjangoJobStore
 
             scheduler.add_jobstore(DjangoJobStore(), "default")
+
+        scheduler.add_job(
+            dispatch_order_whatsapp_notifications,
+            trigger=IntervalTrigger(seconds=5),
+            id="dispatch_order_whatsapp_notifications",
+            name="Dispatch Marketplace seller WhatsApp notifications",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
 
         scheduler.add_job(
             dispatch_due_reminders,

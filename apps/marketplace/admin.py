@@ -20,6 +20,7 @@ from .models import (
     Order,
     OrderEmailLog,
     OrderItem,
+    OrderWhatsAppNotification,
     Product,
     ProductImage,
     SellerProfile,
@@ -430,6 +431,28 @@ class OrderEmailLogAdmin(admin.ModelAdmin):
 @admin.register(OrderItem)
 class OrderItemAdmin(admin.ModelAdmin):
     list_display = ["order", "product_name", "quantity", "unit_price", "line_total"]
+
+
+@admin.register(OrderWhatsAppNotification)
+class OrderWhatsAppNotificationAdmin(admin.ModelAdmin):
+    list_display = ["order", "status", "attempts", "provider_message_id", "created_at", "sent_at"]
+    list_filter = ["status"]
+    search_fields = ["order__order_number", "provider_message_id"]
+    readonly_fields = [
+        "order",
+        "recipient",
+        "status",
+        "provider_message_id",
+        "attempts",
+        "next_attempt_at",
+        "claimed_at",
+        "sent_at",
+        "error",
+        "created_at",
+    ]
+
+    def has_add_permission(self, request):
+        return False
 
 
 @admin.register(Coupon)

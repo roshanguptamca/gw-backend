@@ -1,8 +1,12 @@
 from decimal import Decimal
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.utils import timezone
+
+from .validators import normalize_whatsapp_phone, validate_whatsapp_phone
 
 
 class SellerProfile(models.Model):
@@ -98,6 +102,7 @@ class ShopSettings(models.Model):
     whatsapp_number = models.CharField(max_length=30, blank=True)
     whatsapp_url = models.URLField(max_length=500, blank=True)
     whatsapp_group_url = models.URLField(max_length=500, blank=True)
+    whatsapp_notifications_enabled = models.BooleanField(default=False)
     bank_transfer_instructions = models.TextField(blank=True)
     notification_email = models.EmailField(blank=True)
     new_order_email_enabled = models.BooleanField(default=True)
@@ -124,6 +129,14 @@ class ShopSettings(models.Model):
 
     def __str__(self):
         return f"Settings for {self.shop}"
+
+    def clean(self):
+        super().clean()
+        if self.whatsapp_notifications_enabled:
+            try:
+                self.whatsapp_number = normalize_whatsapp_phone(self.whatsapp_number)
+            except ValidationError as exc:
+                raise ValidationError({"whatsapp_number": exc.messages}) from exc
 
 
 class Category(models.Model):
@@ -414,6 +427,32 @@ class OrderEmailLog(models.Model):
 
     def __str__(self):
         return f"{self.email_type} -> {self.recipient} ({self.status})"
+
+
+class OrderWhatsAppNotification(models.Model):
+    """Durable outbox and audit record; the order determines the shop."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        PROCESSING = "processing", "Processing"
+        SENT = "sent", "Accepted by provider"
+        FAILED = "failed", "Failed"
+        UNKNOWN = "unknown", "Delivery uncertain; do not resend automatically"
+        SKIPPED = "skipped", "Disabled or recipient changed"
+
+    order = models.OneToOneField(Order, on_delete=models.CASCADE, related_name="whatsapp_notification")
+    recipient = models.CharField(max_length=16, validators=[validate_whatsapp_phone])
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    provider_message_id = models.CharField(max_length=255, blank=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(default=timezone.now)
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    error = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["status", "next_attempt_at"], name="marketplace_wa_due_idx")]
 
 
 class Coupon(models.Model):

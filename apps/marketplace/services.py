@@ -340,6 +340,9 @@ def _create_order_atomic(payload, user=None):
         coupon.used_count += 1
         coupon.save(update_fields=["used_count"])
 
+    from .whatsapp import WhatsAppNotificationService
+
+    WhatsAppNotificationService.enqueue(order)
     return order
 
 

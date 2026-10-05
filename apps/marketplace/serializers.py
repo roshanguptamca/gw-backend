@@ -40,6 +40,7 @@ from .models import (
     ShopSettings,
 )
 from .services import create_order_from_payload, create_seller_with_shop, generate_unique_slug
+from .validators import normalize_whatsapp_phone
 
 User = get_user_model()
 
@@ -82,6 +83,7 @@ class ShopSettingsSerializer(serializers.ModelSerializer):
             "whatsapp_number",
             "whatsapp_url",
             "whatsapp_group_url",
+            "whatsapp_notifications_enabled",
             "bank_transfer_instructions",
             "notification_email",
             "new_order_email_enabled",
@@ -102,6 +104,27 @@ class ShopSettingsSerializer(serializers.ModelSerializer):
         except (ZoneInfoNotFoundError, ValueError) as exc:
             raise serializers.ValidationError("Enter a valid IANA timezone, e.g. Europe/Amsterdam.") from exc
         return value
+
+    def validate(self, attrs):
+        enabled = attrs.get(
+            "whatsapp_notifications_enabled", getattr(self.instance, "whatsapp_notifications_enabled", False)
+        )
+        phone = attrs.get("whatsapp_number", getattr(self.instance, "whatsapp_number", ""))
+        if enabled and not phone:
+            raise serializers.ValidationError(
+                {"whatsapp_number": "A shop WhatsApp number is required when notifications are enabled."}
+            )
+        if enabled:
+            attrs["whatsapp_number"] = self.validate_whatsapp_number(phone)
+        return attrs
+
+    def validate_whatsapp_number(self, value):
+        if not value:
+            return value
+        try:
+            return normalize_whatsapp_phone(value)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.messages) from exc
 
     def validate_whatsapp_url(self, value):
         return self._validate_whatsapp_url(value)

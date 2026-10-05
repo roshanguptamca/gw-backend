@@ -297,6 +297,19 @@ to the `runserver` terminal — no SMTP setup required to see them while
 testing checkout locally. Set `EMAIL_HOST_PASSWORD` (Brevo SMTP) or
 `BREVO_API_KEY` (Brevo HTTP API) to send real emails instead.
 
+### Marketplace seller WhatsApp notifications
+
+New-order alerts can also be sent to the seller's **existing shop WhatsApp
+number** (`whatsapp_number`, shown in shop contact details). Enable this in the
+Marketplace seller portal's **Shop Configuration → Notifications** area. No
+separate recipient number or WhatsApp group is used. Delivery is server-side,
+asynchronous, and template-only via the official Meta Cloud API; existing order
+emails are unchanged.
+
+See [Marketplace WhatsApp setup and architecture](docs/MARKETPLACE_WHATSAPP.md)
+for environment configuration, required Meta approval/opt-in, local mocked
+testing, audit status, and duplicate-safe failure handling.
+
 ### Twilio WhatsApp Sandbox
 
 To test WhatsApp reminders with a Twilio trial account:
