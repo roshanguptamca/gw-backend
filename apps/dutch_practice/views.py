@@ -1,5 +1,5 @@
 from django.db import IntegrityError, transaction
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 
 from drf_spectacular.utils import extend_schema
@@ -9,8 +9,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from . import services
+from .blueprints import BANK_VERSION, REFERENCE_DATE, REFERENCES, catalog_formats
 from .models import LEVELS, SKILLS, PracticeAttempt, PracticeQuestion
-from .serializers import AnswerSerializer, StartAttemptSerializer
+from .serializers import AnswerSerializer, PlaybackSerializer, StartAttemptSerializer
 
 
 @extend_schema(tags=["Dutch Practice"])
@@ -36,6 +37,7 @@ class CatalogView(AuthenticatedPracticeView):
         counts = {
             (row["level"], row["skill"]): row["count"]
             for row in PracticeQuestion.objects.filter(is_active=True)
+            .filter(Q(payload__bankVersion__isnull=True) | ~Q(payload__bankVersion=BANK_VERSION))
             .values("level", "skill")
             .annotate(count=Count("id"))
         }
@@ -58,6 +60,16 @@ class CatalogView(AuthenticatedPracticeView):
                 ],
                 "active_attempt": services.summary(active) if active else None,
                 "format": "short-practice-preview",
+                "exam_formats": [
+                    {
+                        **spec,
+                        "available": len(services.complete_sets(spec["level"], spec["skill"])) == services.TEST_COUNT,
+                        "test_count": services.TEST_COUNT,
+                    }
+                    for spec in catalog_formats()
+                ],
+                "references": REFERENCES,
+                "verified_on": REFERENCE_DATE,
             }
         )
 
@@ -106,7 +118,9 @@ class QuestionView(AuthenticatedPracticeView):
     def get(self, request, attempt_id, position):
         attempt = self.get_attempt(request, attempt_id)
         services.require_active(attempt)
-        item = get_object_or_404(attempt.items, position=position)
+        item = get_object_or_404(attempt.items.select_related("media", "attempt"), position=position)
+        attempt.last_position = position
+        attempt.save(update_fields=["last_position"])
         return Response(services.public_question(item))
 
     @extend_schema(request=AnswerSerializer)
@@ -117,6 +131,30 @@ class QuestionView(AuthenticatedPracticeView):
         serializer.is_valid(raise_exception=True)
         item = services.save_answer(attempt, position, serializer.validated_data)
         return Response({"saved": True, "position": item.position})
+
+
+class PlaybackView(AuthenticatedPracticeView):
+    @extend_schema(request=PlaybackSerializer)
+    @transaction.atomic
+    def post(self, request, attempt_id, position):
+        from django.utils import timezone
+
+        attempt = self.get_attempt(request, attempt_id, locked=True)
+        services.require_active(attempt)
+        serializer = PlaybackSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        item = get_object_or_404(attempt.items.select_for_update(), position=position, media__isnull=False)
+        if serializer.validated_data["failed"]:
+            item.response = {**item.response, "media_error": True}
+            item.save(update_fields=["response"])
+            return Response({"recorded": True, "media_error": True})
+        if attempt.blueprint.get("playback") == "once" and item.media_started_at is not None:
+            raise services.AttemptStateConflict(
+                "This listening fragment has already been started. Replay is unavailable in timed mode."
+            )
+        item.media_started_at = timezone.now()
+        item.save(update_fields=["media_started_at"])
+        return Response({"started": True, "media_started_at": item.media_started_at})
 
 
 class SubmitView(AuthenticatedPracticeView):

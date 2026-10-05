@@ -2,7 +2,70 @@
 
 Separate Django app `apps.dutch_practice`; session-authenticated API under `/api/dutch-practice/`.
 
+## Complete timed mocks (bank v3)
+
+The legacy four-question limit is retained **only for short practice**. Start
+with `mode: "mock"` for a complete timed component, or `mode: "practice"` for the
+original short sessions. Old clients default to practice. The catalog advertises
+the applicable full formats and fails availability when any required set/media
+is missing. Starting never falls back to a shorter exam.
+
+| Level/component | Reading | Listening | Writing | Speaking | Complete sets |
+|---|---:|---:|---:|---:|---:|
+| A1 extended level practice | 12 | 12 | 4 | 8 | 20 per skill |
+| A2 inburgering-style | 25 | 25 | 4 | 16 | 20 per skill |
+| B1 / NT2 Programme I | 36 | 40 | 12 | 16 | 20 per skill |
+| B2 / NT2 Programme II | 36 | 40 | 10 | 13 | 20 per skill |
+| KNM standalone (A2 language) | — | — | — | — | 20 × 40 civic tasks |
+
+There are **6,980 new tasks in 340 complete sets**, plus the immutable 320 legacy
+questions. New records carry stable IDs, topic, target/difficulty, task type,
+set number and bank version. Twenty complete authoring sets per component are
+selected with recent-attempt avoidance; grouped texts/questions remain together.
+Question wording and shuffled answer mappings are snapshotted. A selected set
+may differ from the requested choice after recent repetition; `blueprint.selected_set`
+records the actual authoring set.
+
+Deadlines, selected order, last viewed position, answers and playback starts are
+stored server-side. Expired timed attempts submit saved responses automatically;
+unanswered objective tasks score zero. Timed NT2 listening has a 25-second
+question preview and one playback; browser autoplay blocking is reported with a
+manual recovery action. Playback reservations survive refresh, so a refreshed
+fragment cannot be replayed. Short practice continues allowing transcript
+assistance/replays. Audio failure is never reported as a successful listen.
+
+The v3 seed migration imports the committed MP3/MP4 media with checksum validation
+into the database. No TTS engine, external AI or paid call is needed while taking
+an exam. The new bundle contains **1,285 files: 1,125 MP3s and 160 MP4s,
+419,551,550 bytes (about 420 MB)**, in addition to legacy clips. Allow for this
+database/storage/backup increase when subsequently planning deployment.
+Both file checksums and bank-to-recording script hashes are verified by migration.
+Offline authoring scripts are `tools/build_dutch_exam_bank.py` and
+`tools/generate_dutch_exam_audio.py`; their output is versioned and immutable
+after release. Do not modify a released bank or regenerate its assets in place.
+Writing/speaking have explicit self-assessment rubrics and null numeric grades.
+Local microphone recordings are temporary; only confirmation/notes persist.
+Full A2 speaking includes original illustrated videos and 1/2/3-diagram prompts,
+four of each as an author-chosen balance. KNM includes five tasks per each of
+the eight current curriculum themes; this is not an official weighting.
+Writing drafts and unconfirmed speaking notes persist without marking the task
+answered. Clearing a full-mode writing response clears its answered state.
+
+For dated official sources, format comparison, supported interactions and
+remaining limitations, see [dutch-exam-alignment.md](dutch-exam-alignment.md).
+This bank uses reusable original authoring structures, not 6,980 independently
+teacher-calibrated questions. Exact duplicate tasks are checked; underlying
+topics/principles and structures recur across sets. Native Dutch/NT2 review and
+validated assessment remain outstanding.
+
+Additional endpoint: `POST attempts/{id}/questions/{position}/playback/` records
+the start of a fragment and rejects a second timed NT2 playback reservation.
+Posting `{"failed": true}` instead records a technical interruption, which
+remains visible in results even after the learner saves another answer.
+
 ## Available content
+
+The following table describes **legacy short practice**, not the full formats above.
 
 | Language difficulty | Reading | Writing | Listening | Speaking | KNM |
 |---|---:|---:|---:|---:|---:|
@@ -38,10 +101,11 @@ Run `python manage.py migrate`. Versioned migrations seed both banks and media; 
 |---|---|---|
 | `catalog/` | GET | Levels, categories, availability and active attempt |
 | `attempts/` | GET / POST | Paginated own history / start level, skill, mock_test 1–20 |
-| `attempts/{id}/` | GET | Own attempt metadata and next unanswered position |
+| `attempts/{id}/` | GET | Own metadata; last viewed timed task or next unanswered practice task |
 | `attempts/{id}/questions/{position}/` | GET / POST | One question / save choice, text or spoken confirmation |
 | `attempts/{id}/questions/{position}/media/` | GET | Owned active/completed clip, including byte ranges |
-| `attempts/{id}/submit/` | POST | Require all answers, score, persist and return feedback |
+| `attempts/{id}/submit/` | POST | Score/persist feedback; short practice requires all answers |
+| `attempts/{id}/questions/{position}/playback/` | POST | Reserve playback or record a technical media interruption |
 | `attempts/{id}/abandon/` | POST | Release active attempt |
 | `attempts/{id}/result/` | GET | Feedback after completion only |
 

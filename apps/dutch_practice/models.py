@@ -92,6 +92,10 @@ class PracticeAttempt(models.Model):
     completed_at = models.DateTimeField(null=True, blank=True)
     score = models.PositiveSmallIntegerField(null=True, blank=True)
     assisted = models.BooleanField(default=False)
+    mode = models.CharField(max_length=10, default="practice", choices=[("practice", "Practice"), ("mock", "Mock")])
+    bank_version = models.CharField(max_length=40, default="legacy-v2")
+    blueprint = models.JSONField(default=dict, blank=True)
+    last_position = models.PositiveSmallIntegerField(default=0)
 
     class Meta:
         ordering = ["-created_at"]
@@ -112,6 +116,7 @@ class AttemptQuestion(models.Model):
     snapshot = models.JSONField()
     response = models.JSONField(default=dict, blank=True)
     answered_at = models.DateTimeField(null=True, blank=True)
+    media_started_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["position"]

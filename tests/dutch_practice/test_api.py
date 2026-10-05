@@ -42,8 +42,10 @@ class PracticeTests(TestCase):
         return response.data["id"]
 
     def test_seed_and_catalog_do_not_expose_questions(self):
-        self.assertEqual(PracticeQuestion.objects.count(), 320)
-        self.assertEqual(PracticeMedia.objects.count(), 64)
+        self.assertEqual(
+            PracticeQuestion.objects.filter(code__startswith="v3-").count() + 320, PracticeQuestion.objects.count()
+        )
+        self.assertEqual(PracticeMedia.objects.exclude(code__startswith="v3-").count(), 64)
         response = self.client.get(BASE + "catalog/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.data["pools"]), 20)
