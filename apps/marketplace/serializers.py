@@ -1,6 +1,7 @@
 import re
 from decimal import Decimal
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
@@ -11,6 +12,7 @@ from django.utils.html import strip_tags
 
 from rest_framework import serializers
 
+from . import ordering
 from .cloudinary_service import (
     PRODUCT_IMAGE_MAX_BYTES,
     SHOP_BANNER_MAX_BYTES,
@@ -26,12 +28,14 @@ from .models import (
     Campaign,
     Category,
     Coupon,
+    MeasureUnit,
     Order,
     OrderCancellationRequest,
     OrderItem,
     Product,
     ProductImage,
     SellerProfile,
+    SellingUnit,
     Shop,
     ShopSettings,
 )
@@ -84,10 +88,20 @@ class ShopSettingsSerializer(serializers.ModelSerializer):
             "cancellation_request_email_enabled",
             "low_stock_notification_enabled",
             "supported_delivery_countries",
+            "pickup_slot_minutes",
+            "pickup_timezone",
+            "pickup_booking_window_days",
         ]
         extra_kwargs = {
             "min_order_amount": {"min_value": Decimal("0.00")},
         }
+
+    def validate_pickup_timezone(self, value):
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise serializers.ValidationError("Enter a valid IANA timezone, e.g. Europe/Amsterdam.") from exc
+        return value
 
     def validate_whatsapp_url(self, value):
         return self._validate_whatsapp_url(value)
@@ -247,6 +261,9 @@ class ProductSerializer(serializers.ModelSerializer):
     images = PublicProductImageSerializer(many=True, read_only=True)
     image = serializers.ImageField(write_only=True, required=False, allow_null=True)
     image_url = serializers.SerializerMethodField(read_only=True)
+    ordering_rules = serializers.SerializerMethodField(read_only=True)
+    order_lead_time_hours = serializers.SerializerMethodField(read_only=True)
+    selling_format_label = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Product
@@ -274,6 +291,16 @@ class ProductSerializer(serializers.ModelSerializer):
             "is_featured",
             "preparation_time_minutes",
             "weight_grams",
+            "selling_unit",
+            "units_per_pack",
+            "weight_value",
+            "weight_unit",
+            "minimum_order_quantity",
+            "minimum_physical_units",
+            "minimum_order_amount",
+            "order_lead_time_hours",
+            "ordering_rules",
+            "selling_format_label",
             "created_at",
             "updated_at",
         ]
@@ -284,12 +311,22 @@ class ProductSerializer(serializers.ModelSerializer):
             "image_public_id",
             "image_url",
             "is_approved",
+            "weight_grams",
             "created_at",
             "updated_at",
         ]
 
     def get_image_url(self, obj):
         return obj.image_url or ""
+
+    def get_ordering_rules(self, obj):
+        return ordering.ordering_rules(obj)
+
+    def get_order_lead_time_hours(self, obj):
+        return ordering.lead_time_hours(obj.preparation_time_minutes)
+
+    def get_selling_format_label(self, obj):
+        return ordering.describe_selling_format(obj)
 
     def validate_image(self, value):
         return validate_image_upload(value, max_bytes=PRODUCT_IMAGE_MAX_BYTES)
@@ -302,7 +339,31 @@ class ProductSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("SKU may contain only letters, numbers, hyphens, and underscores.")
         return value
 
+    def _validate_selling_format(self, attrs):
+        def current(field):
+            return attrs[field] if field in attrs else getattr(self.instance, field, None)
+
+        selling_unit = current("selling_unit") or SellingUnit.PIECE
+        if selling_unit == SellingUnit.WEIGHT:
+            if current("weight_value") is None or not current("weight_unit"):
+                raise serializers.ValidationError(
+                    {"weight_value": "Weight-based products need a weight and a unit (e.g. 250 gram)."}
+                )
+            if current("units_per_pack"):
+                attrs["units_per_pack"] = None
+        else:
+            if selling_unit == SellingUnit.PACK and not current("units_per_pack"):
+                raise serializers.ValidationError({"units_per_pack": "Enter how many pieces are in one pack."})
+            if (current("weight_value") is None) != (not current("weight_unit")):
+                raise serializers.ValidationError(
+                    {"weight_unit": "Provide both a weight value and a unit, or neither."}
+                )
+        weight_unit = current("weight_unit")
+        if weight_unit and weight_unit not in MeasureUnit.values:
+            raise serializers.ValidationError({"weight_unit": "Unsupported unit."})
+
     def validate(self, attrs):
+        self._validate_selling_format(attrs)
         image = attrs.get("image")
         sku = attrs.get("sku", getattr(self.instance, "sku", None))
         if image and not sku:
@@ -385,9 +446,30 @@ class ProductImageSerializer(serializers.ModelSerializer):
 
 
 class OrderItemSerializer(serializers.ModelSerializer):
+    quantity_description = serializers.SerializerMethodField()
+
     class Meta:
         model = OrderItem
-        fields = ["id", "product", "product_name", "unit_price", "quantity", "line_total"]
+        fields = [
+            "id",
+            "product",
+            "product_name",
+            "unit_price",
+            "quantity",
+            "line_total",
+            "sku",
+            "selling_unit",
+            "units_per_pack",
+            "weight_value",
+            "weight_unit",
+            "physical_quantity",
+            "total_weight_value",
+            "ordering_rules_snapshot",
+            "quantity_description",
+        ]
+
+    def get_quantity_description(self, obj):
+        return ordering.describe_quantity(obj, obj.quantity) if obj.selling_unit else str(obj.quantity)
 
 
 class OrderSerializer(serializers.ModelSerializer):
@@ -409,6 +491,8 @@ class OrderSerializer(serializers.ModelSerializer):
             "customer_phone",
             "delivery_address",
             "fulfillment_snapshot",
+            "pickup_slot_start",
+            "pickup_slot_end",
             "order_type",
             "delivery_zone",
             "status",
@@ -435,6 +519,8 @@ class OrderSerializer(serializers.ModelSerializer):
             "delivery_fee",
             "total",
             "fulfillment_snapshot",
+            "pickup_slot_start",
+            "pickup_slot_end",
             "created_at",
             "updated_at",
         ]
@@ -453,6 +539,7 @@ class OrderCreateSerializer(serializers.Serializer):
     payment_method = serializers.ChoiceField(choices=Order.PAYMENT_METHOD_CHOICES, default="cash")
     customer_note = serializers.CharField(required=False, allow_blank=True)
     coupon_code = serializers.CharField(required=False, allow_blank=True)
+    pickup_slot_start = serializers.DateTimeField(required=False, allow_null=True, default=None)
     items = serializers.ListField(child=serializers.DictField(), min_length=1)
     terms_accepted = serializers.BooleanField()
     create_account = serializers.BooleanField(required=False, default=False)
@@ -713,6 +800,9 @@ class PublicShopSettingsSerializer(serializers.ModelSerializer):
             "pickup_postal_code",
             "pickup_city",
             "pickup_country",
+            "pickup_slot_minutes",
+            "pickup_timezone",
+            "pickup_booking_window_days",
         ]
 
 

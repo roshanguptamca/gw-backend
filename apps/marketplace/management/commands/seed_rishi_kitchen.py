@@ -79,6 +79,9 @@ PRODUCTS = [
         "description": "Crispy homemade Indian savoury snack, perfect with tea.",
         "price": Decimal("5.00"),
         "weight_grams": 500,
+        "selling_unit": "WEIGHT",
+        "weight_value": Decimal("500"),
+        "weight_unit": "GRAM",
         "sku": "RK-NP-500",
         "is_featured": True,
     },
@@ -89,6 +92,11 @@ PRODUCTS = [
         "description": "Crispy pastry filled with traditional Indian spiced potato filling. 2 pieces.",
         "price": Decimal("5.00"),
         "sku": "RK-SAM-2",
+        "selling_unit": "PACK",
+        "units_per_pack": 2,
+        "minimum_physical_units": 10,
+        "minimum_order_amount": Decimal("20.00"),
+        "preparation_time_minutes": 24 * 60,
     },
     {
         "name": "Vada Pav",
@@ -97,6 +105,8 @@ PRODUCTS = [
         "description": "Popular Indian street food with spiced potato fritter served in a bun. 2 pieces.",
         "price": Decimal("5.00"),
         "sku": "RK-VP-2",
+        "selling_unit": "PACK",
+        "units_per_pack": 2,
     },
     {
         "name": "Murmura Namkeen 250g",
@@ -105,6 +115,9 @@ PRODUCTS = [
         "description": "Light and crunchy puffed rice snack with traditional spices.",
         "price": Decimal("5.00"),
         "weight_grams": 250,
+        "selling_unit": "WEIGHT",
+        "weight_value": Decimal("250"),
+        "weight_unit": "GRAM",
         "sku": "RK-MN-250",
     },
     {
@@ -114,6 +127,9 @@ PRODUCTS = [
         "description": "Family-size puffed rice snack mix with authentic Indian flavour.",
         "price": Decimal("10.00"),
         "weight_grams": 500,
+        "selling_unit": "WEIGHT",
+        "weight_value": Decimal("500"),
+        "weight_unit": "GRAM",
         "sku": "RK-MN-500",
     },
     # ── Sweets ────────────────────────────────────────────────────────────
@@ -124,6 +140,9 @@ PRODUCTS = [
         "description": "Soft milk-based sweet dumplings soaked in aromatic sugar syrup.",
         "price": Decimal("10.00"),
         "weight_grams": 500,
+        "selling_unit": "WEIGHT",
+        "weight_value": Decimal("500"),
+        "weight_unit": "GRAM",
         "sku": "RK-GJ-500",
         "is_featured": True,
     },
@@ -134,6 +153,9 @@ PRODUCTS = [
         "description": "Traditional festive sweet pastry filled with roasted semolina.",
         "price": Decimal("5.00"),
         "weight_grams": 250,
+        "selling_unit": "WEIGHT",
+        "weight_value": Decimal("250"),
+        "weight_unit": "GRAM",
         "sku": "RK-GR-250",
     },
     {
@@ -143,6 +165,9 @@ PRODUCTS = [
         "description": "Family-size festive sweet pastry filled with roasted semolina.",
         "price": Decimal("10.00"),
         "weight_grams": 500,
+        "selling_unit": "WEIGHT",
+        "weight_value": Decimal("500"),
+        "weight_unit": "GRAM",
         "sku": "RK-GR-500",
     },
     {
@@ -152,6 +177,9 @@ PRODUCTS = [
         "description": "Rich traditional Gujia filled with sweetened milk solids.",
         "price": Decimal("10.00"),
         "weight_grams": 250,
+        "selling_unit": "WEIGHT",
+        "weight_value": Decimal("250"),
+        "weight_unit": "GRAM",
         "sku": "RK-GM-250",
     },
     {
@@ -161,6 +189,9 @@ PRODUCTS = [
         "description": "Premium festive Gujia with rich mava filling.",
         "price": Decimal("18.00"),
         "weight_grams": 500,
+        "selling_unit": "WEIGHT",
+        "weight_value": Decimal("500"),
+        "weight_unit": "GRAM",
         "sku": "RK-GM-500",
     },
     # ── Fresh Food ────────────────────────────────────────────────────────
@@ -171,6 +202,11 @@ PRODUCTS = [
         "description": "Soft steamed South Indian rice cakes served fresh. 2 pieces.",
         "price": Decimal("5.00"),
         "sku": "RK-IDLI-2",
+        "selling_unit": "PACK",
+        "units_per_pack": 2,
+        "minimum_physical_units": 10,
+        "minimum_order_amount": Decimal("20.00"),
+        "preparation_time_minutes": 48 * 60,
         "is_featured": True,
     },
     {
@@ -180,8 +216,22 @@ PRODUCTS = [
         "description": "Traditional South Indian lentil doughnuts, crispy outside and soft inside. 2 pieces.",
         "price": Decimal("5.00"),
         "sku": "RK-MG-2",
+        "selling_unit": "PACK",
+        "units_per_pack": 2,
     },
 ]
+
+
+# Selling-format / ordering-rule fields applied from the definitions above.
+SELLING_FORMAT_FIELDS = (
+    "selling_unit",
+    "units_per_pack",
+    "weight_value",
+    "weight_unit",
+    "minimum_physical_units",
+    "minimum_order_amount",
+    "preparation_time_minutes",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -342,6 +392,7 @@ class Command(BaseCommand):
                 "is_approved": True,
                 "is_featured": prod_def.get("is_featured", False),
                 "weight_grams": prod_def.get("weight_grams"),
+                **{field: prod_def[field] for field in SELLING_FORMAT_FIELDS if field in prod_def},
                 "image_url": PRODUCT_PLACEHOLDER_URL,
                 "external_image_url": "",
             }

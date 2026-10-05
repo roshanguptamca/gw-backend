@@ -52,6 +52,7 @@ def _is_database_locked_error(exc: BaseException) -> bool:
     return isinstance(exc, OperationalError) and "database is locked" in str(exc).lower()
 
 
+from . import ordering
 from .models import (
     Category,
     Coupon,
@@ -205,6 +206,14 @@ def _create_order_atomic(payload, user=None):
         subtotal += line_total
         order_lines.append((product, quantity, line_total))
 
+    rule_errors = [
+        error
+        for product, quantity, line_total in order_lines
+        for error in ordering.product_rule_violations(product, quantity, line_total)
+    ]
+    if rule_errors:
+        raise ordering.OrderRuleViolation(rule_errors)
+
     settings = getattr(shop, "settings", None)
     if settings and subtotal < settings.min_order_amount:
         raise ShopMinimumOrderNotMet(shop, subtotal, settings.min_order_amount)
@@ -218,6 +227,13 @@ def _create_order_atomic(payload, user=None):
             raise serializers.ValidationError({"delivery_address": "A delivery address is required."})
     elif not shop.pickup_available:
         raise serializers.ValidationError({"order_type": "Pickup is not available for this shop."})
+
+    lead_minutes = ordering.required_lead_minutes(product for product, _, _ in order_lines)
+    pickup_slot = None
+    if order_type == "pickup":
+        pickup_slot = ordering.validate_pickup_slot(
+            shop, lead_minutes, payload.get("pickup_slot_start"), ordering.current_time()
+        )
 
     coupon = active_coupon_for_shop(shop, payload.get("coupon_code"))
     discount_total = calculate_discount(coupon, subtotal)
@@ -267,6 +283,13 @@ def _create_order_atomic(payload, user=None):
         "delivery_area": shop.delivery_area if order_type == "delivery" else "",
         "pickup_instructions": settings.pickup_instructions if settings and order_type == "pickup" else "",
         "delivery_instructions": settings.delivery_notes if settings and order_type == "delivery" else "",
+        "required_lead_time_minutes": lead_minutes,
+        "required_lead_time_hours": ordering.lead_time_hours(lead_minutes),
+        "pickup_timezone": str(ordering.shop_timezone(shop)),
+        "pickup_slot_start": pickup_slot.start.isoformat() if pickup_slot else "",
+        "pickup_slot_end": pickup_slot.end.isoformat() if pickup_slot else "",
+        "pickup_date": ordering.format_pickup_date(pickup_slot.start) if pickup_slot else "",
+        "pickup_time": pickup_slot.as_dict()["label"] if pickup_slot else "",
     }
     order = Order.objects.create(
         shop=shop,
@@ -277,6 +300,8 @@ def _create_order_atomic(payload, user=None):
         customer_phone=payload["customer_phone"],
         delivery_address=delivery_address,
         fulfillment_snapshot=fulfillment_snapshot,
+        pickup_slot_start=pickup_slot.start if pickup_slot else None,
+        pickup_slot_end=pickup_slot.end if pickup_slot else None,
         order_type=order_type,
         delivery_zone=delivery_zone,
         payment_method=payload.get("payment_method", "cash"),
@@ -300,6 +325,14 @@ def _create_order_atomic(payload, user=None):
             unit_price=product.price,
             quantity=quantity,
             line_total=line_total,
+            sku=product.sku or "",
+            selling_unit=ordering.selling_unit_of(product),
+            units_per_pack=product.units_per_pack,
+            weight_value=product.weight_value,
+            weight_unit=product.weight_unit,
+            physical_quantity=ordering.physical_quantity(product, quantity),
+            total_weight_value=ordering.total_weight(product, quantity),
+            ordering_rules_snapshot=ordering.ordering_rules(product),
         )
         product.stock_quantity -= quantity
         product.save(update_fields=["stock_quantity", "updated_at"])
@@ -462,6 +495,20 @@ def _send_and_log_order_email(order, email_type, recipient, send_fn):
             order.save(update_fields=["seller_email_sent_at"])
 
 
+def order_item_quantity_text(item):
+    """Quantity description from the order item's snapshot (legacy items fall back to the count)."""
+    if not item.selling_unit:
+        return str(item.quantity)
+    return ordering.describe_quantity(item, item.quantity)
+
+
+def _order_pickup_lines(order):
+    """(date, time, lead hours) from the fulfilment snapshot; empty strings when not scheduled."""
+    snapshot = order.fulfillment_snapshot or {}
+    lead_hours = snapshot.get("required_lead_time_hours") or 0
+    return snapshot.get("pickup_date", ""), snapshot.get("pickup_time", ""), lead_hours
+
+
 def send_buyer_confirmation_email(order):
     """Send HTML order confirmation to buyer (if email provided)."""
     if not order.customer_email:
@@ -484,8 +531,11 @@ def send_buyer_confirmation_email(order):
             or parsed_group_url.password
         ):
             whatsapp_group_url = ""
+    pickup_date, pickup_time, lead_hours = _order_pickup_lines(order)
     items_html = "".join(
-        f"<tr><td>{escape(item.product_name)}</td><td style='text-align:center'>{item.quantity}</td>"
+        f"<tr><td>{escape(item.product_name)}"
+        f"{f'<br><small>SKU: {escape(item.sku)}</small>' if item.sku else ''}</td>"
+        f"<td style='text-align:center'>{escape(order_item_quantity_text(item))}</td>"
         f"<td style='text-align:right'>{item.unit_price} {escape(currency)}</td>"
         f"<td style='text-align:right'>{item.line_total} {escape(currency)}</td></tr>"
         for item in order.items.all()
@@ -514,6 +564,9 @@ def send_buyer_confirmation_email(order):
       <tbody>{items_html}</tbody>
     </table>
     <p><strong>Delivery method:</strong> {delivery_label}</p>
+    {f"<p><strong>Pickup date:</strong> {escape(pickup_date)}</p>" if pickup_date else ""}
+    {f"<p><strong>Pickup time:</strong> {escape(pickup_time)}</p>" if pickup_time else ""}
+    {f"<p><strong>Preparation requirement:</strong> {lead_hours} hours</p>" if lead_hours else ""}
     {f"<p><strong>{'Delivery address' if order.order_type == 'delivery' else 'Pickup address'}:</strong> {escape(fulfillment_address)}</p>" if fulfillment_address else ""}
     {f"<p><strong>Instructions:</strong> {escape(instructions)}</p>" if instructions else ""}
     <p><strong>Contact:</strong> {escape(order.customer_phone)}{f" · {escape(order.customer_email)}" if order.customer_email else ""}</p>
@@ -525,7 +578,9 @@ def send_buyer_confirmation_email(order):
     {f"<p><strong>Your note:</strong> {escape(order.customer_note)}</p>" if order.customer_note else ""}
     """
     plain_items = "\n".join(
-        f"- {item.quantity} x {item.product_name}: {item.line_total} {currency}" for item in order.items.all()
+        f"- {item.product_name}{f' [{item.sku}]' if item.sku else ''}: {order_item_quantity_text(item)}"
+        f" at {item.unit_price} {currency} = {item.line_total} {currency}"
+        for item in order.items.all()
     )
     plain_message = (
         f"Order {order.order_number} confirmed from {snapshot.get('shop_name') or order.shop.name}.\n"
@@ -541,6 +596,9 @@ def send_buyer_confirmation_email(order):
         f"Grand total: {order.total} {currency}\n"
         f"Status: {order.status}\n"
         f"Delivery method: {delivery_label}\n"
+        f"{'Pickup date: ' + pickup_date + chr(10) if pickup_date else ''}"
+        f"{'Pickup time: ' + pickup_time + chr(10) if pickup_time else ''}"
+        f"{'Preparation requirement: ' + str(lead_hours) + ' hours' + chr(10) if lead_hours else ''}"
         f"Contact: {order.customer_phone}{' / ' + order.customer_email if order.customer_email else ''}\n"
         f"{'Address: ' + fulfillment_address + chr(10) if fulfillment_address else ''}"
         f"{'Instructions: ' + instructions + chr(10) if instructions else ''}"
@@ -574,8 +632,10 @@ def send_seller_notification_email(order):
     instructions = snapshot.get(
         "delivery_instructions" if order.order_type == "delivery" else "pickup_instructions", ""
     )
+    pickup_date, pickup_time, lead_hours = _order_pickup_lines(order)
     items = "\n".join(
-        f"- {item.quantity} x {item.product_name} at {item.unit_price} {currency} = {item.line_total} {currency}"
+        f"- {item.product_name}{f' [{item.sku}]' if item.sku else ''}: {order_item_quantity_text(item)}"
+        f" at {item.unit_price} {currency} = {item.line_total} {currency}"
         for item in order.items.all()
     )
     message = (
@@ -585,6 +645,9 @@ def send_seller_notification_email(order):
         f"Phone: {order.customer_phone}\n"
         f"Email: {order.customer_email or 'not provided'}\n"
         f"Delivery method: {delivery_label}\n"
+        f"{'Pickup date: ' + pickup_date + chr(10) if pickup_date else ''}"
+        f"{'Pickup time: ' + pickup_time + chr(10) if pickup_time else ''}"
+        f"{'Required preparation: ' + str(lead_hours) + ' hours' + chr(10) if lead_hours else ''}"
         f"{'Address: ' + fulfillment_address + chr(10) if fulfillment_address else ''}"
         f"{'Instructions: ' + instructions + chr(10) if instructions else ''}"
         f"{'Customer note: ' + order.customer_note + chr(10) if order.customer_note else ''}"
