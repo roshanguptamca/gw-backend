@@ -9,9 +9,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from . import services
+from .blueprints import BANK_VERSION, REFERENCE_DATE, REFERENCES, catalog_formats
 from .models import LEVELS, SKILLS, PracticeAttempt, PracticeQuestion
 from .serializers import AnswerSerializer, PlaybackSerializer, StartAttemptSerializer
-from .blueprints import BANK_VERSION, REFERENCES, REFERENCE_DATE, catalog_formats
 
 
 @extend_schema(tags=["Dutch Practice"])

@@ -16,7 +16,7 @@ from rest_framework.test import APIClient
 
 from apps.dutch_practice import services
 from apps.dutch_practice.blueprints import BANK_VERSION, catalog_formats
-from apps.dutch_practice.models import PracticeAttempt, PracticeMedia, PracticeQuestion, validate_payload
+from apps.dutch_practice.models import PracticeAttempt, PracticeQuestion, validate_payload
 
 BASE = "/api/dutch-practice/"
 DATA = Path(__file__).resolve().parents[2] / "apps/dutch_practice/data"
@@ -226,7 +226,6 @@ class ExamTests(TestCase):
 
     def test_once_only_listening_persists_across_refresh_and_hides_transcript(self):
         attempt = self.start("B2", "listening")
-        item = attempt.items.first()
         question_path = BASE + f"attempts/{attempt.pk}/questions/0/"
         question = self.client.get(question_path).data["question"]
         self.assertNotIn("transcript", question)
@@ -249,7 +248,6 @@ class ExamTests(TestCase):
     def test_writing_speaking_rubrics_no_numeric_score_or_pass_claim(self):
         for skill in ("writing", "speaking"):
             attempt = self.start("B2", skill)
-            item = attempt.items.first()
             answer = {"text": "Mijn antwoord."} if skill == "writing" else {"spoken": True, "text": "Mijn notities."}
             self.client.post(BASE + f"attempts/{attempt.pk}/questions/0/", answer, format="json")
             response = self.client.post(BASE + f"attempts/{attempt.pk}/submit/", {}, format="json")

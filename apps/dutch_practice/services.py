@@ -11,8 +11,8 @@ from django.utils import timezone
 
 from rest_framework.exceptions import APIException, ValidationError
 
-from .models import AttemptQuestion, PracticeAttempt, PracticeQuestion, validate_payload
 from .blueprints import BANK_VERSION, blueprint
+from .models import AttemptQuestion, PracticeAttempt, PracticeQuestion, validate_payload
 
 QUESTIONS_PER_TEST = 4
 TEST_COUNT = 20

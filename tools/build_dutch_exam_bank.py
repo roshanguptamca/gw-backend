@@ -1,14 +1,15 @@
 """Offline, deterministic original-bank authoring. Never run during an exam."""
 
-import json
 import hashlib
+import json
 import sys
 from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from apps.dutch_practice.blueprints import BANK_VERSION, catalog_formats
-from dutch_exam_scenarios import CIVIC, CIVIC_DISTRACTORS, INTENT, KNM_THEMES, SCENARIOS
+from dutch_exam_scenarios import CIVIC, CIVIC_DISTRACTORS, INTENT, KNM_THEMES, SCENARIOS  # noqa: E402
+
+from apps.dutch_practice.blueprints import BANK_VERSION, catalog_formats  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1] / "apps/dutch_practice/data"
 NAMES = [
