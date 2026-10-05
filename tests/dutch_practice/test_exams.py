@@ -335,8 +335,15 @@ class ExamTests(TestCase):
         self.assertEqual(self.client.get(base + "result/").data, virtual)
 
     def test_expired_short_practice_reads_without_updates(self):
-        attempt = services.start_attempt(self.user, "A1", "reading", 1)
-        PracticeAttempt.objects.filter(pk=attempt.pk).update(expires_at=timezone.now() - timedelta(seconds=1))
+        attempt = PracticeAttempt.objects.create(
+            user=self.user,
+            level="A1",
+            skill="reading",
+            mock_test=1,
+            mode="practice",
+            question_signature="expired-short-practice",
+            expires_at=timezone.now() - timedelta(seconds=1),
+        )
         with patch(
             "apps.dutch_practice.services.expire_attempts", side_effect=AssertionError("GET attempted expiry writes")
         ):
