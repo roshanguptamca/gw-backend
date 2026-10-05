@@ -27,7 +27,14 @@ may differ from the requested choice after recent repetition; `blueprint.selecte
 records the actual authoring set.
 
 Deadlines, selected order, last viewed position, answers and playback starts are
-stored server-side. Expired timed attempts submit saved responses automatically;
+stored server-side. GET/HEAD endpoints never write, so they work in read-only
+transactions. Elapsed deadlines are presented as completed timed results (or
+expired short practice) from saved responses without changing the database.
+The next owner POST persists expiry/completion under a write transaction;
+starting a new attempt also finalizes any elapsed attempts before checking the
+single-active-attempt constraint. Viewed timed positions are saved through
+`POST attempts/{id}/questions/{position}/position/`, not question GET.
+Expired timed attempts submit saved responses automatically;
 unanswered objective tasks score zero. Timed NT2 listening has a 25-second
 question preview and one playback; browser autoplay blocking is reported with a
 manual recovery action. Playback reservations survive refresh, so a refreshed
