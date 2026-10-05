@@ -180,6 +180,12 @@ class ExamTests(TestCase):
             )
         self.assertTrue(any(item.snapshot["answer"] != 0 for item in items))
         position = 12
+        self.assertEqual(
+            self.client.post(
+                BASE + f"attempts/{attempt.pk}/questions/{position}/position/", {}, format="json"
+            ).status_code,
+            200,
+        )
         before = self.client.get(BASE + f"attempts/{attempt.pk}/questions/{position}/").data
         original = PracticeQuestion.objects.get(code=items[position].snapshot["id"])
         original.payload["prompt"] = "Changed live bank; must not change this attempt"
@@ -294,3 +300,62 @@ class ExamTests(TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertFalse(PracticeAttempt.objects.filter(user=self.user).exists())
+
+    def test_get_endpoints_never_write_even_when_deadlines_elapse(self):
+        def read_only(execute, sql, params, many, context):
+            statement = sql.lstrip().upper()
+            self.assertFalse(statement.startswith(("UPDATE", "INSERT", "DELETE")), sql)
+            self.assertNotIn("FOR UPDATE", statement)
+            return execute(sql, params, many, context)
+
+        attempt = self.start("A2", "listening")
+        base = BASE + f"attempts/{attempt.pk}/"
+        with connection.execute_wrapper(read_only):
+            for path in ("catalog/", "attempts/"):
+                self.assertEqual(self.client.get(BASE + path).status_code, 200)
+            for path in ("", "questions/0/", "questions/0/media/"):
+                self.assertEqual(self.client.get(base + path).status_code, 200)
+            self.assertEqual(self.client.get(base + "result/").status_code, 409)
+        attempt.refresh_from_db()
+        self.assertEqual(attempt.last_position, 0)
+        self.assertEqual(self.client.post(base + "questions/1/position/", {}, format="json").status_code, 200)
+        PracticeAttempt.objects.filter(pk=attempt.pk).update(expires_at=timezone.now() - timedelta(seconds=1))
+        with connection.execute_wrapper(read_only):
+            self.assertIsNone(self.client.get(BASE + "catalog/").data["active_attempt"])
+            self.assertEqual(self.client.get(BASE + "attempts/").data["results"][0]["status"], "completed")
+            self.assertEqual(self.client.get(base).data["status"], "completed")
+            virtual = self.client.get(base + "result/").data
+            self.assertEqual(self.client.get(base + "questions/0/").status_code, 409)
+            self.assertEqual(self.client.get(base + "questions/0/media/").status_code, 200)
+        attempt.refresh_from_db()
+        self.assertEqual(attempt.status, "active")
+        self.client.post(base + "submit/", {}, format="json")
+        attempt.refresh_from_db()
+        self.assertEqual(attempt.status, "completed")
+        self.assertEqual(self.client.get(base + "result/").data, virtual)
+
+    def test_expired_short_practice_reads_without_updates(self):
+        attempt = PracticeAttempt.objects.create(
+            user=self.user,
+            level="A1",
+            skill="reading",
+            mock_test=1,
+            mode="practice",
+            question_signature="expired-short-practice",
+            expires_at=timezone.now() - timedelta(seconds=1),
+        )
+        with patch(
+            "apps.dutch_practice.services.expire_attempts", side_effect=AssertionError("GET attempted expiry writes")
+        ):
+            self.assertIsNone(self.client.get(BASE + "catalog/").data["active_attempt"])
+            self.assertEqual(self.client.get(BASE + "attempts/").data["results"][0]["status"], "expired")
+            self.assertEqual(self.client.get(BASE + f"attempts/{attempt.pk}/").data["status"], "expired")
+
+    def test_viewed_position_post_is_owner_scoped_and_validated(self):
+        attempt = self.start()
+        path = BASE + f"attempts/{attempt.pk}/questions/"
+        self.assertEqual(self.client.post(path + "999/position/", {}, format="json").status_code, 404)
+        self.client.force_authenticate(self.other)
+        self.assertEqual(self.client.post(path + "1/position/", {}, format="json").status_code, 404)
+        attempt.refresh_from_db()
+        self.assertEqual(attempt.last_position, 0)

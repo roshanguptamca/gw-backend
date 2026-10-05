@@ -1,6 +1,7 @@
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema
 from rest_framework.exceptions import ValidationError
@@ -24,7 +25,8 @@ class AuthenticatedPracticeView(APIView):
         return response
 
     def get_attempt(self, request, attempt_id, locked=False):
-        services.expire_attempts(request.user)
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            services.expire_attempts(request.user)
         queryset = PracticeAttempt.objects.filter(user=request.user)
         if locked:
             queryset = queryset.select_for_update()
@@ -33,7 +35,6 @@ class AuthenticatedPracticeView(APIView):
 
 class CatalogView(AuthenticatedPracticeView):
     def get(self, request):
-        services.expire_attempts(request.user)
         counts = {
             (row["level"], row["skill"]): row["count"]
             for row in PracticeQuestion.objects.filter(is_active=True)
@@ -41,7 +42,9 @@ class CatalogView(AuthenticatedPracticeView):
             .values("level", "skill")
             .annotate(count=Count("id"))
         }
-        active = PracticeAttempt.objects.filter(user=request.user, status="active").first()
+        active = PracticeAttempt.objects.filter(
+            user=request.user, status="active", expires_at__gt=timezone.now()
+        ).first()
         return Response(
             {
                 "levels": [level for level, _ in LEVELS],
@@ -76,7 +79,6 @@ class CatalogView(AuthenticatedPracticeView):
 
 class AttemptsView(AuthenticatedPracticeView):
     def get(self, request):
-        services.expire_attempts(request.user)
         try:
             page = int(request.query_params.get("page", 1))
             if page < 1:
@@ -119,8 +121,6 @@ class QuestionView(AuthenticatedPracticeView):
         attempt = self.get_attempt(request, attempt_id)
         services.require_active(attempt)
         item = get_object_or_404(attempt.items.select_related("media", "attempt"), position=position)
-        attempt.last_position = position
-        attempt.save(update_fields=["last_position"])
         return Response(services.public_question(item))
 
     @extend_schema(request=AnswerSerializer)
@@ -131,6 +131,17 @@ class QuestionView(AuthenticatedPracticeView):
         serializer.is_valid(raise_exception=True)
         item = services.save_answer(attempt, position, serializer.validated_data)
         return Response({"saved": True, "position": item.position})
+
+
+class PositionView(AuthenticatedPracticeView):
+    @transaction.atomic
+    def post(self, request, attempt_id, position):
+        attempt = self.get_attempt(request, attempt_id, locked=True)
+        services.require_active(attempt)
+        get_object_or_404(attempt.items, position=position)
+        attempt.last_position = position
+        attempt.save(update_fields=["last_position"])
+        return Response({"saved": True, "position": position})
 
 
 class PlaybackView(AuthenticatedPracticeView):
@@ -186,7 +197,7 @@ class MediaView(AuthenticatedPracticeView):
 
         from django.http import HttpResponse
 
-        attempt = self.get_attempt(request, attempt_id)
+        attempt = services.effective_attempt(self.get_attempt(request, attempt_id))
         if attempt.status not in ("active", "completed"):
             raise services.AttemptStateConflict()
         item = get_object_or_404(attempt.items.select_related("media"), position=position, media__isnull=False)

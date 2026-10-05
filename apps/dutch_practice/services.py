@@ -38,6 +38,26 @@ def expire_attempts(user):
     expired.filter(mode="practice").update(status="expired")
 
 
+def effective_attempt(attempt):
+    """Present elapsed deadlines without writing on read-only HTTP requests."""
+    if attempt.status != "active" or attempt.expires_at > timezone.now():
+        return attempt
+    effective = copy.copy(attempt)
+    if attempt.mode == "practice":
+        effective.status = "expired"
+    else:
+        effective.status = "completed"
+        effective.completed_at = attempt.expires_at
+        items = list(attempt.items.all())
+        if attempt.skill in ("reading", "listening", "knm"):
+            effective.score = sum(
+                item.answered_at is not None and item.response.get("choice") == item.snapshot["answer"]
+                for item in items
+            )
+        effective.assisted = any(item.response.get("used_transcript", False) for item in items)
+    return effective
+
+
 def signature(questions):
     codes = sorted(question.code for question in questions)
     return hashlib.sha256("|".join(codes).encode()).hexdigest()
@@ -195,7 +215,12 @@ def public_question(item):
     )
     allowed += ("groupId", "title", "topic", "target")
     question = {key: item.snapshot[key] for key in allowed if key in item.snapshot}
-    if item.attempt.mode == "mock" and item.attempt.skill == "listening" and item.attempt.status != "completed":
+    if (
+        item.attempt.mode == "mock"
+        and item.attempt.skill == "listening"
+        and item.attempt.status != "completed"
+        and item.attempt.expires_at > timezone.now()
+    ):
         question.pop("transcript", None)
     if item.media_id:
         question["mediaPath"] = f"/dutch-practice/attempts/{item.attempt_id}/questions/{item.position}/media/"
@@ -210,6 +235,7 @@ def public_question(item):
 
 
 def summary(attempt):
+    attempt = effective_attempt(attempt)
     return {
         "id": str(attempt.id),
         "level": attempt.level,
@@ -298,11 +324,12 @@ def submit_attempt(attempt, timed_out=False):
         )
     attempt.assisted = any(item.response.get("used_transcript", False) for item in items)
     attempt.status = "completed"
-    attempt.completed_at = timezone.now()
+    attempt.completed_at = attempt.expires_at if timed_out else timezone.now()
     attempt.save(update_fields=["score", "assisted", "status", "completed_at"])
 
 
 def result(attempt):
+    attempt = effective_attempt(attempt)
     if attempt.status != "completed":
         raise AttemptStateConflict("Results are available only after submission.")
     items = []
