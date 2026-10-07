@@ -73,6 +73,12 @@ This also means invoices/orders cannot be destructively cleared by seed commands
 
 Authenticated APIs:
 
+Order serializers also expose an invoice-backed `price_breakdown` containing
+net, included VAT, gross and grouped rates. It is null for orders without an
+invoice; historical tax rates are never inferred. Public shop settings expose
+the configured default VAT percentage for cart/checkout price previews, but do
+not expose seller legal registration or payment details.
+
 - `GET /api/marketplace/orders/{order_id}/invoices/`
 - `GET /api/marketplace/invoices/{uuid}/`
 - `GET /api/marketplace/invoices/{uuid}/pdf/`

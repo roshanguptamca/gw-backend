@@ -495,6 +495,21 @@ class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     shop_name = serializers.CharField(source="shop.name", read_only=True)
     shop_slug = serializers.CharField(source="shop.slug", read_only=True)
+    price_breakdown = serializers.SerializerMethodField()
+
+    def get_price_breakdown(self, order):
+        invoice = order.invoices.first()
+        if not invoice:
+            return None
+        from .billing.vat_service import vat_summary
+
+        return {
+            "currency": invoice.currency,
+            "net": str(invoice.subtotal_ex_vat),
+            "vat": str(invoice.vat_total),
+            "gross": str(invoice.total_inc_vat),
+            "rates": [{key: str(value) for key, value in row.items()} for row in vat_summary(invoice)],
+        }
 
     class Meta:
         model = Order
@@ -521,6 +536,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "discount_total",
             "delivery_fee",
             "total",
+            "price_breakdown",
             "customer_note",
             "seller_note",
             "terms_accepted",
@@ -805,6 +821,7 @@ class PublicShopSettingsSerializer(serializers.ModelSerializer):
         model = ShopSettings
         fields = [
             "currency",
+            "default_vat_rate",
             "min_order_amount",
             "delivery_fee",
             "local_delivery_fee",

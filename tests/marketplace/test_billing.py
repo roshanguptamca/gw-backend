@@ -150,6 +150,29 @@ class BillingTests(TestCase):
         self.assertEqual(item.vat_rate, Decimal("9"))
         self.assertEqual(item.vat_amount, Decimal("1.65"))
 
+    def test_order_price_overview_uses_immutable_invoice_vat(self):
+        order = self.order(user=self.buyer)
+        self.shop.settings.default_vat_rate = Decimal("21")
+        self.shop.settings.save()
+        self.client.force_authenticate(self.buyer)
+        response = self.client.get(f"/api/buyer/orders/{order.pk}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.data["price_breakdown"],
+            {
+                "currency": "EUR",
+                "net": "18.35",
+                "vat": "1.65",
+                "gross": "20.00",
+                "rates": [{"rate": "9.00", "net": "18.35", "vat": "1.65", "gross": "20.00"}],
+            },
+        )
+
+    def test_public_shop_exposes_configured_vat_without_legal_details(self):
+        response = self.client.get(f"/api/marketplace/shops/{self.shop.slug}/")
+        self.assertEqual(response.data["settings"]["default_vat_rate"], "9.00")
+        self.assertNotIn("vat_number", response.data["settings"])
+
     def test_multi_shop_cart_preserves_separate_orders_invoices_and_emails(self):
         first = self.order(user=self.buyer)
         second = self.order(shop=self.other_shop, product=self.other_product, user=self.buyer)
