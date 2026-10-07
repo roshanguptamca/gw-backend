@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{{ invoice.invoice_number }}</title>
+  <style>
+    @page { size: A4; margin: 18mm 14mm 32mm; @bottom-center { content: element(footer); } @bottom-right { content: counter(page) " / " counter(pages); font-size: 8pt; color: #666; } }
+    body { font: 10pt sans-serif; color: #26362b; }
+    header { border-bottom: 3px solid #497344; padding-bottom: 12px; margin-bottom: 20px; }
+    .logo { max-height: 65px; max-width: 180px; }
+    h1 { font-size: 22pt; margin: 6px 0; color: #497344; }
+    h2 { font-size: 11pt; color: #497344; }
+    .addresses { width: 100%; margin: 18px 0; }
+    .addresses td { width: 50%; border: none; vertical-align: top; }
+    table { width: 100%; border-collapse: collapse; }
+    thead { display: table-header-group; }
+    th { background: #edf3e9; font-size: 8pt; text-align: right; }
+    td, th { padding: 8px 5px; border-bottom: 1px solid #dce4d9; }
+    td { text-align: right; vertical-align: top; }
+    th:first-child, td:first-child { text-align: left; overflow-wrap: anywhere; }
+    tr { break-inside: avoid; }
+    .totals { margin: 15px 0 15px auto; width: 65%; }
+    .grand { font-weight: bold; background: #edf3e9; }
+    .small { font-size: 8pt; color: #59655c; }
+    .footer { position: running(footer); font-size: 8pt; text-align: center; color: #59655c; border-top: 1px solid #dce4d9; padding-top: 6px; }
+    .note { white-space: pre-line; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <div class="footer">
+    Thank you for your order. / Bedankt voor uw bestelling.<br>
+    {{ seller.legal_business_name }} | {{ seller.address_line1 }}{% if seller.address_line2 %}, {{ seller.address_line2 }}{% endif %}
+    | {{ seller.postcode }} {{ seller.city }} {{ seller.country }}
+    {% if seller.kvk_number %}<br>KVK: {{ seller.kvk_number }}{% endif %}
+    {% if seller.vat_number %} | VAT / BTW: {{ seller.vat_number }}{% endif %}
+    {% if seller.iban %}<br>IBAN: {{ seller.iban }}{% endif %}
+  </div>
+  <header>
+    {% if seller.logo %}<img class="logo" src="{{ seller.logo }}" alt="{{ seller.shop_name }}">{% endif %}
+    <h1>{{ seller.shop_name }}</h1>
+    <h2>INVOICE / FACTUUR</h2>
+    <strong>{{ invoice.invoice_number }}</strong><br>
+    Invoice date / Factuurdatum: {{ invoice.issue_date|date:"d-m-Y" }}<br>
+    Order / Bestelling: {{ invoice.order_number }}<br>
+    Order date / Besteldatum: {{ invoice.order_date|date:"d-m-Y" }}
+  </header>
+  <table class="addresses"><tr>
+    <td>
+      <h2>SELLER / VERKOPER</h2>
+      <strong>{{ seller.legal_business_name }}</strong><br>
+      {{ seller.address_line1 }}<br>
+      {% if seller.address_line2 %}{{ seller.address_line2 }}<br>{% endif %}
+      {{ seller.postcode }} {{ seller.city }}<br>{{ seller.country }}<br>
+      {% if seller.kvk_number %}KVK: {{ seller.kvk_number }}<br>{% endif %}
+      {% if seller.vat_number %}VAT / BTW: {{ seller.vat_number }}{% endif %}
+    </td>
+    <td>
+      <h2>CUSTOMER / KLANT</h2>
+      <strong>{{ customer.name }}</strong><br>
+      {{ customer.email }}<br>
+      <span class="note">{{ customer.address }}</span>
+    </td>
+  </tr></table>
+  <table>
+    <thead><tr>
+      <th>Description / Omschrijving</th><th>Qty / Aantal</th><th>Unit incl. VAT</th>
+      <th>VAT / BTW %</th><th>Net / Netto</th><th>VAT / BTW</th><th>Total incl. VAT</th>
+    </tr></thead>
+    <tbody>{% for item in items %}<tr>
+      <td>{{ item.description }}{% if item.sku %}<br><span class="small">SKU: {{ item.sku }}</span>{% endif %}
+        {% if item.discount_inc_vat %}<br><span class="small">Discount / Korting: -{{ item.discount_inc_vat|floatformat:2 }}</span>{% endif %}
+      </td>
+      <td>{{ item.quantity }}</td><td>{{ item.unit_price_inc_vat|floatformat:2 }}</td>
+      <td>{{ item.vat_rate|floatformat:2 }}%</td><td>{{ item.line_total_ex_vat|floatformat:2 }}</td>
+      <td>{{ item.vat_amount|floatformat:2 }}</td><td>{{ item.line_total_inc_vat|floatformat:2 }}</td>
+    </tr>{% endfor %}</tbody>
+  </table>
+  <p class="small">All amounts in {{ invoice.currency }}. Prices include VAT. / Alle prijzen inclusief BTW.
+    Line totals are after discounts. / Regeltotalen na korting.</p>
+  <table class="totals">
+    {% if invoice.discount_total %}<tr><td>Discount incl. VAT / Korting</td><td>-{{ invoice.discount_total|floatformat:2 }}</td></tr>{% endif %}
+    {% if invoice.delivery_total %}<tr><td>Delivery incl. VAT / Bezorging (included)</td><td>{{ invoice.delivery_total|floatformat:2 }}</td></tr>{% endif %}
+    <tr><td>Subtotal excl. VAT / Subtotaal excl. BTW</td><td>{{ invoice.subtotal_ex_vat|floatformat:2 }}</td></tr>
+    <tr><td>VAT / BTW</td><td>{{ invoice.vat_total|floatformat:2 }}</td></tr>
+    <tr class="grand"><td>Total incl. VAT / Totaal incl. BTW</td><td>{{ invoice.currency }} {{ invoice.total_inc_vat|floatformat:2 }}</td></tr>
+  </table>
+  <h2>VAT SUMMARY / BTW OVERZICHT</h2>
+  <table>
+    <thead><tr><th>Rate / Tarief</th><th>Net / Netto</th><th>VAT / BTW</th><th>Gross / Bruto</th></tr></thead>
+    <tbody>{% for row in vat_summary %}<tr>
+      <td>{{ row.rate|floatformat:2 }}%</td><td>{{ row.net|floatformat:2 }}</td><td>{{ row.vat|floatformat:2 }}</td><td>{{ row.gross|floatformat:2 }}</td>
+    </tr>{% endfor %}</tbody>
+  </table>
+  {% if seller.footer %}<p class="note">{{ seller.footer }}</p>{% endif %}
+</body>
+</html>

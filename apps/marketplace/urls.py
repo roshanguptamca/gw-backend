@@ -2,6 +2,7 @@ from django.urls import include, path
 
 from rest_framework.routers import DefaultRouter
 
+from .billing.views import InvoiceViewSet, OrderInvoiceListView
 from .views import (
     AddressLookupView,
     AdminProductViewSet,
@@ -33,6 +34,7 @@ from .views import (
 )
 
 router = DefaultRouter()
+router.register("marketplace/invoices", InvoiceViewSet, basename="marketplace-invoice")
 router.register("marketplace/shops", PublicShopViewSet, basename="marketplace-shop")
 router.register("marketplace/products", PublicProductViewSet, basename="marketplace-product")
 router.register("customer/orders", CustomerOrderViewSet, basename="customer-order")
@@ -53,6 +55,7 @@ router.register("admin/shops", AdminShopViewSet, basename="admin-shop")
 router.register("admin/products", AdminProductViewSet, basename="admin-product")
 
 urlpatterns = [
+    path("marketplace/orders/<int:order_id>/invoices/", OrderInvoiceListView.as_view(), name="order-invoices"),
     path("orders/", OrderCreateView.as_view(), name="marketplace-order-create"),
     path("marketplace/orders/", OrderCreateView.as_view(), name="marketplace-order-request-create"),
     path(

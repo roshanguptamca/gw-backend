@@ -26,6 +26,90 @@ Production-ready Django REST Framework API powering the GuideWisey platform — 
 
 ## Apps
 
+### Marketplace billing
+
+`apps/marketplace/billing/` is part of the existing marketplace Django app.
+Apply migrations `0014` and `0015` with `python manage.py migrate` before deploying
+the marketplace frontend changes.
+
+Successful cash/bank-transfer checkout creates the immutable invoice inside
+`_create_order_atomic`, after order items and totals have been validated. Seller
+legal details, logo, customer details, currency and VAT rates are snapshotted at
+purchase. Pending seller acceptance does not delay invoicing for these orders;
+the invoice is a bill, not proof of payment. Online orders are guarded until
+`payment_status == "paid"`; the future payment-success integration must call
+`create_invoice(order)` and the existing `send_buyer_confirmation_email(order)`.
+No payment-provider callback exists in the current marketplace.
+
+The existing buyer confirmation uses Django `EmailMultiAlternatives` and attaches
+the invoice PDFs; there is no separate invoice email. Rendering failures are
+recorded by the existing `OrderEmailLog`. Retrying confirmation reuses the same
+invoice and PDF. The custom Brevo API backend forwards Django attachments as
+base64 file content in its `attachment` array. Brevo IP-allowlist rejections
+(HTTP 401 with an unrecognised-IP message) require authorizing the sending
+server's IP in the Brevo account; application retries cannot bypass that policy.
+The PDF action accepts `Accept: application/pdf` while retaining normal scoped
+authentication and error handling. The current multi-shop cart creates one Order per shop, so each
+shop's existing confirmation contains its own PDF, without mixing seller items,
+discounts or delivery fees.
+
+Prices are VAT-inclusive. Each line uses the product's optional `vat_rate` or the
+shop's `default_vat_rate`, snapshotted onto OrderItem. Delivery uses the configured
+shop default rate at purchase. VAT is extracted with Decimal arithmetic:
+`net = gross / (1 + rate / 100)`, `VAT = gross - net`. Discounts are allocated to
+merchandise proportionally using largest remainders in cents. Net line amounts
+round half-up to two decimals, VAT is the gross remainder, and totals reconcile
+exactly with the original seller order. No Dutch tax classification is inferred.
+The initial default is **0% until the seller configures it**.
+
+Numbering uses a shop-row transaction lock and a unique shop/year sequence,
+plus a unique order/shop invoice constraint. Format is
+`PREFIX-SHOPID-YEAR-000001` (e.g. `RK-7-2026-000001`), or
+`SHOP7-2026-000001` without a prefix. The shop ID prevents collisions between
+seller-configured prefixes. Issued records/items cannot be edited or deleted
+through the model/queryset or admin; invoices protect their order/shop from
+cascade deletion. PDFs are stored privately in the database and reused byte-for-byte.
+This also means invoices/orders cannot be destructively cleared by seed commands.
+
+Authenticated APIs:
+
+Order serializers also expose an invoice-backed `price_breakdown` containing
+net, included VAT, gross and grouped rates. It is null for orders without an
+invoice; historical tax rates are never inferred. Public shop settings expose
+the configured default VAT percentage for cart/checkout price previews, but do
+not expose seller legal registration or payment details.
+
+- `GET /api/marketplace/orders/{order_id}/invoices/`
+- `GET /api/marketplace/invoices/{uuid}/`
+- `GET /api/marketplace/invoices/{uuid}/pdf/`
+
+Only the linked order's customer, its active owning seller, or a superuser can
+access them. Guest orders continue to use the existing account-linking flow.
+Downloads have `private, no-store` caching and no public media URL.
+
+Seller billing configuration is exposed by the existing `/api/seller/settings/`
+endpoint and Django admin. Migration `0015` copies existing shop address/name
+details and seeds Rishi Kitchen's temporary VAT number `1111111111`, prefix `RK`,
+and placeholder IBAN `ABNAXXXXXXXXX` without overwriting configured values.
+KVK is optional and absent rows are hidden. Replace these temporary details and
+complete the real address in **Seller Portal > Billing & Invoices** before use.
+The manual `seed_rishi_kitchen` command also supplies these defaults for new shops.
+
+PDF rendering reuses the existing WeasyPrint dependency and Docker's Pango
+libraries. On macOS with Homebrew libraries, use
+`DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib` if the loader cannot find Pango/GLib.
+Only uploaded Cloudinary logos are fetched and embedded; arbitrary URLs, redirects
+and external resources in the renderer are disallowed. A failed logo fetch is
+logged and the document uses the seller's name instead.
+
+Validation: `pytest tests/marketplace --migrations --create-db` covers invoicing,
+PDFs, attachment retries, permissions and existing checkout/email flows. The
+concurrency test exercises real locks on PostgreSQL and skips on SQLite (whose
+existing checkout database-lock retry and uniqueness constraints remain in use).
+Historical pre-module orders are not automatically backfilled: missing historical
+VAT/legal snapshots cannot be reconstructed reliably. Refunds/credit notes and
+payment-provider integration are separate future work.
+
 ### `accounts`
 User registration, login, logout, session check, current user profile.
 
