@@ -5,6 +5,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -13,6 +14,13 @@ from apps.marketplace.models import Order
 from .models import Invoice
 from .pdf_service import invoice_pdf
 from .serializers import InvoiceSerializer
+
+
+class InvoicePDFRenderer(JSONRenderer):
+    """Negotiate PDF downloads while retaining structured DRF error responses."""
+
+    media_type = "application/pdf"
+    format = "pdf"
 
 
 def authorized_orders(user):
@@ -54,7 +62,7 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         return authorized_invoices(self.request.user).prefetch_related("items")
 
-    @action(detail=True, methods=["get"])
+    @action(detail=True, methods=["get"], renderer_classes=[InvoicePDFRenderer, JSONRenderer])
     def pdf(self, request, pk=None):
         invoice = self.get_object()
         response = HttpResponse(invoice_pdf(invoice), content_type="application/pdf")

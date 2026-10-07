@@ -44,7 +44,12 @@ No payment-provider callback exists in the current marketplace.
 The existing buyer confirmation uses Django `EmailMultiAlternatives` and attaches
 the invoice PDFs; there is no separate invoice email. Rendering failures are
 recorded by the existing `OrderEmailLog`. Retrying confirmation reuses the same
-invoice and PDF. The current multi-shop cart creates one Order per shop, so each
+invoice and PDF. The custom Brevo API backend forwards Django attachments as
+base64 file content in its `attachment` array. Brevo IP-allowlist rejections
+(HTTP 401 with an unrecognised-IP message) require authorizing the sending
+server's IP in the Brevo account; application retries cannot bypass that policy.
+The PDF action accepts `Accept: application/pdf` while retaining normal scoped
+authentication and error handling. The current multi-shop cart creates one Order per shop, so each
 shop's existing confirmation contains its own PDF, without mixing seller items,
 discounts or delivery fees.
 

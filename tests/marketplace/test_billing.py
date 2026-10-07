@@ -1,3 +1,4 @@
+import base64
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from importlib import import_module
@@ -216,6 +217,18 @@ class BillingTests(TestCase):
         self.assertEqual(mail.outbox[0].attachments[0][2], "application/pdf")
         self.assertEqual(order.email_logs.filter(status="sent").count(), 2)
 
+    @override_settings(EMAIL_BACKEND="guidewisey.email_backend.BrevoAPIEmailBackend", BREVO_API_KEY="test-api-key")
+    @patch("guidewisey.email_backend.requests.post")
+    def test_order_confirmation_forwards_pdf_to_brevo(self, post):
+        post.return_value.status_code = 201
+        order = self.order()
+        send_buyer_confirmation_email(order)
+        attachment = post.call_args.kwargs["json"]["attachment"][0]
+        invoice = order.invoices.get()
+        self.assertEqual(attachment["name"], f"{invoice.invoice_number}.pdf")
+        self.assertEqual(base64.b64decode(attachment["content"]), invoice_pdf(invoice))
+        self.assertEqual(order.email_logs.get().status, "sent")
+
     def test_pdf_failure_is_logged_and_retry_reuses_invoice(self):
         order = self.order()
         invoice = order.invoices.get()
@@ -307,7 +320,7 @@ class BillingTests(TestCase):
         invoice = order.invoices.get()
         for user in (self.buyer, self.seller, self.admin):
             self.client.force_authenticate(user)
-            response = self.client.get(f"/api/marketplace/invoices/{invoice.pk}/pdf/")
+            response = self.client.get(f"/api/marketplace/invoices/{invoice.pk}/pdf/", HTTP_ACCEPT="application/pdf")
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response["Content-Type"], "application/pdf")
             self.assertEqual(response["Cache-Control"], "private, no-store")
@@ -333,10 +346,14 @@ class BillingTests(TestCase):
                 f"/api/marketplace/invoices/{invoice.pk}/pdf/",
                 f"/api/marketplace/orders/{order.pk}/invoices/",
             ):
-                self.assertEqual(self.client.get(path).status_code, 404)
+                accept = "application/pdf" if path.endswith("/pdf/") else "application/json"
+                self.assertEqual(self.client.get(path, HTTP_ACCEPT=accept).status_code, 404)
             self.assertEqual(self.client.get("/api/marketplace/invoices/").data, [])
         self.client.force_authenticate(None)
-        self.assertIn(self.client.get(f"/api/marketplace/invoices/{invoice.pk}/pdf/").status_code, (401, 403))
+        self.assertIn(
+            self.client.get(f"/api/marketplace/invoices/{invoice.pk}/pdf/", HTTP_ACCEPT="application/pdf").status_code,
+            (401, 403),
+        )
 
     def test_inactive_seller_cannot_download(self):
         invoice = self.order().invoices.get()

@@ -16,7 +16,9 @@ Two backends are provided:
    Works locally where port 587 is open.
 """
 
+import base64
 import logging
+from email.mime.base import MIMEBase
 
 from django.conf import settings
 from django.core.mail.backends.base import BaseEmailBackend
@@ -82,6 +84,25 @@ class BrevoAPIEmailBackend(BaseEmailBackend):
                 payload["cc"] = [{"email": r} for r in msg.cc]
             if msg.bcc:
                 payload["bcc"] = [{"email": r} for r in msg.bcc]
+
+            if msg.attachments:
+                attachments = []
+                for attachment in msg.attachments:
+                    if isinstance(attachment, MIMEBase):
+                        filename = attachment.get_filename()
+                        content = attachment.get_payload(decode=True)
+                        if content is None:
+                            raise ValueError("Brevo attachments must contain an encoded file payload.")
+                    else:
+                        filename, content, mimetype = attachment
+                        if mimetype == "message/rfc822" and hasattr(content, "as_bytes"):
+                            content = content.as_bytes()
+                    if not filename:
+                        raise ValueError("Brevo attachments require a filename.")
+                    if isinstance(content, str):
+                        content = content.encode("utf-8")
+                    attachments.append({"name": filename, "content": base64.b64encode(content).decode("ascii")})
+                payload["attachment"] = attachments
 
             try:
                 resp = requests.post(
