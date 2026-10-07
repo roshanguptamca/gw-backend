@@ -3,6 +3,7 @@ from django.contrib import admin
 from django.core.files.uploadedfile import UploadedFile
 from django.utils.html import format_html
 
+from .billing import admin as billing_admin  # noqa: F401
 from .cloudinary_service import (
     SHOP_BANNER_MAX_BYTES,
     SHOP_LOGO_MAX_BYTES,

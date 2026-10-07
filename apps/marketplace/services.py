@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 from django.contrib.auth import get_user_model
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives, send_mail
 from django.db import IntegrityError, OperationalError, transaction
 from django.db.models import F, Q
 from django.utils import timezone
@@ -135,7 +135,12 @@ def create_seller_with_shop(
         is_active=True,
         is_approved=False,
     )
-    ShopSettings.objects.create(shop=shop)
+    ShopSettings.objects.create(
+        shop=shop,
+        legal_business_name=business_name,
+        billing_address_line1=address,
+        billing_city=city,
+    )
     create_default_categories_for_shop(shop)
     return user, profile, shop
 
@@ -291,6 +296,18 @@ def _create_order_atomic(payload, user=None):
         "pickup_date": ordering.format_pickup_date(pickup_slot.start) if pickup_slot else "",
         "pickup_time": pickup_slot.as_dict()["label"] if pickup_slot else "",
     }
+    from .billing.invoice_service import seller_snapshot
+
+    billing_snapshot = {
+        "seller": seller_snapshot(shop, settings or ShopSettings.objects.get_or_create(shop=shop)[0]),
+        "customer": {
+            "name": payload["customer_name"],
+            "email": payload.get("customer_email", ""),
+            "address": payload.get("billing_address") or delivery_address,
+        },
+        "currency": settings.currency if settings else "EUR",
+        "delivery_vat_rate": str(settings.default_vat_rate) if settings else "0.00",
+    }
     order = Order.objects.create(
         shop=shop,
         customer=user if user and user.is_authenticated else None,
@@ -300,6 +317,7 @@ def _create_order_atomic(payload, user=None):
         customer_phone=payload["customer_phone"],
         delivery_address=delivery_address,
         fulfillment_snapshot=fulfillment_snapshot,
+        billing_snapshot=billing_snapshot,
         pickup_slot_start=pickup_slot.start if pickup_slot else None,
         pickup_slot_end=pickup_slot.end if pickup_slot else None,
         order_type=order_type,
@@ -325,6 +343,9 @@ def _create_order_atomic(payload, user=None):
             unit_price=product.price,
             quantity=quantity,
             line_total=line_total,
+            vat_rate=(
+                product.vat_rate if product.vat_rate is not None else Decimal(billing_snapshot["delivery_vat_rate"])
+            ),
             sku=product.sku or "",
             selling_unit=ordering.selling_unit_of(product),
             units_per_pack=product.units_per_pack,
@@ -340,6 +361,10 @@ def _create_order_atomic(payload, user=None):
         coupon.used_count += 1
         coupon.save(update_fields=["used_count"])
 
+    if order.payment_method != "online":
+        from .billing.invoice_service import create_invoice
+
+        create_invoice(order)
     return order
 
 
@@ -606,14 +631,22 @@ def send_buyer_confirmation_email(order):
     )
 
     def _send():
-        send_mail(
+        from .billing.invoice_service import create_invoice
+        from .billing.pdf_service import invoice_pdf
+
+        invoices = list(order.invoices.all())
+        if not invoices and (order.payment_method != "online" or order.payment_status == "paid"):
+            invoices = [create_invoice(order)]
+        email = EmailMultiAlternatives(
             subject=f"Order {order.order_number} confirmed – {snapshot.get('shop_name') or order.shop.name}",
-            message=plain_message,
+            body=plain_message,
             from_email=None,
-            recipient_list=[order.customer_email],
-            html_message=html_message,
-            fail_silently=False,
+            to=[order.customer_email],
         )
+        email.attach_alternative(html_message, "text/html")
+        for invoice in invoices:
+            email.attach(f"{invoice.invoice_number}.pdf", invoice_pdf(invoice), "application/pdf")
+        email.send(fail_silently=False)
 
     _send_and_log_order_email(order, OrderEmailLog.EMAIL_TYPE_BUYER_CONFIRMATION, order.customer_email, _send)
 

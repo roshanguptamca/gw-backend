@@ -1094,6 +1094,7 @@ class OrderCheckoutAccountCreationTests(TestCase):
         with (
             patch("apps.marketplace.services.threading.Thread", _SyncThread),
             patch("apps.marketplace.services.send_mail", side_effect=Exception("smtp down")),
+            patch("apps.marketplace.services.EmailMultiAlternatives.send", side_effect=Exception("smtp down")),
         ):
             response = self.client.post("/api/marketplace/orders/", self._order_payload(), format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -1203,6 +1204,7 @@ class OrderCheckoutAccountCreationTests(TestCase):
         with (
             patch("apps.marketplace.services.threading.Thread", _SyncThread),
             patch("apps.marketplace.services.send_mail", side_effect=Exception("smtp down")),
+            patch("apps.marketplace.services.EmailMultiAlternatives.send", side_effect=Exception("smtp down")),
         ):
             response = self.client.post("/api/marketplace/orders/", self._order_payload(), format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)

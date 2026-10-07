@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from django.conf import settings
-from django.core.validators import MaxValueValidator, MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator, RegexValidator
 from django.db import models
 
 
@@ -77,6 +77,29 @@ class ShopSettings(models.Model):
     ]
 
     shop = models.OneToOneField(Shop, on_delete=models.CASCADE, related_name="settings")
+    legal_business_name = models.CharField(max_length=150, blank=True)
+    kvk_number = models.CharField(max_length=30, blank=True)
+    vat_number = models.CharField(max_length=40, blank=True)
+    billing_address_line1 = models.CharField(max_length=255, blank=True)
+    billing_address_line2 = models.CharField(max_length=255, blank=True)
+    billing_postcode = models.CharField(max_length=20, blank=True)
+    billing_city = models.CharField(max_length=100, blank=True)
+    billing_country = models.CharField(max_length=80, blank=True)
+    invoice_prefix = models.CharField(
+        max_length=20,
+        blank=True,
+        validators=[RegexValidator(r"^[A-Z0-9][A-Z0-9-]{0,19}$", "Use 1-20 uppercase letters, digits or hyphens.")],
+        help_text="Blank uses SHOP followed by the shop ID. Numbers also include the shop ID to avoid collisions.",
+    )
+    default_vat_rate = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        help_text="Configured percentage, not a tax determination. All catalogue prices include VAT.",
+    )
+    invoice_footer = models.TextField(blank=True, max_length=2000)
+    invoice_iban = models.CharField(max_length=34, blank=True)
     currency = models.CharField(max_length=10, default="EUR")
     min_order_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     delivery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
@@ -172,6 +195,14 @@ class Product(models.Model):
     ingredients = models.TextField(blank=True)
     allergens = models.TextField(blank=True)
     price = models.DecimalField(max_digits=10, decimal_places=2)
+    vat_rate = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        help_text="Optional percentage override; blank uses the shop default. Price is VAT-inclusive.",
+    )
     compare_at_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     stock_quantity = models.PositiveIntegerField(default=0)
     sku = models.CharField(max_length=80, unique=True, null=True, blank=True)
@@ -323,6 +354,7 @@ class Order(models.Model):
     customer_phone = models.CharField(max_length=30)
     delivery_address = models.TextField(blank=True)
     fulfillment_snapshot = models.JSONField(default=dict, blank=True)
+    billing_snapshot = models.JSONField(default=dict, blank=True)
     pickup_slot_start = models.DateTimeField(null=True, blank=True)
     pickup_slot_end = models.DateTimeField(null=True, blank=True)
     order_type = models.CharField(max_length=30, choices=ORDER_TYPE_CHOICES, default="pickup")
@@ -361,6 +393,7 @@ class OrderItem(models.Model):
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
     quantity = models.PositiveIntegerField()
     line_total = models.DecimalField(max_digits=10, decimal_places=2)
+    vat_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0.00"))
     # Snapshot of the product's selling format and rules at purchase time so
     # later catalogue changes never alter historical orders.
     sku = models.CharField(max_length=80, blank=True)
@@ -504,3 +537,7 @@ class Campaign(models.Model):
 
     def __str__(self):
         return self.title
+
+
+# Billing stays in the existing app so model discovery and deployment settings remain unchanged.
+from .billing.models import Invoice, InvoiceItem, InvoicePDF, InvoiceSequence  # noqa: E402,F401

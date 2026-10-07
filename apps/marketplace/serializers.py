@@ -66,6 +66,18 @@ class ShopSettingsSerializer(serializers.ModelSerializer):
         model = ShopSettings
         fields = [
             "currency",
+            "legal_business_name",
+            "kvk_number",
+            "vat_number",
+            "billing_address_line1",
+            "billing_address_line2",
+            "billing_postcode",
+            "billing_city",
+            "billing_country",
+            "invoice_prefix",
+            "default_vat_rate",
+            "invoice_footer",
+            "invoice_iban",
             "min_order_amount",
             "delivery_fee",
             "local_delivery_fee",
@@ -95,6 +107,12 @@ class ShopSettingsSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "min_order_amount": {"min_value": Decimal("0.00")},
         }
+
+    def validate_invoice_iban(self, value):
+        value = value.strip().upper().replace(" ", "")
+        if value and not re.fullmatch(r"[A-Z0-9]{4,34}", value):
+            raise serializers.ValidationError("Use 4-34 letters or digits for the IBAN.")
+        return value
 
     def validate_pickup_timezone(self, value):
         try:
@@ -268,6 +286,7 @@ class ProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = [
+            "vat_rate",
             "id",
             "shop",
             "category",
@@ -532,6 +551,7 @@ class OrderCreateSerializer(serializers.Serializer):
     customer_email = serializers.EmailField(required=False, allow_blank=True)
     customer_phone = serializers.CharField(max_length=30)
     delivery_address = serializers.CharField(required=False, allow_blank=True)
+    billing_address = serializers.CharField(required=False, allow_blank=True, max_length=2000)
     order_type = serializers.ChoiceField(choices=Order.ORDER_TYPE_CHOICES, default="pickup")
     delivery_zone = serializers.ChoiceField(
         choices=Order.DELIVERY_ZONE_CHOICES, required=False, allow_blank=True, default=""
