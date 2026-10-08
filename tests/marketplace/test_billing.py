@@ -173,6 +173,14 @@ class BillingTests(TestCase):
         self.assertEqual(response.data["settings"]["default_vat_rate"], "9.00")
         self.assertNotIn("vat_number", response.data["settings"])
 
+    def test_invoice_labels_follow_the_order_language(self):
+        order = self.order(language="nl")
+        html = invoice_html(order.invoices.get())
+        self.assertIn('<html lang="nl">', html)
+        self.assertIn(">FACTUUR</h2>", html)
+        self.assertIn("BTW-OVERZICHT", html)
+        self.assertNotIn(">INVOICE</h2>", html)
+
     def test_multi_shop_cart_preserves_separate_orders_invoices_and_emails(self):
         first = self.order(user=self.buyer)
         second = self.order(shop=self.other_shop, product=self.other_product, user=self.buyer)

@@ -10,7 +10,7 @@ from django.contrib.auth import get_user_model
 from django.core.mail import EmailMultiAlternatives, send_mail
 from django.db import IntegrityError, OperationalError, transaction
 from django.db.models import F, Q
-from django.utils import timezone
+from django.utils import formats, timezone, translation
 from django.utils.html import escape
 from django.utils.text import slugify
 
@@ -69,6 +69,12 @@ from .models import (
 User = get_user_model()
 
 DEFAULT_SELLER_CATEGORIES = ["Featured", "Snacks", "Meals", "Drinks"]
+
+
+def localized_field(instance, field, language):
+    translations = getattr(instance, "translations", None) or {}
+    values = translations.get(field, {})
+    return values.get(language) or values.get("en") or getattr(instance, field, "")
 
 
 def generate_unique_slug(model, value, *, shop=None):
@@ -220,6 +226,7 @@ def _create_order_atomic(payload, user=None):
         raise ordering.OrderRuleViolation(rule_errors)
 
     settings = getattr(shop, "settings", None)
+    language = payload.get("language", "en")
     if settings and subtotal < settings.min_order_amount:
         raise ShopMinimumOrderNotMet(shop, subtotal, settings.min_order_amount)
 
@@ -285,9 +292,13 @@ def _create_order_atomic(payload, user=None):
         "pickup_postal_code": settings.pickup_postal_code if settings else "",
         "pickup_city": settings.pickup_city if settings else "",
         "pickup_country": settings.pickup_country if settings else "",
-        "delivery_area": shop.delivery_area if order_type == "delivery" else "",
-        "pickup_instructions": settings.pickup_instructions if settings and order_type == "pickup" else "",
-        "delivery_instructions": settings.delivery_notes if settings and order_type == "delivery" else "",
+        "delivery_area": localized_field(shop, "delivery_area", language) if order_type == "delivery" else "",
+        "pickup_instructions": (
+            localized_field(settings, "pickup_instructions", language) if settings and order_type == "pickup" else ""
+        ),
+        "delivery_instructions": (
+            localized_field(settings, "delivery_notes", language) if settings and order_type == "delivery" else ""
+        ),
         "required_lead_time_minutes": lead_minutes,
         "required_lead_time_hours": ordering.lead_time_hours(lead_minutes),
         "pickup_timezone": str(ordering.shop_timezone(shop)),
@@ -323,6 +334,7 @@ def _create_order_atomic(payload, user=None):
         order_type=order_type,
         delivery_zone=delivery_zone,
         payment_method=payload.get("payment_method", "cash"),
+        language=language,
         subtotal=subtotal,
         discount_total=discount_total,
         delivery_fee=delivery_fee,
@@ -527,6 +539,28 @@ def order_item_quantity_text(item):
     return ordering.describe_quantity(item, item.quantity)
 
 
+def buyer_order_item_quantity_text(item, language):
+    description = order_item_quantity_text(item)
+    if language != "nl":
+        return description
+    for source, translated in (
+        ("pieces", "stuks"),
+        ("piece", "stuk"),
+        ("packs", "verpakkingen"),
+        ("pack", "verpakking"),
+        ("plates", "borden"),
+        ("plate", "bord"),
+        ("boxes", "dozen"),
+        ("box", "doos"),
+        ("trays", "dienbladen"),
+        ("tray", "dienblad"),
+        ("bottles", "flessen"),
+        ("bottle", "fles"),
+    ):
+        description = re.sub(rf"\b{source}\b", translated, description)
+    return description
+
+
 def _order_pickup_lines(order):
     """(date, time, lead hours) from the fulfilment snapshot; empty strings when not scheduled."""
     snapshot = order.fulfillment_snapshot or {}
@@ -540,7 +574,84 @@ def send_buyer_confirmation_email(order):
         return
     snapshot = order.fulfillment_snapshot or {}
     currency = snapshot.get("currency") or getattr(getattr(order.shop, "settings", None), "currency", "EUR")
-    order_date = timezone.localtime(order.created_at).strftime("%d %B %Y, %H:%M")
+    with translation.override(order.language):
+        order_date = formats.date_format(timezone.localtime(order.created_at), "DATETIME_FORMAT")
+    labels = (
+        {
+            "order_confirmed": "Bestelling bevestigd",
+            "thank_you": "Bedankt",
+            "placed": "Je bestelling van",
+            "placed_suffix": "is geplaatst.",
+            "order_date": "Besteldatum",
+            "email": "e-mail",
+            "phone": "telefoon",
+            "whatsapp": "Word lid van de WhatsApp-groep",
+            "product": "Product",
+            "quantity": "Aantal",
+            "unit_price": "Prijs per stuk",
+            "total": "Totaal",
+            "delivery": "Bezorgen",
+            "pickup": "Afhalen",
+            "delivery_method": "Bezorgmethode",
+            "pickup_date": "Afhaaldatum",
+            "pickup_time": "Afhaaltijd",
+            "preparation": "Benodigde voorbereiding",
+            "hours": "uur",
+            "delivery_address": "Bezorgadres",
+            "pickup_address": "Afhaaladres",
+            "instructions": "Instructies",
+            "contact": "Contact",
+            "subtotal": "Subtotaal winkel",
+            "fulfilment_cost": "Afhandelingskosten",
+            "discount": "Korting",
+            "grand_total": "Eindtotaal",
+            "status": "Status",
+            "your_note": "Je opmerking",
+            "status_values": {
+                "pending": "In afwachting",
+                "accepted": "Geaccepteerd",
+                "preparing": "Wordt bereid",
+                "ready": "Klaar",
+                "out_for_delivery": "Onderweg",
+                "completed": "Voltooid",
+                "cancelled": "Geannuleerd",
+                "rejected": "Afgewezen",
+            },
+        }
+        if order.language == "nl"
+        else {
+            "order_confirmed": "Order confirmed",
+            "thank_you": "Thank you",
+            "placed": "has been placed.",
+            "placed_suffix": "",
+            "order_date": "Order date",
+            "email": "email",
+            "phone": "phone",
+            "whatsapp": "Join the shop WhatsApp group",
+            "product": "Product",
+            "quantity": "Qty",
+            "unit_price": "Unit price",
+            "total": "Total",
+            "delivery": "Delivery",
+            "pickup": "Pickup",
+            "delivery_method": "Delivery method",
+            "pickup_date": "Pickup date",
+            "pickup_time": "Pickup time",
+            "preparation": "Preparation requirement",
+            "hours": "hours",
+            "delivery_address": "Delivery address",
+            "pickup_address": "Pickup address",
+            "instructions": "Instructions",
+            "contact": "Contact",
+            "subtotal": "Shop subtotal",
+            "fulfilment_cost": "Fulfilment cost",
+            "discount": "Discount",
+            "grand_total": "Grand total",
+            "status": "Status",
+            "your_note": "Your note",
+            "status_values": {},
+        }
+    )
     shop_email = snapshot.get("shop_email", "")
     shop_phone = snapshot.get("shop_phone", "")
     whatsapp_group_url = snapshot.get("whatsapp_group_url", "")
@@ -560,75 +671,98 @@ def send_buyer_confirmation_email(order):
     items_html = "".join(
         f"<tr><td>{escape(item.product_name)}"
         f"{f'<br><small>SKU: {escape(item.sku)}</small>' if item.sku else ''}</td>"
-        f"<td style='text-align:center'>{escape(order_item_quantity_text(item))}</td>"
+        f"<td style='text-align:center'>{escape(buyer_order_item_quantity_text(item, order.language))}</td>"
         f"<td style='text-align:right'>{item.unit_price} {escape(currency)}</td>"
         f"<td style='text-align:right'>{item.line_total} {escape(currency)}</td></tr>"
         for item in order.items.all()
     )
-    delivery_label = "🚚 Delivery" if order.order_type == "delivery" else "🏪 Pickup"
+    delivery_label = f"🚚 {labels['delivery']}" if order.order_type == "delivery" else f"🏪 {labels['pickup']}"
     fulfillment_address = order.delivery_address if order.order_type == "delivery" else snapshot.get("shop_address", "")
     instructions = snapshot.get(
         "delivery_instructions" if order.order_type == "delivery" else "pickup_instructions", ""
     )
     contact_html = "".join(
-        f"<p><strong>Shop {label}:</strong> {escape(value)}</p>"
+        f"<p><strong>{escape(labels[label])}:</strong> {escape(value)}</p>"
         for label, value in (("email", shop_email), ("phone", shop_phone))
         if value
     )
     whatsapp_html = (
-        f'<p><a href="{escape(whatsapp_group_url)}">Join the shop WhatsApp group</a></p>' if whatsapp_group_url else ""
+        f'<p><a href="{escape(whatsapp_group_url)}">{escape(labels["whatsapp"])}</a></p>' if whatsapp_group_url else ""
     )
     html_message = f"""
-    <h2>Order Confirmed – {escape(order.order_number)}</h2>
-    <p>Thank you, <strong>{escape(order.customer_name)}</strong>! Your order from <strong>{escape(snapshot.get("shop_name") or order.shop.name)}</strong> has been placed.</p>
-    <p><strong>Order date:</strong> {escape(order_date)}</p>
+    <h2>{escape(labels["order_confirmed"])} – {escape(order.order_number)}</h2>
+    <p>{escape(labels["thank_you"])}, <strong>{escape(order.customer_name)}</strong>! {escape(labels["placed"])} <strong>{escape(snapshot.get("shop_name") or order.shop.name)}</strong> {escape(labels["placed_suffix"])}</p>
+    <p><strong>{escape(labels["order_date"])}:</strong> {escape(order_date)}</p>
     {contact_html}
     {whatsapp_html}
     <table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%">
-      <thead><tr><th>Product</th><th>Qty</th><th>Unit price</th><th>Total</th></tr></thead>
+      <thead><tr><th>{escape(labels["product"])}</th><th>{escape(labels["quantity"])}</th><th>{escape(labels["unit_price"])}</th><th>{escape(labels["total"])}</th></tr></thead>
       <tbody>{items_html}</tbody>
     </table>
-    <p><strong>Delivery method:</strong> {delivery_label}</p>
-    {f"<p><strong>Pickup date:</strong> {escape(pickup_date)}</p>" if pickup_date else ""}
-    {f"<p><strong>Pickup time:</strong> {escape(pickup_time)}</p>" if pickup_time else ""}
-    {f"<p><strong>Preparation requirement:</strong> {lead_hours} hours</p>" if lead_hours else ""}
-    {f"<p><strong>{'Delivery address' if order.order_type == 'delivery' else 'Pickup address'}:</strong> {escape(fulfillment_address)}</p>" if fulfillment_address else ""}
-    {f"<p><strong>Instructions:</strong> {escape(instructions)}</p>" if instructions else ""}
-    <p><strong>Contact:</strong> {escape(order.customer_phone)}{f" · {escape(order.customer_email)}" if order.customer_email else ""}</p>
-    <p><strong>Shop subtotal:</strong> {order.subtotal} {escape(currency)}</p>
-    <p><strong>Fulfilment cost:</strong> {order.delivery_fee} {escape(currency)}</p>
-    {f"<p><strong>Discount:</strong> -{order.discount_total} {escape(currency)}</p>" if order.discount_total else ""}
-    <p><strong>Grand total:</strong> {order.total} {escape(currency)}</p>
-    <p><strong>Status:</strong> {escape(order.status)}</p>
-    {f"<p><strong>Your note:</strong> {escape(order.customer_note)}</p>" if order.customer_note else ""}
+    <p><strong>{escape(labels["delivery_method"])}:</strong> {delivery_label}</p>
+    {f"<p><strong>{escape(labels['pickup_date'])}:</strong> {escape(pickup_date)}</p>" if pickup_date else ""}
+    {f"<p><strong>{escape(labels['pickup_time'])}:</strong> {escape(pickup_time)}</p>" if pickup_time else ""}
+    {f"<p><strong>{escape(labels['preparation'])}:</strong> {lead_hours} {escape(labels['hours'])}</p>" if lead_hours else ""}
+    {f"<p><strong>{escape(labels['delivery_address'] if order.order_type == 'delivery' else labels['pickup_address'])}:</strong> {escape(fulfillment_address)}</p>" if fulfillment_address else ""}
+    {f"<p><strong>{escape(labels['instructions'])}:</strong> {escape(instructions)}</p>" if instructions else ""}
+    <p><strong>{escape(labels['contact'])}:</strong> {escape(order.customer_phone)}{f" · {escape(order.customer_email)}" if order.customer_email else ""}</p>
+    <p><strong>{escape(labels['subtotal'])}:</strong> {order.subtotal} {escape(currency)}</p>
+    <p><strong>{escape(labels['fulfilment_cost'])}:</strong> {order.delivery_fee} {escape(currency)}</p>
+    {f"<p><strong>{escape(labels['discount'])}:</strong> -{order.discount_total} {escape(currency)}</p>" if order.discount_total else ""}
+    <p><strong>{escape(labels['grand_total'])}:</strong> {order.total} {escape(currency)}</p>
+    <p><strong>{escape(labels['status'])}:</strong> {escape(labels['status_values'].get(order.status, order.status))}</p>
+    {f"<p><strong>{escape(labels['your_note'])}:</strong> {escape(order.customer_note)}</p>" if order.customer_note else ""}
     """
     plain_items = "\n".join(
-        f"- {item.product_name}{f' [{item.sku}]' if item.sku else ''}: {order_item_quantity_text(item)}"
+        f"- {item.product_name}{f' [{item.sku}]' if item.sku else ''}: {buyer_order_item_quantity_text(item, order.language)}"
         f" at {item.unit_price} {currency} = {item.line_total} {currency}"
         for item in order.items.all()
     )
-    plain_message = (
-        f"Order {order.order_number} confirmed from {snapshot.get('shop_name') or order.shop.name}.\n"
-        f"Order date: {order_date}\n"
-        f"{'Shop email: ' + shop_email + chr(10) if shop_email else ''}"
-        f"{'Shop phone: ' + shop_phone + chr(10) if shop_phone else ''}"
-        f"{'WhatsApp group: ' + whatsapp_group_url + chr(10) if whatsapp_group_url else ''}"
-        f"Thank you, {order.customer_name}.\n\n"
-        f"Items:\n{plain_items}\n"
-        f"Subtotal: {order.subtotal} {currency}\n"
-        f"Discount: {order.discount_total} {currency}\n"
-        f"Delivery fee: {order.delivery_fee} {currency}\n"
-        f"Grand total: {order.total} {currency}\n"
-        f"Status: {order.status}\n"
-        f"Delivery method: {delivery_label}\n"
-        f"{'Pickup date: ' + pickup_date + chr(10) if pickup_date else ''}"
-        f"{'Pickup time: ' + pickup_time + chr(10) if pickup_time else ''}"
-        f"{'Preparation requirement: ' + str(lead_hours) + ' hours' + chr(10) if lead_hours else ''}"
-        f"Contact: {order.customer_phone}{' / ' + order.customer_email if order.customer_email else ''}\n"
-        f"{'Address: ' + fulfillment_address + chr(10) if fulfillment_address else ''}"
-        f"{'Instructions: ' + instructions + chr(10) if instructions else ''}"
-        f"{'Your note: ' + order.customer_note if order.customer_note else ''}"
+    plain_lines = [
+        f"{labels['order_confirmed']}: {order.order_number} – {snapshot.get('shop_name') or order.shop.name}",
+        f"{labels['order_date']}: {order_date}",
+    ]
+    if shop_email:
+        plain_lines.append(f"{labels['email'].capitalize()}: {shop_email}")
+    if shop_phone:
+        plain_lines.append(f"{labels['phone'].capitalize()}: {shop_phone}")
+    if whatsapp_group_url:
+        plain_lines.append(f"{labels['whatsapp']}: {whatsapp_group_url}")
+    plain_lines.extend(
+        [
+            f"{labels['thank_you']}, {order.customer_name}.",
+            "",
+            "Items:",
+            plain_items,
+            f"{labels['delivery_method']}: {delivery_label}",
+        ]
     )
+    if pickup_date:
+        plain_lines.append(f"{labels['pickup_date']}: {pickup_date}")
+    if pickup_time:
+        plain_lines.append(f"{labels['pickup_time']}: {pickup_time}")
+    if lead_hours:
+        plain_lines.append(f"{labels['preparation']}: {lead_hours} {labels['hours']}")
+    if fulfillment_address:
+        address_label = labels["delivery_address"] if order.order_type == "delivery" else labels["pickup_address"]
+        plain_lines.append(f"{address_label}: {fulfillment_address}")
+    if instructions:
+        plain_lines.append(f"{labels['instructions']}: {instructions}")
+    plain_lines.append(
+        f"{labels['contact']}: {order.customer_phone}{' / ' + order.customer_email if order.customer_email else ''}"
+    )
+    plain_lines.extend(
+        [
+            f"{labels['subtotal']}: {order.subtotal} {currency}",
+            f"{labels['discount']}: {order.discount_total} {currency}",
+            f"{labels['fulfilment_cost']}: {order.delivery_fee} {currency}",
+            f"{labels['grand_total']}: {order.total} {currency}",
+            f"{labels['status']}: {labels['status_values'].get(order.status, order.status)}",
+        ]
+    )
+    if order.customer_note:
+        plain_lines.append(f"{labels['your_note']}: {order.customer_note}")
+    plain_message = "\n".join(plain_lines)
 
     def _send():
         from .billing.invoice_service import create_invoice
@@ -638,7 +772,7 @@ def send_buyer_confirmation_email(order):
         if not invoices and (order.payment_method != "online" or order.payment_status == "paid"):
             invoices = [create_invoice(order)]
         email = EmailMultiAlternatives(
-            subject=f"Order {order.order_number} confirmed – {snapshot.get('shop_name') or order.shop.name}",
+            subject=f"{labels['order_confirmed']} – {order.order_number} – {snapshot.get('shop_name') or order.shop.name}",
             body=plain_message,
             from_email=None,
             to=[order.customer_email],
@@ -758,22 +892,44 @@ def send_cancellation_result_email_to_buyer(cancel_request):
     order = cancel_request.order
     currency = getattr(getattr(order.shop, "settings", None), "currency", "EUR")
     approved = cancel_request.status == OrderCancellationRequest.STATUS_APPROVED
-    subject = f"Your cancellation request for {order.order_number} was {'approved' if approved else 'rejected'}"
-    decision_text = "approved" if approved else "rejected"
+    if order.language == "nl":
+        decision_text = "goedgekeurd" if approved else "afgewezen"
+        subject = f"Je annuleringsverzoek voor bestelling {order.order_number} is {decision_text}"
+        heading = f"Annuleringsverzoek {decision_text}"
+        greeting = "Hoi"
+        request_text = "Je annuleringsverzoek voor bestelling"
+        from_text = "van"
+        refund_text = "Je ontvangt het totaalbedrag van"
+        refund_suffix = "terug volgens het restitutiebeleid van de winkel."
+        seller_note_label = "Opmerking van de verkoper"
+        contact_text = "Neem rechtstreeks contact op met de winkel als je vragen hebt."
+        plain_message = f"Je annuleringsverzoek voor bestelling {order.order_number} is {decision_text}."
+    else:
+        decision_text = "approved" if approved else "rejected"
+        subject = f"Your cancellation request for {order.order_number} was {decision_text}"
+        heading = f"Cancellation Request {decision_text.title()}"
+        greeting = "Hi"
+        request_text = "Your cancellation request for order"
+        from_text = "from"
+        refund_text = "Your order total of"
+        refund_suffix = "will be refunded according to the shop's refund policy."
+        seller_note_label = "Seller note"
+        contact_text = "If you have questions, please contact the shop directly."
+        plain_message = f"Your cancellation request for order {order.order_number} was {decision_text}."
     color = "#28a745" if approved else "#dc3545"
     html_message = f"""
-    <h2>Cancellation Request {decision_text.title()}</h2>
-    <p>Hi <strong>{order.customer_name}</strong>,</p>
-    <p>Your cancellation request for order <strong>{order.order_number}</strong>
-       from <strong>{order.shop.name}</strong> has been
+    <h2>{heading}</h2>
+    <p>{greeting} <strong>{order.customer_name}</strong>,</p>
+    <p>{request_text} <strong>{order.order_number}</strong>
+       {from_text} <strong>{order.shop.name}</strong> is
        <span style="color:{color}"><strong>{decision_text}</strong></span>.</p>
-    {"<p>Your order total of <strong>" + str(order.total) + " " + currency + "</strong> will be refunded according to the shop's refund policy.</p>" if approved else ""}
-    {"<p><strong>Seller note:</strong> " + cancel_request.seller_note + "</p>" if cancel_request.seller_note else ""}
-    <p>If you have questions, please contact the shop directly.</p>
+    {"<p>" + refund_text + " <strong>" + str(order.total) + " " + currency + "</strong> " + refund_suffix + "</p>" if approved else ""}
+    {"<p><strong>" + seller_note_label + ":</strong> " + cancel_request.seller_note + "</p>" if cancel_request.seller_note else ""}
+    <p>{contact_text}</p>
     """
     send_mail(
         subject=subject,
-        message=f"Your cancellation request for order {order.order_number} was {decision_text}.",
+        message=plain_message,
         from_email=None,
         recipient_list=[buyer_email],
         html_message=html_message,
@@ -814,16 +970,38 @@ def send_order_cancelled_confirmation_email_to_buyer(order):
     if not buyer_email:
         return
     currency = getattr(getattr(order.shop, "settings", None), "currency", "EUR")
+    if order.language == "nl":
+        subject = f"Bestelling {order.order_number} geannuleerd"
+        heading = f"Bestelling geannuleerd – {order.order_number}"
+        greeting = "Hoi"
+        order_text = "je bestelling"
+        from_text = "van"
+        cancelled = "is geannuleerd zoals je hebt gevraagd."
+        total_label = "Totaalbedrag"
+        security_note = "Heb je dit niet aangevraagd? Neem dan rechtstreeks contact op met de winkel."
+        plain_message = (
+            f"Je bestelling {order.order_number} bij {order.shop.name} is geannuleerd zoals je hebt gevraagd."
+        )
+    else:
+        subject = f"Order {order.order_number} cancelled"
+        heading = f"Order Cancelled – {order.order_number}"
+        greeting = "Hi"
+        order_text = "your order"
+        from_text = "from"
+        cancelled = "has been cancelled as requested."
+        total_label = "Order total"
+        security_note = "If you didn't request this, please contact the shop directly."
+        plain_message = f"Your order {order.order_number} from {order.shop.name} has been cancelled as requested."
     html_message = f"""
-    <h2>Order Cancelled – {order.order_number}</h2>
-    <p>Hi <strong>{order.customer_name}</strong>, your order <strong>{order.order_number}</strong>
-       from <strong>{order.shop.name}</strong> has been cancelled as requested.</p>
-    <p>Order total: <strong>{order.total} {currency}</strong></p>
-    <p>If you didn't request this, please contact the shop directly.</p>
+    <h2>{heading}</h2>
+    <p>{greeting} <strong>{order.customer_name}</strong>, {order_text} <strong>{order.order_number}</strong>
+       {from_text} <strong>{order.shop.name}</strong> {cancelled}</p>
+    <p>{total_label}: <strong>{order.total} {currency}</strong></p>
+    <p>{security_note}</p>
     """
     send_mail(
-        subject=f"Order {order.order_number} cancelled",
-        message=f"Your order {order.order_number} from {order.shop.name} has been cancelled as requested.",
+        subject=subject,
+        message=plain_message,
         from_email=None,
         recipient_list=[buyer_email],
         html_message=html_message,
@@ -846,6 +1024,16 @@ ORDER_STATUS_UPDATE_SUBJECTS = {
     Order.STATUS_CANCELLED: "Your order {order_number} was cancelled",
 }
 
+ORDER_STATUS_UPDATE_SUBJECTS_NL = {
+    Order.STATUS_ACCEPTED: "Je bestelling {order_number} is geaccepteerd",
+    Order.STATUS_REJECTED: "Je bestelling {order_number} is afgewezen",
+    Order.STATUS_PREPARING: "Je bestelling {order_number} wordt bereid",
+    Order.STATUS_READY: "Je bestelling {order_number} is klaar",
+    Order.STATUS_OUT_FOR_DELIVERY: "Je bestelling {order_number} is onderweg",
+    Order.STATUS_COMPLETED: "Je bestelling {order_number} is afgerond",
+    Order.STATUS_CANCELLED: "Je bestelling {order_number} is geannuleerd",
+}
+
 
 def send_order_status_update_email_to_buyer(order, previous_status):
     """Notify the buyer whenever a seller modifies an order's status
@@ -854,21 +1042,55 @@ def send_order_status_update_email_to_buyer(order, previous_status):
     buyer_email = order.customer_email
     if not buyer_email:
         return
-    subject_template = ORDER_STATUS_UPDATE_SUBJECTS.get(order.status)
+    is_dutch = order.language == "nl"
+    subject_template = (ORDER_STATUS_UPDATE_SUBJECTS_NL if is_dutch else ORDER_STATUS_UPDATE_SUBJECTS).get(order.status)
     if not subject_template:
         return
     subject = subject_template.format(order_number=order.order_number)
-    status_label = order.status.replace("_", " ").title()
+    status_labels = {
+        Order.STATUS_ACCEPTED: "geaccepteerd",
+        Order.STATUS_REJECTED: "afgewezen",
+        Order.STATUS_PREPARING: "wordt bereid",
+        Order.STATUS_READY: "klaar",
+        Order.STATUS_OUT_FOR_DELIVERY: "onderweg",
+        Order.STATUS_COMPLETED: "afgerond",
+        Order.STATUS_CANCELLED: "geannuleerd",
+    }
+    status_label = (
+        status_labels.get(order.status, order.status.replace("_", " "))
+        if is_dutch
+        else order.status.replace("_", " ").title()
+    )
+    previous_label = previous_status.replace("_", " ").title()
+    if is_dutch:
+        previous_label = {
+            Order.STATUS_PENDING: "in afwachting",
+            Order.STATUS_ACCEPTED: "geaccepteerd",
+            Order.STATUS_REJECTED: "afgewezen",
+            Order.STATUS_PREPARING: "in bereiding",
+            Order.STATUS_READY: "klaar",
+            Order.STATUS_OUT_FOR_DELIVERY: "onderweg",
+            Order.STATUS_COMPLETED: "afgerond",
+            Order.STATUS_CANCELLED: "geannuleerd",
+        }.get(previous_status, previous_label)
+        heading = f"Bestellingsupdate – {order.order_number}"
+        greeting = "Hoi"
+        message = f"Je bestelling {order.order_number} bij {order.shop.name} heeft nu de status: " f"{status_label}."
+        previous_text = f"Vorige status: {previous_label}"
+    else:
+        heading = f"Order Update – {order.order_number}"
+        greeting = "Hi"
+        message = f"Your order {order.order_number} from {order.shop.name} status changed to " f"{status_label}."
+        previous_text = f"Previous status: {previous_label}"
     html_message = f"""
-    <h2>Order Update – {order.order_number}</h2>
-    <p>Hi <strong>{order.customer_name}</strong>, your order <strong>{order.order_number}</strong>
-       from <strong>{order.shop.name}</strong> is now: <strong>{status_label}</strong>.</p>
-    <p>Previous status: {previous_status.replace('_', ' ').title()}</p>
+    <h2>{heading}</h2>
+    <p>{greeting} <strong>{order.customer_name}</strong>, {message}</p>
+    <p>{previous_text}</p>
     """
     try:
         send_mail(
             subject=subject,
-            message=f"Your order {order.order_number} status changed to {status_label}.",
+            message=message,
             from_email=None,
             recipient_list=[buyer_email],
             html_message=html_message,

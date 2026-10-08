@@ -120,6 +120,39 @@ class MarketplaceAPITests(TestCase):
         self.assertIn("Masala Namkeen", names)
         self.assertNotIn("Hidden", names)
 
+    def test_product_translations_are_additive_and_seller_editable(self):
+        self.client.force_authenticate(self.seller_user)
+        response = self.client.patch(
+            f"/api/seller/products/{self.product.id}/",
+            {
+                "translations": {
+                    "description": {
+                        "en": "A crunchy savoury snack.",
+                        "nl": "Een knapperige hartige snack.",
+                    }
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.name, "Masala Namkeen")
+        self.assertEqual(self.product.description, "A crunchy savoury snack.")
+        self.assertEqual(
+            self.product.translations["description"]["nl"],
+            "Een knapperige hartige snack.",
+        )
+
+        self.client.force_authenticate(None)
+        response = self.client.get("/api/marketplace/products/")
+        public_product = next(item for item in response.data if item["id"] == self.product.id)
+        self.assertEqual(public_product["name"], "Masala Namkeen")
+        self.assertEqual(public_product["description"], "A crunchy savoury snack.")
+        self.assertEqual(
+            public_product["translations"]["description"]["nl"],
+            "Een knapperige hartige snack.",
+        )
+
     def test_seller_products_are_scoped_to_own_shop(self):
         self.client.force_authenticate(self.seller_user)
         response = self.client.get("/api/seller/products/")
@@ -966,6 +999,25 @@ class OrderCheckoutAccountCreationTests(TestCase):
             response = self.client.post("/api/marketplace/orders/", self._order_payload(), format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertIsNone(response.data["customer"])
+        self.assertEqual(Order.objects.get(pk=response.data["id"]).language, "en")
+
+    def test_dutch_order_language_is_saved_and_used_for_buyer_confirmation(self):
+        with (
+            patch("apps.marketplace.services.threading.Thread", _SyncThread),
+            patch("apps.marketplace.billing.pdf_service.invoice_pdf", return_value=b"test-pdf"),
+        ):
+            response = self.client.post(
+                "/api/marketplace/orders/",
+                self._order_payload(language="nl"),
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        order = Order.objects.get(pk=response.data["id"])
+        self.assertEqual(order.language, "nl")
+        buyer_email = next(message for message in mail.outbox if "guest-checkout@example.com" in message.to)
+        self.assertIn("Bestelling bevestigd", buyer_email.subject)
+        self.assertIn("Besteldatum", buyer_email.body)
+        self.assertIn("Eindtotaal", buyer_email.body)
 
     def test_guest_order_with_create_account_creates_user_via_existing_flow(self):
         payload = self._order_payload(

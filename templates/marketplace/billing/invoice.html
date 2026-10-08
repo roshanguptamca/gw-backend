@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ invoice.order.language|default:'en' }}">
 <head>
   <meta charset="UTF-8">
   <title>{{ invoice.invoice_number }}</title>
@@ -28,34 +28,34 @@
 </head>
 <body>
   <div class="footer">
-    Thank you for your order. / Bedankt voor uw bestelling.<br>
+    {% if invoice.order.language == "nl" %}Bedankt voor uw bestelling.{% else %}Thank you for your order.{% endif %}<br>
     {{ seller.legal_business_name }} | {{ seller.address_line1 }}{% if seller.address_line2 %}, {{ seller.address_line2 }}{% endif %}
     | {{ seller.postcode }} {{ seller.city }} {{ seller.country }}
     {% if seller.kvk_number %}<br>KVK: {{ seller.kvk_number }}{% endif %}
-    {% if seller.vat_number %} | VAT / BTW: {{ seller.vat_number }}{% endif %}
+    {% if seller.vat_number %} | {% if invoice.order.language == "nl" %}Btw{% else %}VAT{% endif %}: {{ seller.vat_number }}{% endif %}
     {% if seller.iban %}<br>IBAN: {{ seller.iban }}{% endif %}
   </div>
   <header>
     {% if seller.logo %}<img class="logo" src="{{ seller.logo }}" alt="{{ seller.shop_name }}">{% endif %}
     <h1>{{ seller.shop_name }}</h1>
-    <h2>INVOICE / FACTUUR</h2>
+    <h2>{% if invoice.order.language == "nl" %}FACTUUR{% else %}INVOICE{% endif %}</h2>
     <strong>{{ invoice.invoice_number }}</strong><br>
-    Invoice date / Factuurdatum: {{ invoice.issue_date|date:"d-m-Y" }}<br>
-    Order / Bestelling: {{ invoice.order_number }}<br>
-    Order date / Besteldatum: {{ invoice.order_date|date:"d-m-Y" }}
+    {% if invoice.order.language == "nl" %}Factuurdatum{% else %}Invoice date{% endif %}: {{ invoice.issue_date|date:"d-m-Y" }}<br>
+    {% if invoice.order.language == "nl" %}Bestelling{% else %}Order{% endif %}: {{ invoice.order_number }}<br>
+    {% if invoice.order.language == "nl" %}Besteldatum{% else %}Order date{% endif %}: {{ invoice.order_date|date:"d-m-Y" }}
   </header>
   <table class="addresses"><tr>
     <td>
-      <h2>SELLER / VERKOPER</h2>
+      <h2>{% if invoice.order.language == "nl" %}VERKOPER{% else %}SELLER{% endif %}</h2>
       <strong>{{ seller.legal_business_name }}</strong><br>
       {{ seller.address_line1 }}<br>
       {% if seller.address_line2 %}{{ seller.address_line2 }}<br>{% endif %}
       {{ seller.postcode }} {{ seller.city }}<br>{{ seller.country }}<br>
       {% if seller.kvk_number %}KVK: {{ seller.kvk_number }}<br>{% endif %}
-      {% if seller.vat_number %}VAT / BTW: {{ seller.vat_number }}{% endif %}
+      {% if seller.vat_number %}{% if invoice.order.language == "nl" %}Btw{% else %}VAT{% endif %}: {{ seller.vat_number }}{% endif %}
     </td>
     <td>
-      <h2>CUSTOMER / KLANT</h2>
+      <h2>{% if invoice.order.language == "nl" %}KLANT{% else %}CUSTOMER{% endif %}</h2>
       <strong>{{ customer.name }}</strong><br>
       {{ customer.email }}<br>
       <span class="note">{{ customer.address }}</span>
@@ -63,30 +63,45 @@
   </tr></table>
   <table>
     <thead><tr>
-      <th>Description / Omschrijving</th><th>Qty / Aantal</th><th>Unit incl. VAT</th>
-      <th>VAT / BTW %</th><th>Net / Netto</th><th>VAT / BTW</th><th>Total incl. VAT</th>
+      <th>{% if invoice.order.language == "nl" %}Omschrijving{% else %}Description{% endif %}</th>
+      <th>{% if invoice.order.language == "nl" %}Aantal{% else %}Qty{% endif %}</th>
+      <th>{% if invoice.order.language == "nl" %}Eenheid incl. btw{% else %}Unit incl. VAT{% endif %}</th>
+      <th>{% if invoice.order.language == "nl" %}Btw %{% else %}VAT %{% endif %}</th>
+      <th>{% if invoice.order.language == "nl" %}Netto{% else %}Net{% endif %}</th>
+      <th>{% if invoice.order.language == "nl" %}Btw{% else %}VAT{% endif %}</th>
+      <th>{% if invoice.order.language == "nl" %}Totaal incl. btw{% else %}Total incl. VAT{% endif %}</th>
     </tr></thead>
     <tbody>{% for item in items %}<tr>
       <td>{{ item.description }}{% if item.sku %}<br><span class="small">SKU: {{ item.sku }}</span>{% endif %}
-        {% if item.discount_inc_vat %}<br><span class="small">Discount / Korting: -{{ item.discount_inc_vat|floatformat:2 }}</span>{% endif %}
+        {% if item.discount_inc_vat %}<br><span class="small">{% if invoice.order.language == "nl" %}Korting{% else %}Discount{% endif %}: -{{ item.discount_inc_vat|floatformat:2 }}</span>{% endif %}
       </td>
       <td>{{ item.quantity }}</td><td>{{ item.unit_price_inc_vat|floatformat:2 }}</td>
       <td>{{ item.vat_rate|floatformat:2 }}%</td><td>{{ item.line_total_ex_vat|floatformat:2 }}</td>
       <td>{{ item.vat_amount|floatformat:2 }}</td><td>{{ item.line_total_inc_vat|floatformat:2 }}</td>
     </tr>{% endfor %}</tbody>
   </table>
-  <p class="small">All amounts in {{ invoice.currency }}. Prices include VAT. / Alle prijzen inclusief BTW.
-    Line totals are after discounts. / Regeltotalen na korting.</p>
+  <p class="small">
+    {% if invoice.order.language == "nl" %}
+      Alle bedragen in {{ invoice.currency }}. Prijzen zijn inclusief btw. Regeltotalen zijn na korting.
+    {% else %}
+      All amounts in {{ invoice.currency }}. Prices include VAT. Line totals are after discounts.
+    {% endif %}
+  </p>
   <table class="totals">
-    {% if invoice.discount_total %}<tr><td>Discount incl. VAT / Korting</td><td>-{{ invoice.discount_total|floatformat:2 }}</td></tr>{% endif %}
-    {% if invoice.delivery_total %}<tr><td>Delivery incl. VAT / Bezorging (included)</td><td>{{ invoice.delivery_total|floatformat:2 }}</td></tr>{% endif %}
-    <tr><td>Subtotal excl. VAT / Subtotaal excl. BTW</td><td>{{ invoice.subtotal_ex_vat|floatformat:2 }}</td></tr>
-    <tr><td>VAT / BTW</td><td>{{ invoice.vat_total|floatformat:2 }}</td></tr>
-    <tr class="grand"><td>Total incl. VAT / Totaal incl. BTW</td><td>{{ invoice.currency }} {{ invoice.total_inc_vat|floatformat:2 }}</td></tr>
+    {% if invoice.discount_total %}<tr><td>{% if invoice.order.language == "nl" %}Korting incl. btw{% else %}Discount incl. VAT{% endif %}</td><td>-{{ invoice.discount_total|floatformat:2 }}</td></tr>{% endif %}
+    {% if invoice.delivery_total %}<tr><td>{% if invoice.order.language == "nl" %}Bezorging incl. btw (inbegrepen){% else %}Delivery incl. VAT (included){% endif %}</td><td>{{ invoice.delivery_total|floatformat:2 }}</td></tr>{% endif %}
+    <tr><td>{% if invoice.order.language == "nl" %}Subtotaal excl. btw{% else %}Subtotal excl. VAT{% endif %}</td><td>{{ invoice.subtotal_ex_vat|floatformat:2 }}</td></tr>
+    <tr><td>{% if invoice.order.language == "nl" %}Btw{% else %}VAT{% endif %}</td><td>{{ invoice.vat_total|floatformat:2 }}</td></tr>
+    <tr class="grand"><td>{% if invoice.order.language == "nl" %}Totaal incl. btw{% else %}Total incl. VAT{% endif %}</td><td>{{ invoice.currency }} {{ invoice.total_inc_vat|floatformat:2 }}</td></tr>
   </table>
-  <h2>VAT SUMMARY / BTW OVERZICHT</h2>
+  <h2>{% if invoice.order.language == "nl" %}BTW-OVERZICHT{% else %}VAT SUMMARY{% endif %}</h2>
   <table>
-    <thead><tr><th>Rate / Tarief</th><th>Net / Netto</th><th>VAT / BTW</th><th>Gross / Bruto</th></tr></thead>
+    <thead><tr>
+      <th>{% if invoice.order.language == "nl" %}Tarief{% else %}Rate{% endif %}</th>
+      <th>{% if invoice.order.language == "nl" %}Netto{% else %}Net{% endif %}</th>
+      <th>{% if invoice.order.language == "nl" %}Btw{% else %}VAT{% endif %}</th>
+      <th>{% if invoice.order.language == "nl" %}Bruto{% else %}Gross{% endif %}</th>
+    </tr></thead>
     <tbody>{% for row in vat_summary %}<tr>
       <td>{{ row.rate|floatformat:2 }}%</td><td>{{ row.net|floatformat:2 }}</td><td>{{ row.vat|floatformat:2 }}</td><td>{{ row.gross|floatformat:2 }}</td>
     </tr>{% endfor %}</tbody>
