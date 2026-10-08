@@ -43,6 +43,33 @@ from .services import create_order_from_payload, create_seller_with_shop, genera
 
 User = get_user_model()
 
+TRANSLATABLE_FIELDS = {
+    "description",
+    "ingredients",
+    "allergens",
+    "short_description",
+    "shop_type",
+    "delivery_area",
+    "delivery_notes",
+    "pickup_instructions",
+    "translations",
+    "bank_transfer_instructions",
+    "invoice_footer",
+}
+
+
+def validate_translations(value):
+    if not isinstance(value, dict):
+        raise serializers.ValidationError("Translations must be an object keyed by field name.")
+    for field, language_values in value.items():
+        if field not in TRANSLATABLE_FIELDS or not isinstance(language_values, dict):
+            raise serializers.ValidationError(f"Invalid translation field: {field}.")
+        if set(language_values) - {"en", "nl"}:
+            raise serializers.ValidationError(f"Unsupported language for {field}.")
+        if any(not isinstance(text, str) for text in language_values.values()):
+            raise serializers.ValidationError(f"Translations for {field} must be text.")
+    return value
+
 
 def validate_image_upload(file, *, max_bytes):
     try:
@@ -59,6 +86,7 @@ class CategorySerializer(serializers.ModelSerializer):
 
 
 class ShopSettingsSerializer(serializers.ModelSerializer):
+    translations = serializers.JSONField(required=False)
     whatsapp_url = serializers.URLField(max_length=500, required=False, allow_blank=True)
     whatsapp_group_url = serializers.URLField(max_length=500, required=False, allow_blank=True)
 
@@ -85,6 +113,7 @@ class ShopSettingsSerializer(serializers.ModelSerializer):
             "free_delivery_above",
             "delivery_notes",
             "pickup_instructions",
+            "translations",
             "pickup_address_line_1",
             "pickup_address_line_2",
             "pickup_postal_code",
@@ -107,6 +136,9 @@ class ShopSettingsSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "min_order_amount": {"min_value": Decimal("0.00")},
         }
+
+    def validate_translations(self, value):
+        return validate_translations(value)
 
     def validate_invoice_iban(self, value):
         value = value.strip().upper().replace(" ", "")
@@ -166,6 +198,7 @@ class ShopSettingsSerializer(serializers.ModelSerializer):
 
 
 class ShopSerializer(serializers.ModelSerializer):
+    translations = serializers.JSONField(required=False)
     settings = ShopSettingsSerializer(read_only=True)
     product_count = serializers.IntegerField(read_only=True)
     logo = serializers.ImageField(write_only=True, required=False)
@@ -182,6 +215,7 @@ class ShopSerializer(serializers.ModelSerializer):
             "description",
             "short_description",
             "shop_type",
+            "translations",
             "phone",
             "email",
             "website_url",
@@ -229,6 +263,9 @@ class ShopSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("HTML is not allowed in the shop description.")
         return value
 
+    def validate_translations(self, value):
+        return validate_translations(value)
+
     def validate_short_description(self, value):
         if value != strip_tags(value):
             raise serializers.ValidationError("HTML is not allowed in the shop description.")
@@ -275,6 +312,7 @@ class PublicProductImageSerializer(serializers.ModelSerializer):
 
 
 class ProductSerializer(serializers.ModelSerializer):
+    translations = serializers.JSONField(required=False)
     category_detail = CategorySerializer(source="category", read_only=True)
     images = PublicProductImageSerializer(many=True, read_only=True)
     image = serializers.ImageField(write_only=True, required=False, allow_null=True)
@@ -296,6 +334,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "description",
             "ingredients",
             "allergens",
+            "translations",
             "price",
             "compare_at_price",
             "stock_quantity",
@@ -349,6 +388,9 @@ class ProductSerializer(serializers.ModelSerializer):
 
     def validate_image(self, value):
         return validate_image_upload(value, max_bytes=PRODUCT_IMAGE_MAX_BYTES)
+
+    def validate_translations(self, value):
+        return validate_translations(value)
 
     def validate_sku(self, value):
         if value in (None, ""):
@@ -531,6 +573,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "delivery_zone",
             "status",
             "payment_method",
+            "language",
             "payment_status",
             "subtotal",
             "discount_total",
@@ -573,6 +616,7 @@ class OrderCreateSerializer(serializers.Serializer):
         choices=Order.DELIVERY_ZONE_CHOICES, required=False, allow_blank=True, default=""
     )
     payment_method = serializers.ChoiceField(choices=Order.PAYMENT_METHOD_CHOICES, default="cash")
+    language = serializers.ChoiceField(choices=[("en", "English"), ("nl", "Dutch")], default="en")
     customer_note = serializers.CharField(required=False, allow_blank=True)
     coupon_code = serializers.CharField(required=False, allow_blank=True)
     pickup_slot_start = serializers.DateTimeField(required=False, allow_null=True, default=None)
@@ -790,6 +834,7 @@ class PublicShopSerializer(ShopSerializer):
             "description",
             "short_description",
             "shop_type",
+            "translations",
             "phone",
             "email",
             "website_url",
@@ -829,6 +874,7 @@ class PublicShopSettingsSerializer(serializers.ModelSerializer):
             "free_delivery_above",
             "delivery_notes",
             "pickup_instructions",
+            "translations",
             "whatsapp_number",
             "whatsapp_url",
             "whatsapp_group_url",

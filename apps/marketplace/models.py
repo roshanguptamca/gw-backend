@@ -35,6 +35,7 @@ class Shop(models.Model):
     description = models.TextField(blank=True)
     short_description = models.CharField(max_length=240, blank=True)
     shop_type = models.CharField(max_length=80, blank=True)
+    translations = models.JSONField(default=dict, blank=True)
     phone = models.CharField(max_length=30, blank=True)
     email = models.EmailField(blank=True)
     website_url = models.URLField(blank=True)
@@ -113,6 +114,7 @@ class ShopSettings(models.Model):
     international_delivery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("10.00"))
     delivery_notes = models.TextField(blank=True)
     pickup_instructions = models.TextField(blank=True)
+    translations = models.JSONField(default=dict, blank=True)
     pickup_address_line_1 = models.CharField(max_length=255, blank=True)
     pickup_address_line_2 = models.CharField(max_length=255, blank=True)
     pickup_postal_code = models.CharField(max_length=20, blank=True)
@@ -194,6 +196,7 @@ class Product(models.Model):
     description = models.TextField(blank=True)
     ingredients = models.TextField(blank=True)
     allergens = models.TextField(blank=True)
+    translations = models.JSONField(default=dict, blank=True)
     price = models.DecimalField(max_digits=10, decimal_places=2)
     vat_rate = models.DecimalField(
         max_digits=5,
@@ -361,6 +364,7 @@ class Order(models.Model):
     delivery_zone = models.CharField(max_length=30, choices=DELIVERY_ZONE_CHOICES, blank=True, null=True, default="")
     status = models.CharField(max_length=30, choices=ORDER_STATUS, default=STATUS_PENDING)
     payment_method = models.CharField(max_length=30, choices=PAYMENT_METHOD_CHOICES, default="cash")
+    language = models.CharField(max_length=2, choices=[("en", "English"), ("nl", "Dutch")], default="en")
     payment_status = models.CharField(max_length=30, choices=PAYMENT_STATUS, default="unpaid")
     subtotal = models.DecimalField(max_digits=10, decimal_places=2)
     discount_total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
