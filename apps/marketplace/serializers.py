@@ -626,6 +626,13 @@ class OrderCreateSerializer(serializers.Serializer):
     password = serializers.CharField(required=False, allow_blank=True, write_only=True)
     password_confirm = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
+    def validate_customer_phone(self, value):
+        normalized = re.sub(r"[\s().-]", "", value)
+        digits = normalized.removeprefix("+")
+        if not re.fullmatch(r"\+?[0-9]+", normalized) or not 7 <= len(digits) <= 15:
+            raise serializers.ValidationError("Enter a valid phone number with 7 to 15 digits.")
+        return value
+
     def validate_terms_accepted(self, value):
         if not value:
             raise serializers.ValidationError("You must accept the Terms & Conditions to place an order.")

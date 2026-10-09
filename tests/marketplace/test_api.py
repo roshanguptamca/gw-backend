@@ -1001,6 +1001,32 @@ class OrderCheckoutAccountCreationTests(TestCase):
         self.assertIsNone(response.data["customer"])
         self.assertEqual(Order.objects.get(pk=response.data["id"]).language, "en")
 
+    def test_checkout_rejects_invalid_phone_numbers(self):
+        for phone in ("1234", "not-a-phone", "+31 6 abc 123", "1234567890123456", "++31612345678"):
+            with self.subTest(phone=phone):
+                response = self.client.post(
+                    "/api/marketplace/orders/",
+                    self._order_payload(customer_phone=phone),
+                    format="json",
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertIn("customer_phone", response.data)
+
+        self.assertFalse(Order.objects.exists())
+
+    def test_checkout_accepts_formatted_local_and_international_phone_numbers(self):
+        for index, phone in enumerate(("06 12345678", "+31 (0)6-1234 5678")):
+            with self.subTest(phone=phone), patch("apps.marketplace.services.threading.Thread", _SyncThread):
+                response = self.client.post(
+                    "/api/marketplace/orders/",
+                    self._order_payload(customer_phone=phone, customer_email=f"buyer{index}@example.com"),
+                    format="json",
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+                self.assertEqual(response.data["customer_phone"], phone)
+
     def test_dutch_order_language_is_saved_and_used_for_buyer_confirmation(self):
         with (
             patch("apps.marketplace.services.threading.Thread", _SyncThread),
