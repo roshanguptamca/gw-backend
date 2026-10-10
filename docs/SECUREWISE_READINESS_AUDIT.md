@@ -28,19 +28,19 @@ workflows were run against the controlled fixture; it is not production evidence
 | Repository cloning and short-lived Git credentials | Implemented | Mock/local-path tests available | No | `test_repository_scanner_helpers.py`, `test_services.py` | Dedicated worker secrets handling and Git provider integration need deployment validation | P1 |
 | Application discovery (Python, Node, PHP, Ruby, Java, Go) | Implemented | Detector and Smart Scan tests available | No | `test_smart_repo_scan.py` | Coverage is signature-based; multi-service runtime and environment provisioning remain limited | P1 |
 | SAST, SCA, secret and IaC scanners | Implemented, with tool-dependent fallbacks | Scanner tests mock tool availability; a real binary run was not observed | No | `test_scanners.py`, `test_mode_labels.py` | Production tool versions, signatures, and fallback visibility require worker image validation | P1 |
-| API security analysis | Partially implemented (static OpenAPI plus bounded authenticated GET/HEAD checks) | Real requests against the controlled Docker fixture confirmed the deliberate IDOR and passed role controls | No | `test_scanners.py`, `test_autopentest_worker.py` | Live support is limited to reviewed fixture builds and explicit OpenAPI ownership/role metadata; no general schema request generation or Playwright adapter | P0 |
+| API security analysis | Partially implemented (static OpenAPI, bounded authenticated GET/HEAD checks, and deterministic browser journeys) | Separate Django API and worker processes ran authenticated browser journeys against the controlled Docker fixture; cross-user IDOR was confirmed and role/session controls passed | No | `test_scanners.py`, `test_autopentest_worker.py`, opt-in browser Docker integration | Browser planning requires reviewed OpenAPI extensions; no general source-route inference or AI-authored executable tests | P0 |
 | Container scanning | Implemented for Docker-image vulnerability scanning | Controlled fixture scanned by real Trivy; runtime-built image reused | No | `test_scanners.py`, opt-in `test_docker_integration.py` | Dedicated Linux worker deployment and broader image compatibility remain unverified | P0 |
 | Docker runtime build/start/health/cleanup | Implemented for supported single-container apps | Fixture image built, started, health-checked over internal network, and cleaned up | No | `test_smart_repo_scan.py`, opt-in `test_docker_integration.py` | Compose/multi-service apps, required secrets, and a dedicated Linux worker remain unverified | P0 |
 | DAST | Partially implemented | Real OWASP ZAP baseline completed against the controlled fixture | No | `test_scanners.py`, opt-in `test_docker_integration.py` | Baseline is passive; no active testing, authenticated crawling, or production execution evidence | P0 |
-| Worker scheduling and capability registration | Partially implemented (database-backed queue) | API-submitted fixture job was claimed by `process_next_job()` in the opt-in Docker test; authenticated API capability registered | No | `test_autopentest_worker.py`, `test_api.py`, opt-in authenticated API Docker integration | The worker entry point ran synchronously inside pytest, not as a separate management-command process or Compose/Linux worker; persistent queue recovery and deployment remain unverified | P0 |
-| Worker cancellation, timeouts and cleanup | Partially implemented | Cancellation and cleanup paths are tested with mocks | No | `test_autopentest_worker.py`, `test_smart_repo_scan.py` | Cancellation takes effect between engines/cases; hard worker termination can still orphan host Docker resources | P0 |
+| Worker scheduling and capability registration | Partially implemented (database-backed queue) | A separate `securewise_worker` OS process claimed an HTTP API-submitted browser job using a persistent isolated SQLite database; heartbeat, restart queue processing, and expired-lease recovery were verified locally | No | `test_autopentest_worker.py`, `test_api.py`, opt-in authenticated API and browser Docker integrations | Local macOS verification only; production Linux worker, durable broker, and deployed database remain unverified | P0 |
+| Worker cancellation, timeouts and cleanup | Partially implemented | Queued cancellation survived worker restart; browser assessment completed with runtime/container/network cleanup; timeout and cancellation code paths have unit coverage | No | `test_autopentest_worker.py`, `test_smart_repo_scan.py`, opt-in browser Docker integration | Mid-journey cancellation and forced host/process death cleanup were not demonstrated; hard worker termination can still orphan host Docker resources | P0 |
 | AutoPentest authorization and exact host/port scope records | Partially implemented | API tests validate consent, exact loopback scope and encrypted synthetic identities; live requests were limited to the built runtime alias and approved port | No | `test_autopentest_worker.py` | Runtime builds still execute reviewed Dockerfiles on the Docker host; do not allowlist arbitrary repositories | P0 |
-| AutoPentest deterministic planner | Partially implemented | Controlled OpenAPI fixture drives the planner | No | `test_autopentest_worker.py` | Current rules inspect OpenAPI security declarations only; routes, Django permissions/models, CORS and business logic are not analyzed | P1 |
-| AutoPentest execution adapters | Partially implemented | Real authenticated, read-only API requests ran from isolated temporary containers against the fixture runtime | No | `test_autopentest_worker.py`, opt-in authenticated API Docker integration | No Playwright or session-expiration tests; unsupported operations are skipped, and no state-changing request execution exists | P0 |
-| Finding verification and evidence | Partially implemented | One fixture IDOR was confirmed only after protected owner data was returned to a second user; role controls passed; finding and redacted evidence persisted | No | `test_autopentest_worker.py`, opt-in authenticated API Docker integration | Verification depends on explicit OpenAPI extensions; evidence is only as representative as the configured synthetic fixture data | P1 |
-| Remediation recommendations, CWE/OWASP mapping and retest | Partially implemented | Unified `CWE-639` API finding and endpoint-specific recommendation were persisted; UI links to unified findings and accepts retest linkage | No | `test_autopentest_worker.py`, frontend `AutoPentestPage.test.tsx` | Framework-specific remediation, retest outcome comparison and Playwright retest coverage remain incomplete | P1 |
+| AutoPentest deterministic planner | Partially implemented | Controlled OpenAPI fixture drives API and browser journeys, including two-user ownership, role, logout, explicit session expiration, and cookie checks | No | `test_autopentest_worker.py` | Requires a reviewed OpenAPI extension; arbitrary frontend routes, Django permission/model analysis, CORS and business logic are not inferred | P1 |
+| AutoPentest execution adapters | Partially implemented | Read-only API checks and real Playwright/Chromium journeys ran against the isolated Docker fixture; a separate worker process processed the browser session submitted through HTTP | No | `test_autopentest_worker.py`, opt-in API and browser Docker integrations | Browser journeys are fixture-declarative; unsupported browser flows are skipped, and no destructive or general state-changing requests are supported | P0 |
+| Finding verification and evidence | Partially implemented | The browser fixture IDOR was confirmed only after a second synthetic user rendered the first user's protected invoice marker; role, logout, server-side session expiration, and cookie controls passed; sanitized screenshots/traces and unified finding persisted | No | `test_autopentest_worker.py`, opt-in browser Docker integration | Verification depends on explicit OpenAPI extensions and synthetic fixture expectations; evidence is representative only of those test identities/data | P1 |
+| Remediation recommendations, CWE/OWASP mapping and retest | Partially implemented | Unified `CWE-639` browser finding and endpoint-specific recommendation were persisted; UI exposes evidence and retest linkage | No | `test_autopentest_worker.py`, frontend `AutoPentestPage.test.tsx` | Framework-specific remediation, retest outcome comparison, and broad browser coverage remain incomplete | P1 |
 | SecureWise web UI (scans, findings, reports, progress) | Implemented | Existing Vitest page tests available | No | Frontend `ScanDetailPage.test.tsx`, `ScansPage.test.tsx`, `FindingDetailPage.test.tsx` | Frontend production deployment not checked | P1 |
-| AutoPentest UI | Partially implemented | Consent/scope, synthetic credential submission/clearing, session status and evidence display tests pass locally | No | Frontend `AutoPentestPage.test.tsx` | No route discovery editor or browser/session testing; UI build and frontend deployment remain unverified | P1 |
+| AutoPentest UI | Partially implemented | Browser mode supports synthetic usernames/passwords, deterministic journey selection, progress, screenshots/traces, findings, and retest linkage; frontend tests/build pass locally | No | Frontend `AutoPentestPage.test.tsx` | Journeys are selected from reviewed OpenAPI metadata; no route discovery editor or production deployment verification | P1 |
 | Controlled local vulnerable fixture | Implemented for development | Fixture is local-only; Docker execution requires the worker | No | `tests/fixtures/securewise-autopentest-api/` | Never expose the fixture publicly; fixture findings are synthetic and not production evidence | P2 |
 
 ## Findings from code inspection
@@ -78,10 +78,15 @@ session was claimed through the existing queue entry point, the fixture was
 built and scanned using real Docker requests, the deliberate IDOR and passing
 role controls were evidenced, and temporary resources were removed (see
 [`SECUREWISE_PHASE3_EXECUTION_EVIDENCE.md`](SECUREWISE_PHASE3_EXECUTION_EVIDENCE.md)).
-However, the worker command was **not** run as an independent process and the
-test database was rolled back. The separately deployed worker service, Linux
-worker isolation, production database/queue, production scanner readiness,
-and production behavior remain **unverified**.
+Phase 4 additionally verified a separately running `securewise_worker`
+management-command process against a persistent isolated local database, with
+an HTTP API-submitted browser job, a confirmed fixture authorization finding,
+passing controls, heartbeat, queued-job restart, queued cancellation, expired
+lease recovery, and Docker cleanup (see
+[`SECUREWISE_PHASE4_EXECUTION_EVIDENCE.md`](SECUREWISE_PHASE4_EXECUTION_EVIDENCE.md)).
+This does not verify the separately deployed Linux worker, production
+database/queue, production scanner readiness, or production behavior; those
+remain **unverified**.
 This is not a production readiness certification or evidence that untrusted
 customer build scripts are adequately sandboxed.
 
@@ -105,6 +110,18 @@ customer build scripts are adequately sandboxed.
   separately and recorded one confirmed IDOR finding, three passing
   authorization cases, and cleanup of the runtime, image, network, and
   request containers.
-- The complete frontend suite passed (186 tests), and the production
-  build/typecheck passed. An independent worker process, Playwright,
-  session-expiration testing, and production behavior have not been verified.
+- At Phase 3 completion the complete frontend suite passed (186 tests) and the
+  production build/typecheck passed. Independent worker and browser checks
+  were still outstanding at that point; Phase 4 results are recorded
+  separately below and in the Phase 4 evidence file.
+- Phase 4 SecureWise backend regression suite: 359 passed, 3 Docker tests
+  skipped by default. The opt-in real Playwright Docker integration passed.
+- Phase 4 frontend suite: 188 tests passed; TypeScript/production build passed.
+  Oxlint passed with nine warnings in unrelated existing files; no warning
+  targeted the changed AutoPentest files.
+- Django system checks, migration drift checks, JavaScript syntax check, and
+  whitespace validation passed.
+- Phase 4 verified a real separate-process worker/API run on an isolated
+  persistent local database and real browser execution against the controlled
+  fixture. Queue restart, cancellation, expired-lease recovery, and cleanup
+  were also exercised locally. Production behavior remains unverified.

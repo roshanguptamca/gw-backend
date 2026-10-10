@@ -27,6 +27,7 @@ WORKER_CAPABILITIES = (
 )
 STALE_CLAIM_AFTER = timedelta(minutes=30)
 WORKER_HEARTBEAT_SECONDS = 15
+PLAYWRIGHT_RUNNER_IMAGE = "securewise-playwright:1.57.0"
 _SCAN_ACTIVE_STATUSES = (
     "worker_claimed",
     "running",
@@ -43,7 +44,7 @@ _SCAN_ACTIVE_STATUSES = (
 
 
 def register_worker(worker_id: str) -> SecureWiseWorkerRegistration:
-    from apps.securewise.runtime.docker_runner import is_docker_available
+    from apps.securewise.runtime.docker_runner import is_docker_available, is_docker_image_available
 
     capabilities = list(WORKER_CAPABILITIES)
     capabilities.extend(tool for tool in ("semgrep", "trivy", "gitleaks") if shutil.which(tool))
@@ -51,6 +52,8 @@ def register_worker(worker_id: str) -> SecureWiseWorkerRegistration:
         capabilities.append("docker_daemon")
         if shutil.which("docker"):
             capabilities.append("zap_baseline_docker")
+            if is_docker_image_available(PLAYWRIGHT_RUNNER_IMAGE):
+                capabilities.append("playwright")
     if shutil.which("zap-baseline.py"):
         capabilities.append("zap_baseline_cli")
     registration, _ = SecureWiseWorkerRegistration.objects.update_or_create(

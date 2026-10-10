@@ -183,6 +183,18 @@ def is_docker_available() -> tuple[bool, str]:
     return is_docker_daemon_available()
 
 
+def is_docker_image_available(image_tag: str) -> bool:
+    try:
+        result = subprocess.run(
+            ["docker", "image", "inspect", image_tag],
+            capture_output=True,
+            timeout=_DOCKER_AVAILABILITY_TIMEOUT,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+    return result.returncode == 0
+
+
 def build_dockerfile_command(dockerfile_shell_command: str) -> list[str]:
     """Split a plain-text start command into a Docker CMD-friendly shell form."""
     return ["sh", "-c", dockerfile_shell_command]

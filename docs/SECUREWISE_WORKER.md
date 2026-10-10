@@ -60,7 +60,21 @@ time. Recovered scans reset per-engine progress and re-run idempotently.
    service above one process per worker instance unless deliberately deploying
    multiple independent workers.
 
-5. The Docker-capable end-to-end test checks out the controlled local fixture,
+5. Build the pinned Playwright runner image on the Docker host before
+   scheduling browser journeys:
+
+   ```sh
+   docker build -f Dockerfile.securewise-playwright \
+     -t securewise-playwright:1.57.0 .
+   docker image inspect securewise-playwright:1.57.0
+   ```
+
+   The worker reports the `playwright` capability only when Docker is
+   reachable and this image is present. Browser containers share only the
+   per-scan internal runtime network; they have no Docker socket or host
+   mounts and are removed after execution.
+
+6. The Docker-capable end-to-end test checks out the controlled local fixture,
    allows its repository ID for runtime execution, starts the worker claim
    path, runs Trivy and ZAP, verifies database results, and checks cleanup:
 
@@ -133,6 +147,42 @@ that a separately running `securewise_worker` process claims the API-created
 job. The sanitized results and scan identifiers are recorded in
 [`SECUREWISE_PHASE3_EXECUTION_EVIDENCE.md`](SECUREWISE_PHASE3_EXECUTION_EVIDENCE.md).
 
+## Authenticated browser AutoPentest (controlled fixture only)
+
+Browser mode runs declarative journeys from the repository's
+`x-securewise-browser-journeys` OpenAPI extension. The deterministic adapter
+supports protected-page access, cross-user resource checks, role boundaries,
+logout, server-side session expiration, and cookie flags. The worker builds
+and starts the reviewed application, then runs Chromium in the pinned
+Playwright image against the internal runtime alias. Only relative paths,
+supported selectors, and synthetic identities are accepted; external browser
+requests are aborted. Credentials are encrypted on the session and omitted
+from API responses. Screenshots blur form fields and declared sensitive
+elements, and traces store only curated step outcomes.
+
+Build the runner image, then run its Docker integration test:
+
+```sh
+docker build -f Dockerfile.securewise-playwright \
+  -t securewise-playwright:1.57.0 .
+SECUREWISE_RUN_DOCKER_INTEGRATION=1 \
+  ./venv/bin/python -m pytest \
+  tests/securewise/test_autopentest_worker.py::test_authenticated_browser_scans_real_fixture_and_cleans_up \
+  -s -q
+```
+
+That opt-in test runs the browser adapter synchronously inside pytest to cover
+real Docker execution; it does not substitute for independent worker-process
+verification. Phase 4's separate API and worker processes, persisted browser
+evidence, queue restart, cancellation, expired-lease recovery, and cleanup are
+recorded in
+[`SECUREWISE_PHASE4_EXECUTION_EVIDENCE.md`](SECUREWISE_PHASE4_EXECUTION_EVIDENCE.md).
+
+Browser route planning currently requires the reviewed OpenAPI extension; it
+does not infer routes from arbitrary frontend source or generate AI-authored
+executable journeys. Session-expiration testing runs only when the reviewed
+fixture declares a safe endpoint that invalidates a synthetic session.
+
 ## Dedicated Linux deployment
 
 - Deploy `python manage.py securewise_worker` as a separate supervised process
@@ -154,6 +204,8 @@ job. The sanitized results and scan identifiers are recorded in
   monitoring, and logs enabled. Alert on old `worker_claimed` jobs, Docker disk
   growth, failed image removal, and workers that stop refreshing
   `SecureWiseWorkerRegistration.last_seen_at`.
+- Build and verify `securewise-playwright:1.57.0` on the worker host and
+  confirm the worker advertises `playwright` before enabling browser tests.
 - ZAP runs baseline/passive checks only. The HTTP fallback is also passive.
   Container and DAST engine failures are reported separately from results
   produced by other engines.

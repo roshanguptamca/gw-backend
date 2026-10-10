@@ -621,7 +621,11 @@ class PentestSession(models.Model):
     authorization_reference = models.CharField(max_length=500)
     mode = models.CharField(
         max_length=30,
-        choices=[("passive", "Passive"), ("authenticated_api", "Authenticated API")],
+        choices=[
+            ("passive", "Passive"),
+            ("authenticated_api", "Authenticated API"),
+            ("authenticated_browser", "Authenticated Browser"),
+        ],
         default="passive",
     )
     _encrypted_auth_config = models.BinaryField(null=True, blank=True, db_column="encrypted_auth_config")

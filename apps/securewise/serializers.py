@@ -700,6 +700,72 @@ class PentestSessionSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"scope": "Authenticated live tests are restricted to approved loopback fixture runtimes."}
                 )
+        elif mode == "authenticated_browser":
+            allowed_journeys = {
+                "protected-page",
+                "cross-user-resource",
+                "role-boundary",
+                "logout",
+                "session-expiration",
+                "session-cookie",
+            }
+            users = auth_config.get("users") if isinstance(auth_config, dict) else None
+            journeys = auth_config.get("journeys") if isinstance(auth_config, dict) else None
+            if (
+                not isinstance(auth_config, dict)
+                or auth_config.get("type") != "browser"
+                or not isinstance(users, list)
+                or len(users) < 2
+            ):
+                raise serializers.ValidationError(
+                    {"auth_config": "Browser mode requires credentials for at least two synthetic users."}
+                )
+            if (
+                not isinstance(journeys, list)
+                or not journeys
+                or len(journeys) > len(allowed_journeys)
+                or any(journey not in allowed_journeys for journey in journeys)
+                or len(journeys) != len(set(journeys))
+            ):
+                raise serializers.ValidationError(
+                    {"auth_config": "Select one or more supported deterministic browser journeys."}
+                )
+            labels = set()
+            subjects = set()
+            usernames = set()
+            for user in users:
+                if (
+                    not isinstance(user, dict)
+                    or not all(
+                        isinstance(user.get(field), str) and user[field].strip()
+                        for field in ("label", "subject", "role", "username", "password")
+                    )
+                    or len(user["username"]) > 200
+                    or len(user["password"]) > 4096
+                ):
+                    raise serializers.ValidationError(
+                        {"auth_config": "Each browser identity needs a label, subject, role, username and password."}
+                    )
+                labels.add(user["label"])
+                subjects.add(user["subject"])
+                usernames.add(user["username"])
+            if (
+                len(labels) != len(users)
+                or len(subjects) != len(users)
+                or len(usernames) != len(users)
+            ):
+                raise serializers.ValidationError(
+                    {"auth_config": "Browser identity labels, subjects, and usernames must be unique."}
+                )
+            if len(users) > 10:
+                raise serializers.ValidationError({"auth_config": "At most 10 synthetic browser identities are allowed."})
+            if any(
+                entry["scheme"] != "http" or entry["host"] not in {"127.0.0.1", "::1", "localhost"}
+                for entry in scopes
+            ):
+                raise serializers.ValidationError(
+                    {"scope": "Browser tests are restricted to approved loopback fixture runtimes."}
+                )
         return attrs
 
     def create(self, validated_data):
