@@ -17,13 +17,15 @@ from django.utils import timezone
 from django.utils.text import slugify
 from django.views.generic import TemplateView
 
-from rest_framework import permissions, status, viewsets
+from rest_framework import mixins, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 from rest_framework.views import APIView
 
 from .models import (
+    PentestSession,
+    PentestTestProposal,
     SecureWiseAuditLog,
     SecureWiseFinding,
     SecureWiseGitIntegration,
@@ -36,7 +38,6 @@ from .models import (
     SecureWiseScan,
     SecureWiseScanPolicy,
     SecureWiseScanPolicyTemplate,
-    PentestSession,
     SecureWiseWorkerRegistration,
 )
 from .permissions import ADMIN_ROLES, WRITE_ROLES, _membership
@@ -44,6 +45,8 @@ from .runtime.logs import redact_secrets, tail_lines
 from .scanners.cwe_mapping import SECURITY_TAXONOMY, taxonomy_metadata
 from .scanners.repository import validate_local_repository_path
 from .serializers import (
+    PentestSessionSerializer,
+    PentestTestProposalSerializer,
     ScanEngineResultSerializer,
     SecureWiseAuditLogSerializer,
     SecureWiseFindingSerializer,
@@ -57,7 +60,6 @@ from .serializers import (
     SecureWiseScanPolicySerializer,
     SecureWiseScanPolicyTemplateSerializer,
     SecureWiseScanSerializer,
-    PentestSessionSerializer,
 )
 from .services.ai_recommendation import generate_ai_fix_suggestion
 from .services.github_actions import GitHubActionError, create_github_issue, create_github_pr
@@ -873,18 +875,20 @@ class ScanViewSet(viewsets.ModelViewSet):
                 or er.skipped_reason
                 or ""
             )
-            engines.append({
-                "engine": er.engine,
-                "status": er.status,
-                "findings_count": er.findings_count,
-                "skipped_reason": er.skipped_reason,
-                "diagnostics": {
-                    "log_excerpt": redact_secrets(tail_lines(str(log_excerpt), max_lines=80))[:4000],
-                    "mode": raw_summary.get("mode", ""),
-                    "execution_mode": raw_summary.get("execution_mode", ""),
-                    "coverage": raw_summary.get("coverage", {}),
-                },
-            })
+            engines.append(
+                {
+                    "engine": er.engine,
+                    "status": er.status,
+                    "findings_count": er.findings_count,
+                    "skipped_reason": er.skipped_reason,
+                    "diagnostics": {
+                        "log_excerpt": redact_secrets(tail_lines(str(log_excerpt), max_lines=80))[:4000],
+                        "mode": raw_summary.get("mode", ""),
+                        "execution_mode": raw_summary.get("execution_mode", ""),
+                        "coverage": raw_summary.get("coverage", {}),
+                    },
+                }
+            )
         coverage = {
             "requested_engines": len(scan.selected_engines or []),
             "completed_engines": sum(er.status == "completed" for er in results),
@@ -894,9 +898,7 @@ class ScanViewSet(viewsets.ModelViewSet):
         }
         worker = SecureWiseWorkerRegistration.objects.order_by("-last_seen_at").first()
         worker_available = bool(
-            worker
-            and worker.status == "online"
-            and worker.last_seen_at >= timezone.now() - timedelta(seconds=45)
+            worker and worker.status == "online" and worker.last_seen_at >= timezone.now() - timedelta(seconds=45)
         )
         capabilities = set(worker.capabilities if worker_available else ())
         readiness_diagnostics = []
@@ -917,9 +919,7 @@ class ScanViewSet(viewsets.ModelViewSet):
             "worker_available": worker_available,
             "docker_ready": "docker_daemon" in capabilities,
             "trivy_available": "trivy" in capabilities,
-            "zap_available": bool(
-                {"zap_baseline_cli", "zap_baseline_docker"} & capabilities
-            ),
+            "zap_available": bool({"zap_baseline_cli", "zap_baseline_docker"} & capabilities),
             "worker_id": worker.worker_id if worker_available else "",
             "last_seen_at": worker.last_seen_at.isoformat() if worker else None,
             "diagnostics": readiness_diagnostics,
@@ -953,7 +953,7 @@ class PentestSessionViewSet(viewsets.ModelViewSet):
         return (
             PentestSession.objects.filter(organization_id__in=_get_user_org_ids(self.request.user))
             .select_related("organization", "project", "repository", "created_by")
-            .prefetch_related("scope", "test_cases__executions__evidence")
+            .prefetch_related("scope", "test_cases__executions__evidence", "proposals")
         )
 
     def perform_create(self, serializer):
@@ -989,17 +989,73 @@ class PentestSessionViewSet(viewsets.ModelViewSet):
             ).update(status="cancelled", worker_claimed_at=None, completed_at=timezone.now())
         return Response({"detail": "AutoPentest session cancelled.", "status": session.status})
 
+    @action(detail=True, methods=["post"], url_path="execute-approved")
+    def execute_approved(self, request, pk=None):
+        session = self.get_object()
+        membership = _membership(request.user, session.organization)
+        if membership is None or membership.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to execute AutoPentest proposals.")
+        if session.mode != "security_planning" or session.status not in {"completed", "completed_with_warnings"}:
+            return Response({"detail": "Only a completed planning session can execute approved tests."}, status=400)
+        approved = session.proposals.filter(approval_status="approved", executable=True)
+        if not approved.exists():
+            return Response({"detail": "Approve at least one supported proposal before execution."}, status=400)
+        session.mode = "approved_tests"
+        session.status = "queued"
+        session.progress = 0
+        session.started_at = None
+        session.completed_at = None
+        session.worker_claimed_at = None
+        session.error_message = ""
+        session.save(
+            update_fields=[
+                "mode",
+                "status",
+                "progress",
+                "started_at",
+                "completed_at",
+                "worker_claimed_at",
+                "error_message",
+                "updated_at",
+            ]
+        )
+        _audit(
+            request.user,
+            "pentest_execution_queued",
+            org=session.organization,
+            target_type="PentestSession",
+            target_id=session.id,
+            detail={"approved_proposals": approved.count()},
+            request=request,
+        )
+        return Response(PentestSessionSerializer(session, context={"request": request}).data, status=202)
+
     @action(detail=True, methods=["get"])
     def report(self, request, pk=None):
         session = self.get_object()
         cases = list(session.test_cases.all())
-        counts = {outcome: sum(case.status == outcome for case in cases) for outcome, _ in cases[0]._meta.get_field("status").choices} if cases else {}
+        proposal_counts = {
+            outcome: session.proposals.filter(approval_status=outcome).count()
+            for outcome in ("pending", "approved", "rejected", "unsupported", "executed")
+        }
+        counts = (
+            {
+                outcome: sum(case.status == outcome for case in cases)
+                for outcome, _ in cases[0]._meta.get_field("status").choices
+            }
+            if cases
+            else {}
+        )
         return Response(
             {
                 "session": PentestSessionSerializer(session, context={"request": request}).data,
                 "summary": {
                     "test_cases": len(cases),
                     "outcomes": counts,
+                    "proposals": proposal_counts,
+                    "coverage": PentestSessionSerializer(session, context={"request": request}).data["coverage"],
                     "status": session.status,
                     "unified_findings_scan": str(session.unified_scan_id) if session.unified_scan_id else None,
                     "limitations": (
@@ -1008,14 +1064,102 @@ class PentestSessionViewSet(viewsets.ModelViewSet):
                             "No application runtime, authenticated user flow, or active test was executed.",
                         ]
                         if session.mode == "passive"
-                        else [
-                            "Authenticated tests are read-only and run only against the isolated repository runtime.",
-                            "Only documented, supported GET/HEAD API operations are exercised.",
-                        ]
+                        else (
+                            [
+                                "This session inventoried static metadata and generated proposals only.",
+                                "No proposal was executed during planning; human approval is required.",
+                                "Inventory and AI annotations are not security findings or assurance.",
+                            ]
+                            if session.mode == "security_planning"
+                            else [
+                                "Only human-approved and supported proposals are eligible for execution.",
+                                "Authenticated API requests are read-only and remain on the isolated repository runtime.",
+                                "Browser tests execute only the selected fixed journeys using synthetic users.",
+                                "Discovered route counts do not indicate security assurance; unsupported proposals remain unexecuted.",
+                            ]
+                        )
                     ),
                 },
             }
         )
+
+
+class PentestTestProposalViewSet(mixins.UpdateModelMixin, viewsets.ReadOnlyModelViewSet):
+    serializer_class = PentestTestProposalSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get", "patch", "post", "head", "options"]
+
+    def get_queryset(self):
+        return PentestTestProposal.objects.filter(
+            session__organization_id__in=_get_user_org_ids(self.request.user),
+            session__mode="security_planning",
+        ).select_related("session", "session__organization")
+
+    def partial_update(self, request, *args, **kwargs):
+        if set(request.data) != {"safe_parameters"}:
+            return Response(
+                {"detail": "Only planner-declared safe_parameters may be edited."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        proposal = self.get_object()
+        self._require_write_membership(request, proposal)
+        if proposal.approval_status != "pending":
+            return Response({"detail": "Only pending proposals may be edited."}, status=400)
+        serializer = self.get_serializer(proposal, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    def _require_write_membership(self, request, proposal):
+        membership = _membership(request.user, proposal.session.organization)
+        if membership is None or membership.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to review AutoPentest proposals.")
+
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        proposal = self.get_object()
+        self._require_write_membership(request, proposal)
+        if proposal.session.status not in {"completed", "completed_with_warnings"}:
+            return Response({"detail": "Planning must finish before proposal review."}, status=400)
+        if not proposal.executable or proposal.approval_status != "pending":
+            return Response({"detail": "Only pending supported proposals can be approved."}, status=400)
+        proposal.approval_status = "approved"
+        proposal.approved_by = request.user
+        proposal.approved_at = timezone.now()
+        proposal.save(update_fields=["approval_status", "approved_by", "approved_at", "updated_at"])
+        _audit(
+            request.user,
+            "pentest_proposal_approved",
+            org=proposal.session.organization,
+            target_type="PentestTestProposal",
+            target_id=proposal.id,
+            detail={"proposal_key": proposal.proposal_key},
+            request=request,
+        )
+        return Response(self.get_serializer(proposal).data)
+
+    @action(detail=True, methods=["post"])
+    def reject(self, request, pk=None):
+        proposal = self.get_object()
+        self._require_write_membership(request, proposal)
+        if proposal.session.status not in {"completed", "completed_with_warnings"}:
+            return Response({"detail": "Planning must finish before proposal review."}, status=400)
+        if proposal.approval_status != "pending":
+            return Response({"detail": "Only pending proposals can be rejected."}, status=400)
+        proposal.approval_status = "rejected"
+        proposal.save(update_fields=["approval_status", "updated_at"])
+        _audit(
+            request.user,
+            "pentest_proposal_rejected",
+            org=proposal.session.organization,
+            target_type="PentestTestProposal",
+            target_id=proposal.id,
+            detail={"proposal_key": proposal.proposal_key},
+            request=request,
+        )
+        return Response(self.get_serializer(proposal).data)
 
 
 # ---------------------------------------------------------------------------
@@ -1391,9 +1535,7 @@ class DashboardSummaryView(APIView):
 
         owasp_coverage = {code: findings_qs.filter(owasp_category=code).count() for code in _OWASP_TOP10_LABELS}
         cwe_ids_covered = list(
-            findings_qs.filter(cwe_id__in=list(_CWE_TOP25))
-            .values_list("cwe_id", flat=True)
-            .distinct()
+            findings_qs.filter(cwe_id__in=list(_CWE_TOP25)).values_list("cwe_id", flat=True).distinct()
         )
 
         # Quality gate pass/fail counts across recent scans

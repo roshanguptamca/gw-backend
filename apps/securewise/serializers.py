@@ -1,5 +1,5 @@
-import json
 import ipaddress
+import json
 import re
 
 from django.contrib.auth import get_user_model
@@ -8,6 +8,12 @@ from django.utils.text import slugify
 from rest_framework import serializers
 
 from .models import (
+    PentestEvidence,
+    PentestExecution,
+    PentestScope,
+    PentestSession,
+    PentestTestCase,
+    PentestTestProposal,
     SecureWiseAuditLog,
     SecureWiseFinding,
     SecureWiseGitIntegration,
@@ -21,11 +27,6 @@ from .models import (
     SecureWiseScanEngineResult,
     SecureWiseScanPolicy,
     SecureWiseScanPolicyTemplate,
-    PentestEvidence,
-    PentestExecution,
-    PentestScope,
-    PentestSession,
-    PentestTestCase,
 )
 from .runtime.logs import redact_secrets, tail_lines
 
@@ -544,6 +545,59 @@ class PentestTestCaseSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class PentestTestProposalSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PentestTestProposal
+        fields = (
+            "id",
+            "proposal_key",
+            "test_type",
+            "title",
+            "endpoint",
+            "method",
+            "required_role",
+            "expected_property",
+            "safe_method",
+            "required_test_data",
+            "parameter_schema",
+            "safe_parameters",
+            "estimated_cost",
+            "cwe_id",
+            "owasp_category",
+            "severity",
+            "confidence",
+            "rationale",
+            "limitations",
+            "execution_mode",
+            "executable",
+            "approval_status",
+            "source",
+            "test_case",
+        )
+        read_only_fields = tuple(set(fields) - {"safe_parameters"})
+
+    def validate_safe_parameters(self, value):
+        if not isinstance(value, dict) or len(value) > 20:
+            raise serializers.ValidationError("Provide a bounded object of safe parameter values.")
+        schema = self.instance.parameter_schema if self.instance else {}
+        if not set(value).issubset(schema):
+            raise serializers.ValidationError("Only planner-declared safe parameters may be edited.")
+        for name, selected in value.items():
+            definition = schema[name]
+            kind = definition.get("type")
+            if kind == "enum":
+                valid = selected in definition.get("values", [])
+            elif kind == "integer":
+                valid = isinstance(selected, int) and not isinstance(selected, bool) and -100000 <= selected <= 100000
+            elif kind == "boolean":
+                valid = isinstance(selected, bool)
+            else:
+                valid = False
+            if not valid:
+                raise serializers.ValidationError({name: "Value is not in the safe parameter schema."})
+        return value
+
+
 class PentestScopeSerializer(serializers.ModelSerializer):
     class Meta:
         model = PentestScope
@@ -584,6 +638,9 @@ class PentestSessionSerializer(serializers.ModelSerializer):
     status = serializers.CharField(read_only=True)
     progress = serializers.IntegerField(read_only=True)
     error_message = serializers.SerializerMethodField()
+    proposals = PentestTestProposalSerializer(many=True, read_only=True)
+    security_inventory = serializers.JSONField(read_only=True)
+    coverage = serializers.SerializerMethodField()
 
     class Meta:
         model = PentestSession
@@ -602,6 +659,9 @@ class PentestSessionSerializer(serializers.ModelSerializer):
             "progress",
             "scope",
             "test_cases",
+            "proposals",
+            "security_inventory",
+            "coverage",
             "error_message",
             "timeout_seconds",
             "requests_per_minute",
@@ -652,12 +712,34 @@ class PentestSessionSerializer(serializers.ModelSerializer):
                 {"retest_of": "A retest must use the same project, repository, and organization."}
             )
         if not 1 <= attrs.get("timeout_seconds", 900) <= 900:
-            raise serializers.ValidationError({"timeout_seconds": "Assessment timeouts must be between 1 and 900 seconds."})
+            raise serializers.ValidationError(
+                {"timeout_seconds": "Assessment timeouts must be between 1 and 900 seconds."}
+            )
         if not 1 <= attrs.get("requests_per_minute", 30) <= 60:
-            raise serializers.ValidationError({"requests_per_minute": "Assessment rates must be between 1 and 60 requests per minute."})
+            raise serializers.ValidationError(
+                {"requests_per_minute": "Assessment rates must be between 1 and 60 requests per minute."}
+            )
         mode = attrs.get("mode", "passive")
+        if mode == "approved_tests":
+            raise serializers.ValidationError(
+                {"mode": "Approved tests can only be queued through the proposal approval workflow."}
+            )
         auth_config = attrs.get("auth_config", {})
-        if mode == "authenticated_api":
+        auth_mode = mode
+        if mode == "security_planning":
+            if (
+                not isinstance(auth_config, dict)
+                or auth_config.get("type") != "planner"
+                or auth_config.get("execution_mode") not in {"authenticated_api", "authenticated_browser"}
+                or not isinstance(auth_config.get("ai_enabled", False), bool)
+                or not isinstance(auth_config.get("credentials"), dict)
+            ):
+                raise serializers.ValidationError(
+                    {"auth_config": "Planning requires a supported execution mode and synthetic test credentials."}
+                )
+            auth_mode = auth_config["execution_mode"]
+            auth_config = auth_config["credentials"]
+        if auth_mode == "authenticated_api":
             if (
                 not isinstance(auth_config, dict)
                 or auth_config.get("type") != "bearer"
@@ -665,7 +747,9 @@ class PentestSessionSerializer(serializers.ModelSerializer):
                 or len(auth_config["users"]) < 2
             ):
                 raise serializers.ValidationError(
-                    {"auth_config": "Authenticated API mode requires bearer credentials for at least two synthetic users."}
+                    {
+                        "auth_config": "Authenticated API mode requires bearer credentials for at least two synthetic users."
+                    }
                 )
             users = auth_config["users"]
             labels = set()
@@ -674,33 +758,33 @@ class PentestSessionSerializer(serializers.ModelSerializer):
             for user in users:
                 if (
                     not isinstance(user, dict)
-                    or not all(isinstance(user.get(field), str) and user[field].strip() for field in ("label", "subject", "role", "token"))
+                    or not all(
+                        isinstance(user.get(field), str) and user[field].strip()
+                        for field in ("label", "subject", "role", "token")
+                    )
                     or len(user["token"]) > 4096
                 ):
                     raise serializers.ValidationError(
-                        {"auth_config": "Each test identity needs a label, subject, role, and token no longer than 4096 characters."}
+                        {
+                            "auth_config": "Each test identity needs a label, subject, role, and token no longer than 4096 characters."
+                        }
                     )
                 labels.add(user["label"])
                 subjects.add(user["subject"])
                 tokens.add(user["token"])
-            if (
-                len(labels) != len(users)
-                or len(subjects) != len(users)
-                or len(tokens) != len(users)
-            ):
+            if len(labels) != len(users) or len(subjects) != len(users) or len(tokens) != len(users):
                 raise serializers.ValidationError(
                     {"auth_config": "Test identity labels, subjects, and tokens must be unique."}
                 )
             if len(users) > 10:
                 raise serializers.ValidationError({"auth_config": "At most 10 synthetic test identities are allowed."})
             if any(
-                entry["scheme"] != "http" or entry["host"] not in {"127.0.0.1", "::1", "localhost"}
-                for entry in scopes
+                entry["scheme"] != "http" or entry["host"] not in {"127.0.0.1", "::1", "localhost"} for entry in scopes
             ):
                 raise serializers.ValidationError(
                     {"scope": "Authenticated live tests are restricted to approved loopback fixture runtimes."}
                 )
-        elif mode == "authenticated_browser":
+        elif auth_mode == "authenticated_browser":
             allowed_journeys = {
                 "protected-page",
                 "cross-user-resource",
@@ -749,24 +833,40 @@ class PentestSessionSerializer(serializers.ModelSerializer):
                 labels.add(user["label"])
                 subjects.add(user["subject"])
                 usernames.add(user["username"])
-            if (
-                len(labels) != len(users)
-                or len(subjects) != len(users)
-                or len(usernames) != len(users)
-            ):
+            if len(labels) != len(users) or len(subjects) != len(users) or len(usernames) != len(users):
                 raise serializers.ValidationError(
                     {"auth_config": "Browser identity labels, subjects, and usernames must be unique."}
                 )
             if len(users) > 10:
-                raise serializers.ValidationError({"auth_config": "At most 10 synthetic browser identities are allowed."})
+                raise serializers.ValidationError(
+                    {"auth_config": "At most 10 synthetic browser identities are allowed."}
+                )
             if any(
-                entry["scheme"] != "http" or entry["host"] not in {"127.0.0.1", "::1", "localhost"}
-                for entry in scopes
+                entry["scheme"] != "http" or entry["host"] not in {"127.0.0.1", "::1", "localhost"} for entry in scopes
             ):
                 raise serializers.ValidationError(
                     {"scope": "Browser tests are restricted to approved loopback fixture runtimes."}
                 )
         return attrs
+
+    def get_coverage(self, obj):
+        coverage = dict((obj.security_inventory or {}).get("coverage", {}))
+        executed = obj.test_cases.exclude(status="planned")
+        coverage.update(
+            {
+                "executed_tests": executed.count(),
+                "confirmed_findings": executed.filter(status="confirmed_vulnerability").count(),
+                "passed_tests": executed.filter(status="passed").count(),
+                "skipped_or_unsupported": obj.proposals.filter(approval_status="unsupported").count()
+                + executed.filter(status="not_executed").count(),
+                "untested_routes": max(
+                    0,
+                    coverage.get("discovered_routes", coverage.get("discovered_endpoints", 0))
+                    - executed.values("endpoint").distinct().count(),
+                ),
+            }
+        )
+        return coverage
 
     def create(self, validated_data):
         scopes = validated_data.pop("scope")

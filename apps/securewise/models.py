@@ -174,6 +174,11 @@ AUDIT_EVENT_CHOICES = [
     ("scan_policy_deleted", "Scan Policy Deleted"),
     ("pentest_session_created", "Pentest Session Created"),
     ("pentest_session_completed", "Pentest Session Completed"),
+    ("pentest_plan_generated", "Pentest Plan Generated"),
+    ("pentest_proposal_approved", "Pentest Proposal Approved"),
+    ("pentest_proposal_rejected", "Pentest Proposal Rejected"),
+    ("pentest_execution_queued", "Pentest Execution Queued"),
+    ("pentest_ai_planner_called", "Pentest AI Planner Called"),
 ]
 
 
@@ -608,12 +613,8 @@ class PentestSession(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(SecureWiseOrganization, on_delete=models.CASCADE, related_name="pentest_sessions")
     project = models.ForeignKey(SecureWiseProject, on_delete=models.CASCADE, related_name="pentest_sessions")
-    repository = models.ForeignKey(
-        SecureWiseRepository, on_delete=models.PROTECT, related_name="pentest_sessions"
-    )
-    retest_of = models.ForeignKey(
-        "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="retests"
-    )
+    repository = models.ForeignKey(SecureWiseRepository, on_delete=models.PROTECT, related_name="pentest_sessions")
+    retest_of = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, blank=True, related_name="retests")
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="sw_pentest_sessions"
     )
@@ -625,6 +626,8 @@ class PentestSession(models.Model):
             ("passive", "Passive"),
             ("authenticated_api", "Authenticated API"),
             ("authenticated_browser", "Authenticated Browser"),
+            ("security_planning", "Security Test Planning"),
+            ("approved_tests", "Approved Security Tests"),
         ],
         default="passive",
     )
@@ -638,6 +641,7 @@ class PentestSession(models.Model):
     )
     status = models.CharField(max_length=30, choices=PENTEST_SESSION_STATUS_CHOICES, default="pending")
     progress = models.PositiveSmallIntegerField(default=0)
+    security_inventory = models.JSONField(default=dict, blank=True)
     worker_claimed_at = models.DateTimeField(null=True, blank=True)
     error_message = models.TextField(blank=True)
     started_at = models.DateTimeField(null=True, blank=True)
@@ -696,9 +700,7 @@ class PentestTestCase(models.Model):
 
     class Meta:
         ordering = ["created_at"]
-        constraints = [
-            models.UniqueConstraint(fields=("session", "test_key"), name="sw_pentest_test_case_unique")
-        ]
+        constraints = [models.UniqueConstraint(fields=("session", "test_key"), name="sw_pentest_test_case_unique")]
 
 
 class PentestExecution(models.Model):
@@ -718,6 +720,62 @@ class PentestEvidence(models.Model):
     content = models.JSONField(default=dict)
     sha256 = models.CharField(max_length=64, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class PentestTestProposal(models.Model):
+    APPROVAL_CHOICES = [
+        ("pending", "Pending Review"),
+        ("approved", "Approved"),
+        ("rejected", "Rejected"),
+        ("unsupported", "Not Executable"),
+        ("executed", "Executed"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session = models.ForeignKey(PentestSession, on_delete=models.CASCADE, related_name="proposals")
+    proposal_key = models.CharField(max_length=200)
+    test_type = models.CharField(max_length=50)
+    title = models.CharField(max_length=300)
+    endpoint = models.CharField(max_length=500, blank=True)
+    method = models.CharField(max_length=10, blank=True)
+    required_role = models.CharField(max_length=100, blank=True)
+    expected_property = models.TextField()
+    safe_method = models.CharField(max_length=100)
+    required_test_data = models.JSONField(default=dict, blank=True)
+    estimated_cost = models.JSONField(default=dict, blank=True)
+    parameter_schema = models.JSONField(default=dict, blank=True)
+    safe_parameters = models.JSONField(default=dict, blank=True)
+    cwe_id = models.CharField(max_length=20, blank=True)
+    owasp_category = models.CharField(max_length=50, blank=True)
+    severity = models.CharField(max_length=20, choices=SEVERITY_CHOICES, default="info")
+    confidence = models.CharField(max_length=20, choices=CONFIDENCE_CHOICES, default="low")
+    rationale = models.TextField()
+    limitations = models.TextField(blank=True)
+    execution_mode = models.CharField(max_length=30, blank=True)
+    executable = models.BooleanField(default=False)
+    approval_status = models.CharField(max_length=20, choices=APPROVAL_CHOICES, default="pending")
+    source = models.CharField(max_length=20, default="deterministic")
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sw_approved_test_proposals",
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    test_case = models.ForeignKey(
+        PentestTestCase,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="proposal_links",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at", "proposal_key"]
+        constraints = [models.UniqueConstraint(fields=("session", "proposal_key"), name="sw_pentest_proposal_unique")]
 
 
 # ---------------------------------------------------------------------------

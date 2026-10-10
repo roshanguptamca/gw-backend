@@ -36,6 +36,8 @@ workflows were run against the controlled fixture; it is not production evidence
 | Worker cancellation, timeouts and cleanup | Partially implemented | Queued cancellation survived worker restart; browser assessment completed with runtime/container/network cleanup; timeout and cancellation code paths have unit coverage | No | `test_autopentest_worker.py`, `test_smart_repo_scan.py`, opt-in browser Docker integration | Mid-journey cancellation and forced host/process death cleanup were not demonstrated; hard worker termination can still orphan host Docker resources | P0 |
 | AutoPentest authorization and exact host/port scope records | Partially implemented | API tests validate consent, exact loopback scope and encrypted synthetic identities; live requests were limited to the built runtime alias and approved port | No | `test_autopentest_worker.py` | Runtime builds still execute reviewed Dockerfiles on the Docker host; do not allowlist arbitrary repositories | P0 |
 | AutoPentest deterministic planner | Partially implemented | Controlled OpenAPI fixture drives API and browser journeys, including two-user ownership, role, logout, explicit session expiration, and cookie checks | No | `test_autopentest_worker.py` | Requires a reviewed OpenAPI extension; arbitrary frontend routes, Django permission/model analysis, CORS and business logic are not inferred | P1 |
+| AutoPentest security inventory, proposal review and coverage | Implemented for deterministic OpenAPI/browser metadata planning; broader application analysis remains partial | Worker-backed fixture plan inventories endpoints/auth/roles, persists actionable proposals, enforces safe edits/approval/rejection, executes only approved supported cases, and reports executed/untested coverage | No | `test_autopentest_worker.py`, `AutoPentestPage.test.tsx`, opt-in Docker planner integration | Route/model discovery depends on OpenAPI metadata; unsupported schema-mutation, headers and sensitive-data checks are reported but not executed | P0 |
+| Optional AI-assisted proposal ranking | Implemented as a disabled-by-default structured JSON annotation adapter; AI cannot create or execute tests | Deterministic planning works without provider credentials; mocked provider test verifies allowlisted proposal keys, bounded output, token/cost estimates and minimized prompt content | No | `test_autopentest_worker.py` | Real provider and billing behavior are unverified; configure worker-side HTTPS endpoint, API key/model and accurate provider token rates/budget; cost is an estimate, not a provider billing guarantee | P2 |
 | AutoPentest execution adapters | Partially implemented | Read-only API checks and real Playwright/Chromium journeys ran against the isolated Docker fixture; a separate worker process processed the browser session submitted through HTTP | No | `test_autopentest_worker.py`, opt-in API and browser Docker integrations | Browser journeys are fixture-declarative; unsupported browser flows are skipped, and no destructive or general state-changing requests are supported | P0 |
 | Finding verification and evidence | Partially implemented | The browser fixture IDOR was confirmed only after a second synthetic user rendered the first user's protected invoice marker; role, logout, server-side session expiration, and cookie controls passed; sanitized screenshots/traces and unified finding persisted | No | `test_autopentest_worker.py`, opt-in browser Docker integration | Verification depends on explicit OpenAPI extensions and synthetic fixture expectations; evidence is representative only of those test identities/data | P1 |
 | Remediation recommendations, CWE/OWASP mapping and retest | Partially implemented | Unified `CWE-639` browser finding and endpoint-specific recommendation were persisted; UI exposes evidence and retest linkage | No | `test_autopentest_worker.py`, frontend `AutoPentestPage.test.tsx` | Framework-specific remediation, retest outcome comparison, and broad browser coverage remain incomplete | P1 |
@@ -66,6 +68,36 @@ workflows were run against the controlled fixture; it is not production evidence
   health-check recommendation was removed; a health endpoint recommendation is
   not assigned a security CWE/OWASP category.
 
+## Phase 5 planner scope
+
+The worker can create a security inventory from static discovery and reviewed
+OpenAPI metadata, including framework/language labels, endpoint methods,
+declared authentication, role/ownership annotations, browser journeys,
+existing findings and scanner limitations. It deliberately does not parse or
+persist arbitrary source text, inferred ORM models, or OpenAPI descriptions.
+Deterministic proposals include executable unauthenticated, ownership, role,
+and supported browser checks, plus explicitly unsupported schema/header and
+sensitive-data review cases. Users can edit only planner-declared safe query
+parameters, approve or reject proposals, and separately queue approved
+supported tests. Existing authenticated API and Playwright adapters are reused;
+arbitrary AI output is never executable.
+
+AI is optional and disabled by default. The worker accepts an OpenAI-compatible
+JSON endpoint through `SECUREWISE_AI_PLANNER_URL`,
+`SECUREWISE_AI_PLANNER_API_KEY`, and `SECUREWISE_AI_PLANNER_MODEL`. Before an
+AI call, operators must also configure `SECUREWISE_AI_MAX_COST_USD`,
+`SECUREWISE_AI_INPUT_COST_PER_1K`, and
+`SECUREWISE_AI_OUTPUT_COST_PER_1K`. Optional
+`SECUREWISE_AI_MAX_INPUT_TOKENS` (default 8,000, capped at 12,000) and
+`SECUREWISE_AI_MAX_OUTPUT_TOKENS` (default 1,200, capped at 2,000) provide
+token ceilings. Cost rates and resulting limits are estimates that must match
+provider/model pricing; they do not guarantee provider-side billing caps.
+Provider redirects/private-address DNS results are rejected. These settings
+and any API key belong only in the worker environment, never in the Django web
+or customer-runtime container. AI output can annotate only existing
+deterministic proposal keys and cannot provide URLs, commands, scripts, or test
+parameters.
+
 ## Production-readiness conclusion
 
 SecureWise has a substantial control plane and useful static scanning. Real
@@ -84,6 +116,14 @@ an HTTP API-submitted browser job, a confirmed fixture authorization finding,
 passing controls, heartbeat, queued-job restart, queued cancellation, expired
 lease recovery, and Docker cleanup (see
 [`SECUREWISE_PHASE4_EXECUTION_EVIDENCE.md`](SECUREWISE_PHASE4_EXECUTION_EVIDENCE.md)).
+Phase 5 adds worker-generated inventories and reviewable deterministic
+proposals, optional AI annotations, safe-parameter edits, explicit
+approve/reject actions, and an execution action that queues only supported
+approved proposals. The Docker fixture verified a planned two-user ownership
+test and role test: only those approved checks ran, the ownership defect was
+confirmed, the role control passed, and the unified finding and cleanup were
+verified (see
+[`SECUREWISE_PHASE5_EXECUTION_EVIDENCE.md`](SECUREWISE_PHASE5_EXECUTION_EVIDENCE.md)).
 This does not verify the separately deployed Linux worker, production
 database/queue, production scanner readiness, or production behavior; those
 remain **unverified**.
@@ -125,3 +165,14 @@ customer build scripts are adequately sandboxed.
   persistent local database and real browser execution against the controlled
   fixture. Queue restart, cancellation, expired-lease recovery, and cleanup
   were also exercised locally. Production behavior remains unverified.
+- Phase 5 SecureWise regression suite: 365 passed, 4 Docker integrations
+  skipped by default. The opt-in planner Docker integration separately passed
+  with Docker Desktop 29.2.0: deterministic planning required no AI provider,
+  two approved API tests executed, one CWE-639 ownership issue was confirmed,
+  one role test passed, an unapproved test did not execute, and temporary
+  containers, image and network were cleaned up.
+- Phase 5 frontend regression suite: 190 tests passed; TypeScript and
+  production build passed. Oxlint completed with nine warnings in unrelated
+  existing files. Django checks and migration drift checks passed. Real AI
+  provider execution, provider billing behavior and production deployment
+  remain unverified.
