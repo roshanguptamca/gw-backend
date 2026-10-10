@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import timedelta
 
 from django.db.models import Q
 from django.http import HttpResponse
@@ -36,6 +37,7 @@ from .models import (
     SecureWiseScanPolicy,
     SecureWiseScanPolicyTemplate,
     PentestSession,
+    SecureWiseWorkerRegistration,
 )
 from .permissions import ADMIN_ROLES, WRITE_ROLES, _membership
 from .runtime.logs import redact_secrets, tail_lines
@@ -890,6 +892,38 @@ class ScanViewSet(viewsets.ModelViewSet):
             "failed_engines": sum(er.status == "failed" for er in results),
             "total_findings": scan.findings.count(),
         }
+        worker = SecureWiseWorkerRegistration.objects.order_by("-last_seen_at").first()
+        worker_available = bool(
+            worker
+            and worker.status == "online"
+            and worker.last_seen_at >= timezone.now() - timedelta(seconds=45)
+        )
+        capabilities = set(worker.capabilities if worker_available else ())
+        readiness_diagnostics = []
+        if not worker_available:
+            readiness_diagnostics.append(
+                "No worker has checked in within the last 45 seconds."
+                if worker
+                else "No SecureWise worker has registered."
+            )
+        else:
+            if "docker_daemon" not in capabilities:
+                readiness_diagnostics.append("Docker daemon is unavailable on the worker.")
+            if "trivy" not in capabilities:
+                readiness_diagnostics.append("Trivy is not installed on the worker.")
+            if not {"zap_baseline_cli", "zap_baseline_docker"} & capabilities:
+                readiness_diagnostics.append("Neither ZAP baseline nor Docker-based ZAP is available.")
+        worker_readiness = {
+            "worker_available": worker_available,
+            "docker_ready": "docker_daemon" in capabilities,
+            "trivy_available": "trivy" in capabilities,
+            "zap_available": bool(
+                {"zap_baseline_cli", "zap_baseline_docker"} & capabilities
+            ),
+            "worker_id": worker.worker_id if worker_available else "",
+            "last_seen_at": worker.last_seen_at.isoformat() if worker else None,
+            "diagnostics": readiness_diagnostics,
+        }
         return Response(
             {
                 "id": str(scan.id),
@@ -898,6 +932,7 @@ class ScanViewSet(viewsets.ModelViewSet):
                 "elapsed_seconds": elapsed_seconds,
                 "findings_count": scan.findings.count(),
                 "coverage": coverage,
+                "worker_readiness": worker_readiness,
                 "engines": engines,
             }
         )

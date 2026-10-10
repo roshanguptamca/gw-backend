@@ -16,7 +16,9 @@ from apps.securewise.models import (
     SecureWiseProject,
     SecureWiseScan,
     SecureWiseScanEngineResult,
+    SecureWiseWorkerRegistration,
 )
+from django.utils import timezone
 
 User = get_user_model()
 pytestmark = pytest.mark.django_db
@@ -117,6 +119,25 @@ class TestScanProgressEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         assert data["engines"][0]["diagnostics"]["log_excerpt"] == "build step failed: missing dependency"
+
+    def test_progress_reports_worker_and_scanner_readiness(self, client_a, scan_a):
+        SecureWiseWorkerRegistration.objects.create(
+            worker_id="fixture-worker",
+            capabilities=["docker_daemon", "trivy", "zap_baseline_docker"],
+            status="online",
+            last_seen_at=timezone.now(),
+        )
+
+        response = client_a.get(f"/api/securewise/scans/{scan_a.id}/progress/")
+
+        assert response.status_code == 200
+        readiness = response.json()["worker_readiness"]
+        assert readiness["worker_available"] is True
+        assert readiness["docker_ready"] is True
+        assert readiness["trivy_available"] is True
+        assert readiness["zap_available"] is True
+        assert readiness["worker_id"] == "fixture-worker"
+        assert readiness["diagnostics"] == []
 
     def test_other_org_user_cannot_view_progress(self, client_b, scan_a):
         resp = client_b.get(f"/api/securewise/scans/{scan_a.id}/progress/")

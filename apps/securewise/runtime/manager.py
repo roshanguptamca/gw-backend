@@ -17,7 +17,6 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..discovery.health import probe_health
 from ..discovery.ports import find_free_host_port
 from ..discovery.run_plan import ApplicationRunPlan
 from . import docker_runner
@@ -41,6 +40,8 @@ class RuntimeResult:
     logs: str = ""
     container_name: str = ""
     image_tag: str = ""
+    network_name: str = ""
+    scanner_target_url: str = ""
 
 
 class RuntimeEnvironmentManager:
@@ -49,6 +50,7 @@ class RuntimeEnvironmentManager:
     def __init__(self):
         self._container_name: str | None = None
         self._image_tag: str | None = None
+        self._network_name: str | None = None
 
     def try_start(self, repo_path: Path, run_plan: ApplicationRunPlan) -> RuntimeResult:
         if not run_plan.requires_runtime:
@@ -106,7 +108,24 @@ class RuntimeEnvironmentManager:
                 logs=redact_secrets(tail_lines(build_error)),
             )
 
-        run_ok, container_name, run_error = docker_runner.run_container(image_tag, host_port, container_port)
+        network_name = f"securewise-net-{uuid.uuid4().hex}"
+        network_ok, network_error = docker_runner.create_isolated_network(network_name)
+        if not network_ok:
+            self.stop()
+            return RuntimeResult(
+                started=False,
+                skip_reason="Application runtime could not be isolated from outbound network access.",
+                logs=redact_secrets(tail_lines(network_error)),
+                image_tag=image_tag,
+            )
+        self._network_name = network_name
+
+        run_ok, container_name, run_error = docker_runner.run_container(
+            image_tag,
+            host_port,
+            container_port,
+            network_name=network_name,
+        )
         self._container_name = container_name
         if not run_ok:
             self.stop()
@@ -116,10 +135,12 @@ class RuntimeEnvironmentManager:
                 logs=redact_secrets(tail_lines(run_error)),
                 container_name=container_name,
                 image_tag=image_tag,
+                network_name=network_name,
             )
 
         runtime_url = f"http://127.0.0.1:{host_port}"
-        health = self._wait_for_health(runtime_url, run_plan.selected_health_endpoint)
+        scanner_target_url = f"http://{container_name}:{container_port}"
+        health = self._wait_for_health(network_name, scanner_target_url, run_plan.selected_health_endpoint)
 
         if not health["reachable"]:
             logs = redact_secrets(tail_lines(docker_runner.get_logs(container_name)))
@@ -133,6 +154,7 @@ class RuntimeEnvironmentManager:
                 logs=logs,
                 container_name=container_name,
                 image_tag=image_tag,
+                network_name=network_name,
             )
 
         return RuntimeResult(
@@ -142,12 +164,17 @@ class RuntimeEnvironmentManager:
             has_dedicated_health_endpoint=health["has_dedicated_health_endpoint"],
             container_name=container_name,
             image_tag=image_tag,
+            network_name=network_name,
+            scanner_target_url=scanner_target_url,
         )
 
     def stop(self) -> None:
         if self._container_name:
             docker_runner.stop_and_remove(self._container_name)
             self._container_name = None
+        if self._network_name:
+            docker_runner.remove_network(self._network_name)
+            self._network_name = None
         if self._image_tag:
             docker_runner.remove_image(self._image_tag)
             self._image_tag = None
@@ -175,7 +202,7 @@ class RuntimeEnvironmentManager:
         generated_path.write_text(content, encoding="utf-8")
         return generated_path, workspace
 
-    def _wait_for_health(self, runtime_url: str, preferred_endpoint: str) -> dict:
+    def _wait_for_health(self, network_name: str, runtime_url: str, preferred_endpoint: str) -> dict:
         deadline = time.time() + _HEALTH_WAIT_TIMEOUT_SECONDS
         last_result = {
             "reachable": False,
@@ -184,7 +211,7 @@ class RuntimeEnvironmentManager:
             "status_code": None,
         }
         while time.time() < deadline:
-            last_result = probe_health(runtime_url, preferred_endpoint)
+            last_result = docker_runner.probe_health(network_name, runtime_url, preferred_endpoint)
             if last_result["reachable"]:
                 return last_result
             time.sleep(_HEALTH_POLL_INTERVAL_SECONDS)

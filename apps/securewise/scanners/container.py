@@ -46,6 +46,18 @@ class ContainerScanner(BaseScanner):
             )
 
         dockerfile_exists = (repo_path / "Dockerfile").exists()
+        if dockerfile_exists and not metadata.get("trusted_runtime_repository"):
+            return ScannerResult(
+                success=True,
+                findings=[],
+                status="skipped",
+                skipped_reason=(
+                    "Image build was blocked because this repository is not allowlisted for trusted Docker builds. "
+                    "Approve and add its repository ID to SECUREWISE_TRUSTED_RUNTIME_REPOSITORIES first."
+                ),
+                metadata={"raw_tool": "none", "execution_mode": "trusted_build_required"},
+            )
+
         if dockerfile_exists and shutil.which("trivy") and docker_runner.is_docker_available()[0]:
             return self._build_and_scan(repo_path)
 

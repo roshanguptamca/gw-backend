@@ -1,0 +1,36 @@
+FROM docker:27.5.1-cli AS docker_cli
+FROM aquasec/trivy:0.72.0 AS trivy_cli
+
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    DJANGO_SETTINGS_MODULE=guidewisey.settings
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    gettext \
+    netcat-openbsd \
+    git \
+    ca-certificates \
+    libcairo2 \
+    libpango-1.0-0 \
+    libpangoft2-1.0-0 \
+    libharfbuzz-subset0 \
+    libjpeg62-turbo \
+    libopenjp2-7 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=docker_cli /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=trivy_cli /usr/local/bin/trivy /usr/local/bin/trivy
+
+COPY requirements.txt .
+RUN pip install --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+RUN chmod +x /app/entrypoint.sh /app/scheduler_entrypoint.sh
+
+CMD ["python", "manage.py", "securewise_worker"]

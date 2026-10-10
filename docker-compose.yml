@@ -50,7 +50,9 @@ services:
   # The Docker socket is intentionally available only to this separate worker,
   # never to the Django web service.
   securewise-worker:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.securewise-worker
     command: python manage.py securewise_worker
     profiles: ["securewise-worker"]
     volumes:
@@ -61,6 +63,11 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 3G
     restart: unless-stopped
 
 volumes:

@@ -7,6 +7,7 @@ and performs simple cross-engine correlation.
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 from django.utils import timezone
@@ -157,6 +158,15 @@ class ScannerOrchestrator:
             "docker_image": scan.docker_image,
             "api_spec_url": scan.api_spec_url,
             "target_url": scan.target_url,
+            "trusted_runtime_repository": bool(
+                scan.repository_id
+                and str(scan.repository_id)
+                in {
+                    repository_id.strip()
+                    for repository_id in os.getenv("SECUREWISE_TRUSTED_RUNTIME_REPOSITORIES", "").split(",")
+                    if repository_id.strip()
+                }
+            ),
         }
 
         discovery_plan = None
@@ -290,6 +300,13 @@ class ScannerOrchestrator:
             metadata["dast_skip_reason"] = reason
             return plan, metadata
 
+        if not metadata.get("trusted_runtime_repository"):
+            metadata["dast_skip_reason"] = (
+                "Runtime execution is disabled for this repository. Add its repository ID to "
+                "SECUREWISE_TRUSTED_RUNTIME_REPOSITORIES only after reviewing and approving its build scripts."
+            )
+            return plan, metadata
+
         manager = RuntimeEnvironmentManager()
         self._active_runtime_manager = manager
         try:
@@ -314,6 +331,8 @@ class ScannerOrchestrator:
         plan.selected_health_endpoint = runtime_result.selected_health_endpoint
         metadata["target_url"] = runtime_result.runtime_url
         metadata["runtime_docker_image"] = runtime_result.image_tag
+        metadata["dast_docker_network"] = runtime_result.network_name
+        metadata["dast_docker_target_url"] = runtime_result.scanner_target_url
         if runtime_result.logs:
             metadata["dast_runtime_logs"] = runtime_result.logs
         # Keep the manager reachable so run() can stop the container in its

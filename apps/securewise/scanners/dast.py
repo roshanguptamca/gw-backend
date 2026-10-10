@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 _TIMEOUT = 8
 _ZAP_TIMEOUT = 180
 _ZAP_MAX_MINUTES = "1"
-_ZAP_DOCKER_IMAGE = "ghcr.io/zaproxy/zaproxy:stable"
+_ZAP_DOCKER_IMAGE = "ghcr.io/zaproxy/zaproxy@sha256:7aaa659b0d43078febd82e29bad112285c370727e86ab8340444220e17d9f0d2"
 _ZAP_REPORT_NAME = "zap-report.json"
 
 
@@ -83,7 +83,11 @@ class DastScanner(BaseScanner):
 
             docker_cli_available, docker_cli_reason = is_docker_available()
         if docker_cli_available:
-            result = self._zap_docker_scan(target_url)
+            result = self._zap_docker_scan(
+                target_url,
+                network_name=metadata.get("dast_docker_network", ""),
+                docker_target_url=metadata.get("dast_docker_target_url", ""),
+            )
             if result is not None:
                 return result
             zap_failures.append("ZAP Docker baseline did not produce a readable report")
@@ -103,23 +107,40 @@ class DastScanner(BaseScanner):
             command = self._zap_command(target_url)
             return self._run_zap_command(command, tmp_path, target_url, runner="zap-baseline.py")
 
-    def _zap_docker_scan(self, target_url: str) -> ScannerResult | None:
+    def _zap_docker_scan(
+        self,
+        target_url: str,
+        *,
+        network_name: str = "",
+        docker_target_url: str = "",
+    ) -> ScannerResult | None:
         with tempfile.TemporaryDirectory(prefix="securewise-zap-") as tmp:
             tmp_path = Path(tmp)
-            docker_target_url = _docker_reachable_url(target_url)
+            zap_target_url = docker_target_url or _docker_reachable_url(target_url)
             command = [
                 "docker",
                 "run",
                 "--rm",
-                "--add-host",
-                "host.docker.internal:host-gateway",
+                "--memory",
+                "1g",
+                "--cpus",
+                "1.0",
+                "--pids-limit",
+                "256",
+                "--cap-drop",
+                "ALL",
+                "--security-opt",
+                "no-new-privileges",
                 "-w",
                 "/zap/wrk",
                 "-v",
                 f"{tmp_path}:/zap/wrk:rw",
-                _ZAP_DOCKER_IMAGE,
-                *self._zap_command(docker_target_url),
             ]
+            if network_name:
+                command.extend(["--network", network_name])
+            else:
+                command.extend(["--add-host", "host.docker.internal:host-gateway"])
+            command.extend([_ZAP_DOCKER_IMAGE, *self._zap_command(zap_target_url)])
             return self._run_zap_command(command, tmp_path, target_url, runner="docker-zap-baseline")
 
     def _zap_command(self, target_url: str) -> list[str]:

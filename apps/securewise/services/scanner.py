@@ -43,11 +43,11 @@ class ScannerRunner:
 
         if scan.status == "cancelled":
             return
+        scan.engine_results.all().delete()
         scan.status = "running"
         scan.started_at = timezone.now()
         scan.progress = 0
-        scan.worker_claimed_at = None
-        scan.save(update_fields=["status", "started_at", "progress", "worker_claimed_at"])
+        scan.save(update_fields=["status", "started_at", "progress"])
 
         SecureWiseAuditLog.objects.create(
             organization=scan.organization,
@@ -156,6 +156,7 @@ class ScannerRunner:
         scan.status = final_status
         scan.completed_at = completed_at
         scan.duration_seconds = duration
+        scan.worker_claimed_at = None
         scan.error_message = error_msg
         scan.quality_gate_passed = quality_gate_passed
         scan.progress = 100 if final_status != "cancelled" else scan.progress
@@ -165,6 +166,7 @@ class ScannerRunner:
                 "completed_at",
                 "duration_seconds",
                 "error_message",
+                "worker_claimed_at",
                 "quality_gate_passed",
                 "scanner_metadata",
                 "progress",

@@ -19,12 +19,25 @@ import subprocess
 import uuid
 from pathlib import Path
 
+from ..discovery.health import candidate_health_endpoints
+
 logger = logging.getLogger(__name__)
 
 _DOCKER_AVAILABILITY_TIMEOUT = 5
 _BUILD_TIMEOUT = 240
 _RUN_STARTUP_TIMEOUT = 5
 _STOP_TIMEOUT = 15
+_HEALTH_PROBE_IMAGE = "python:3.11-slim"
+_HEALTH_PROBE_SCRIPT = """import sys
+from urllib.error import HTTPError
+from urllib.request import urlopen
+try:
+    response = urlopen(sys.argv[1], timeout=2)
+    status = response.status
+except HTTPError as error:
+    status = error.code
+print(status)
+"""
 
 # Conservative resource limits for auto-started scan targets.
 _MEMORY_LIMIT = "512m"
@@ -230,8 +243,101 @@ def build_image(context_path: Path, dockerfile_path: Path, tag: str) -> tuple[bo
     return True, ""
 
 
+def create_isolated_network(network_name: str) -> tuple[bool, str]:
+    try:
+        proc = subprocess.run(
+            ["docker", "network", "create", "--internal", network_name],
+            capture_output=True,
+            timeout=_DOCKER_AVAILABILITY_TIMEOUT,
+            text=True,
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return False, f"Docker network creation failed: {exc}"
+    if proc.returncode != 0:
+        return False, (proc.stderr or proc.stdout or "Docker network creation failed").strip()[-2000:]
+    return True, ""
+
+
+def probe_network_url(network_name: str, url: str) -> int | None:
+    """Probe an isolated runtime from its Docker network, not from the host."""
+    try:
+        proc = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--memory",
+                "64m",
+                "--cpus",
+                "0.25",
+                "--pids-limit",
+                "16",
+                "--cap-drop",
+                "ALL",
+                "--security-opt",
+                "no-new-privileges",
+                "--network",
+                network_name,
+                "--entrypoint",
+                "python",
+                _HEALTH_PROBE_IMAGE,
+                "-c",
+                _HEALTH_PROBE_SCRIPT,
+                url,
+            ],
+            capture_output=True,
+            timeout=10,
+            text=True,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+
+    if proc.returncode != 0:
+        return None
+    try:
+        return int(proc.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return None
+
+
+def probe_health(network_name: str, base_url: str, preferred_endpoint: str = "") -> dict:
+    """Check discovered health endpoints from a temporary container on the isolated network."""
+    base = base_url.rstrip("/")
+    root_status = None
+    for path in candidate_health_endpoints(preferred_endpoint):
+        url = base + path if path != "/" else base + "/"
+        status = probe_network_url(network_name, url)
+        if path == "/":
+            root_status = status
+        elif status in (200, 204):
+            return {
+                "reachable": True,
+                "selected_endpoint": path,
+                "has_dedicated_health_endpoint": True,
+                "status_code": status,
+            }
+
+    if root_status is not None and (200 <= root_status < 400 or root_status in (401, 403)):
+        return {
+            "reachable": True,
+            "selected_endpoint": "/",
+            "has_dedicated_health_endpoint": False,
+            "status_code": root_status,
+        }
+    return {
+        "reachable": False,
+        "selected_endpoint": "",
+        "has_dedicated_health_endpoint": False,
+        "status_code": root_status,
+    }
+
+
 def run_container(
-    image: str, host_port: int, container_port: int, env_vars: dict[str, str] | None = None
+    image: str,
+    host_port: int,
+    container_port: int,
+    env_vars: dict[str, str] | None = None,
+    network_name: str = "",
 ) -> tuple[bool, str, str]:
     """
     Start a container in the background.
@@ -250,11 +356,22 @@ def run_container(
         _MEMORY_LIMIT,
         "--cpus",
         _CPU_LIMIT,
-        "--network",
-        "bridge",
+        "--pids-limit",
+        "128",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--read-only",
+        "--tmpfs",
+        "/tmp:rw,noexec,nosuid,size=64m",
         "-p",
-        f"{host_port}:{container_port}",
+        f"127.0.0.1:{host_port}:{container_port}",
     ]
+    if network_name:
+        cmd.extend(["--network", network_name, "--network-alias", container_name])
+    else:
+        cmd.extend(["--network", "bridge"])
     for key, value in (env_vars or {}).items():
         cmd += ["-e", f"{key}={value}"]
     cmd.append(image)
@@ -291,6 +408,13 @@ def stop_and_remove(container_name: str) -> None:
             subprocess.run(args, capture_output=True, timeout=_STOP_TIMEOUT)
         except (subprocess.TimeoutExpired, OSError):  # pragma: no cover - best-effort cleanup
             logger.warning("Failed to run cleanup command: %s", " ".join(args))
+
+
+def remove_network(network_name: str) -> None:
+    try:
+        subprocess.run(["docker", "network", "rm", network_name], capture_output=True, timeout=_STOP_TIMEOUT)
+    except (subprocess.TimeoutExpired, OSError):  # pragma: no cover - best-effort cleanup
+        logger.warning("Failed to remove temporary Docker network: %s", network_name)
 
 
 def remove_image(image_tag: str) -> None:

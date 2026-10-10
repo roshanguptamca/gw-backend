@@ -278,7 +278,7 @@ class TestContainerScanner:
         with patch("apps.securewise.scanners.container.shutil.which", return_value=None):
             result = ContainerScanner().run(tmp_path, "scan-8e", {})
         assert result.status == "skipped"
-        assert "Dockerfile present" in result.skipped_reason
+        assert "trusted Docker builds" in result.skipped_reason
 
     def test_build_and_scan_when_dockerfile_and_tools_available(self, tmp_path):
         (tmp_path / "Dockerfile").write_text("FROM python:3.12\n")
@@ -290,7 +290,11 @@ class TestContainerScanner:
         with patch("apps.securewise.scanners.container.shutil.which", side_effect=fake_which):
             with patch("apps.securewise.scanners.container.subprocess.run") as mock_run:
                 mock_run.return_value = MagicMock(returncode=0, stdout=fake_output)
-                result = ContainerScanner().run(tmp_path, "scan-8f", {})
+                result = ContainerScanner().run(
+                    tmp_path,
+                    "scan-8f",
+                    {"trusted_runtime_repository": True},
+                )
         assert result.success is True
         assert result.metadata["raw_tool"] == "trivy"
 
@@ -309,7 +313,11 @@ class TestContainerScanner:
 
         with patch("apps.securewise.scanners.container.shutil.which", side_effect=fake_which):
             with patch("apps.securewise.scanners.container.subprocess.run", side_effect=fake_run):
-                result = ContainerScanner().run(tmp_path, "scan-8g", {})
+                result = ContainerScanner().run(
+                    tmp_path,
+                    "scan-8g",
+                    {"trusted_runtime_repository": True},
+                )
         assert result.status == "skipped"
         assert "docker build failed" in result.skipped_reason
         assert any(command[:2] == ["docker", "rmi"] for command in commands)
@@ -327,7 +335,11 @@ class TestContainerScanner:
 
         with patch("apps.securewise.scanners.container.shutil.which", side_effect=fake_which):
             with patch("apps.securewise.scanners.container.subprocess.run", side_effect=fake_run):
-                result = ContainerScanner().run(tmp_path, "scan-8h", {})
+                result = ContainerScanner().run(
+                    tmp_path,
+                    "scan-8h",
+                    {"trusted_runtime_repository": True},
+                )
         assert result.status == "skipped"
         assert "docker build/scan unavailable" in result.skipped_reason
 
@@ -439,7 +451,7 @@ class TestDastScanner:
             if command[:3] == ["docker", "version", "--format"]:
                 return MagicMock(returncode=0, stdout="27.0.0", stderr="")
             assert command[:3] == ["docker", "run", "--rm"]
-            assert "ghcr.io/zaproxy/zaproxy:stable" in command
+            assert any(part.startswith("ghcr.io/zaproxy/zaproxy@sha256:") for part in command)
             assert "http://host.docker.internal:8000" in command
             Path(cwd, "zap-report.json").write_text(json.dumps({"site": []}))
             return MagicMock(returncode=0, stdout=b"", stderr=b"")

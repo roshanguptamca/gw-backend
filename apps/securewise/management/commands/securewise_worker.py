@@ -23,14 +23,13 @@ class Command(BaseCommand):
 
         worker_id = options["worker_id"] or default_worker_id()
         registration = register_worker(worker_id)
-        self.stdout.write(
-            self.style.SUCCESS(f"SecureWise worker {worker_id} online with {len(registration.capabilities)} capabilities")
-        )
+        capabilities = ", ".join(registration.capabilities) or "none"
+        self.stdout.write(self.style.SUCCESS(f"SecureWise worker {worker_id} ready; capabilities: {capabilities}"))
 
         while True:
             registration.last_seen_at = timezone.now()
             registration.save(update_fields=["last_seen_at"])
-            job = process_next_job()
+            job = process_next_job(worker_id=worker_id)
             if job:
                 self.stdout.write(f"Processed {job[0]} job {job[1]}")
             elif options["once"]:
