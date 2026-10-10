@@ -7,7 +7,7 @@ and performs simple cross-engine correlation.
 from __future__ import annotations
 
 import logging
-import os
+
 from pathlib import Path
 
 from django.utils import timezone
@@ -154,19 +154,20 @@ class ScannerOrchestrator:
         scan.selected_engines = engines
         scan.save(update_fields=["selected_engines"])
 
+        from ..runtime.trust import trusted_runtime_content
+
+        runtime_trusted, runtime_trust_result = (
+            trusted_runtime_content(str(scan.repository_id), repo_path)
+            if scan.repository_id
+            else (False, "Repository-backed runtime trust is unavailable.")
+        )
         metadata = {
             "docker_image": scan.docker_image,
             "api_spec_url": scan.api_spec_url,
             "target_url": scan.target_url,
-            "trusted_runtime_repository": bool(
-                scan.repository_id
-                and str(scan.repository_id)
-                in {
-                    repository_id.strip()
-                    for repository_id in os.getenv("SECUREWISE_TRUSTED_RUNTIME_REPOSITORIES", "").split(",")
-                    if repository_id.strip()
-                }
-            ),
+            "trusted_runtime_repository": runtime_trusted,
+            "runtime_trust_diagnostic": runtime_trust_result if not runtime_trusted else "",
+            "runtime_content_sha256": runtime_trust_result if runtime_trusted else "",
         }
 
         discovery_plan = None
@@ -301,9 +302,8 @@ class ScannerOrchestrator:
             return plan, metadata
 
         if not metadata.get("trusted_runtime_repository"):
-            metadata["dast_skip_reason"] = (
-                "Runtime execution is disabled for this repository. Add its repository ID to "
-                "SECUREWISE_TRUSTED_RUNTIME_REPOSITORIES only after reviewing and approving its build scripts."
+            metadata["dast_skip_reason"] = metadata.get("runtime_trust_diagnostic") or (
+                "Runtime execution is disabled because this exact repository content has not been reviewed."
             )
             return plan, metadata
 

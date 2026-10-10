@@ -52,8 +52,9 @@ class ContainerScanner(BaseScanner):
                 findings=[],
                 status="skipped",
                 skipped_reason=(
-                    "Image build was blocked because this repository is not allowlisted for trusted Docker builds. "
-                    "Approve and add its repository ID to SECUREWISE_TRUSTED_RUNTIME_REPOSITORIES first."
+                    "Image build was blocked because this exact repository content has not been reviewed. "
+                    "Configure its repository UUID and SHA-256 content digest in "
+                    "SECUREWISE_TRUSTED_RUNTIME_CONTENT after reviewing the source."
                 ),
                 metadata={"raw_tool": "none", "execution_mode": "trusted_build_required"},
             )

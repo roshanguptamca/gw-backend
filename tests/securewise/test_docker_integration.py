@@ -77,7 +77,13 @@ def test_worker_runs_real_trivy_and_zap_against_controlled_fixture(monkeypatch):
         status="queued",
         triggered_by=user,
     )
-    monkeypatch.setenv("SECUREWISE_TRUSTED_RUNTIME_REPOSITORIES", str(repository.id))
+    from apps.securewise.runtime.trust import repository_tree_sha256
+
+    monkeypatch.setenv(
+        "SECUREWISE_TRUSTED_RUNTIME_CONTENT",
+        f"{repository.id}={repository_tree_sha256(repository.local_path)}",
+    )
+    monkeypatch.setenv("SECUREWISE_RUNTIME_BUILDS_ENABLED", "true")
     existing_runtime_containers = set(
         subprocess.run(
             ["docker", "ps", "-aq", "--filter", "name=securewise-runtime-"],

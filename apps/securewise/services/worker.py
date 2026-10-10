@@ -3,9 +3,11 @@ from __future__ import annotations
 import os
 import shutil
 import socket
+import tempfile
 import threading
 import uuid
 from datetime import timedelta
+from pathlib import Path
 
 from django.db import close_old_connections
 from django.db.models import Q
@@ -58,9 +60,44 @@ def register_worker(worker_id: str) -> SecureWiseWorkerRegistration:
         capabilities.append("zap_baseline_cli")
     registration, _ = SecureWiseWorkerRegistration.objects.update_or_create(
         worker_id=worker_id,
-        defaults={"capabilities": capabilities, "status": "online", "last_seen_at": timezone.now()},
+        defaults={
+            "capabilities": capabilities,
+            "metrics": worker_resource_metrics(),
+            "status": "online",
+            "last_seen_at": timezone.now(),
+        },
     )
     return registration
+
+
+def worker_resource_metrics() -> dict:
+    """Collect best-effort host metrics without requiring an additional dependency."""
+    metrics = {}
+    try:
+        for line in Path("/proc/self/status").read_text(encoding="utf-8").splitlines():
+            if line.startswith(("VmRSS:", "VmHWM:")):
+                name, value, *_ = line.split()
+                metrics[name.rstrip(":").lower() + "_kb"] = int(value)
+    except OSError:
+        pass
+    try:
+        disk = shutil.disk_usage(tempfile.gettempdir())
+        metrics["temp_disk_free_bytes"] = disk.free
+        metrics["temp_disk_total_bytes"] = disk.total
+    except OSError:
+        pass
+    try:
+        metrics["load_average_1m"] = round(os.getloadavg()[0], 2)
+    except (AttributeError, OSError):
+        pass
+    return metrics
+
+
+def heartbeat_worker(worker_id: str) -> None:
+    SecureWiseWorkerRegistration.objects.filter(worker_id=worker_id, status="online").update(
+        last_seen_at=timezone.now(),
+        metrics=worker_resource_metrics(),
+    )
 
 
 def default_worker_id() -> str:
@@ -168,4 +205,4 @@ def _refresh_job_lease(stop: threading.Event, job_type: str, job_id: str, worker
         now = timezone.now()
         model.objects.filter(id=job_id, status__in=active_statuses).update(worker_claimed_at=now)
         if worker_id:
-            SecureWiseWorkerRegistration.objects.filter(worker_id=worker_id, status="online").update(last_seen_at=now)
+            heartbeat_worker(worker_id)

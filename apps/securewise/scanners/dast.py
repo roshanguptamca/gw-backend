@@ -62,6 +62,23 @@ class DastScanner(BaseScanner):
                 },
             )
 
+        if not metadata.get("dast_docker_network") or not metadata.get("dast_docker_target_url"):
+            reason = (
+                "External and user-supplied DAST targets are disabled for the private beta. "
+                "DAST runs only against a worker-generated isolated runtime in the approved scan network."
+            )
+            return ScannerResult(
+                success=True,
+                findings=[],
+                status="skipped",
+                skipped_reason=reason,
+                metadata={
+                    "raw_tool": "none",
+                    "execution_mode": "private_beta_scope_blocked",
+                    "dast_skip_reason": reason,
+                },
+            )
+
         logger.warning(
             "DAST scan starting against %s — only authorized targets should ever be scanned; "
             "no destructive payloads are sent.",

@@ -181,7 +181,7 @@ def copy_local_repository(local_path: str | Path, dest: Path, allowed_root: Path
     shutil.copytree(
         source,
         safe_dest,
-        symlinks=False,
+        symlinks=True,
         ignore=shutil.ignore_patterns(".git", "node_modules", ".venv", "venv", "__pycache__", ".pytest_cache"),
     )
 

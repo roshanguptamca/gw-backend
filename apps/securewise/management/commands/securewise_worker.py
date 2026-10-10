@@ -3,9 +3,8 @@ from __future__ import annotations
 import time
 
 from django.core.management.base import BaseCommand, CommandError
-from django.utils import timezone
 
-from apps.securewise.services.worker import default_worker_id, process_next_job, register_worker
+from apps.securewise.services.worker import default_worker_id, heartbeat_worker, process_next_job, register_worker
 
 
 class Command(BaseCommand):
@@ -27,8 +26,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"SecureWise worker {worker_id} ready; capabilities: {capabilities}"))
 
         while True:
-            registration.last_seen_at = timezone.now()
-            registration.save(update_fields=["last_seen_at"])
+            heartbeat_worker(worker_id)
             job = process_next_job(worker_id=worker_id)
             if job:
                 self.stdout.write(f"Processed {job[0]} job {job[1]}")

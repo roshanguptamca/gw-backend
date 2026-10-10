@@ -219,6 +219,9 @@ class SecureWiseProjectSerializer(serializers.ModelSerializer):
                 slug = f"{base}-{n}"
                 n += 1
             attrs["slug"] = slug
+        organization = attrs.get("organization", getattr(self.instance, "organization", None))
+        if self.instance and organization and organization.id != self.instance.organization_id:
+            raise serializers.ValidationError({"organization": "Projects cannot be moved to another organization."})
         return attrs
 
     def get_open_findings_count(self, obj):
@@ -267,6 +270,13 @@ class SecureWiseRepositorySerializer(serializers.ModelSerializer):
             "updated_at",
         )
 
+    def validate(self, attrs):
+        organization = attrs.get("organization", getattr(self.instance, "organization", None))
+        project = attrs.get("project", getattr(self.instance, "project", None))
+        if organization and project and project.organization_id != organization.id:
+            raise serializers.ValidationError({"project": "The project must belong to the selected organization."})
+        return attrs
+
 
 # ---------------------------------------------------------------------------
 # Scan Policy
@@ -302,6 +312,13 @@ class SecureWiseScanPolicySerializer(serializers.ModelSerializer):
             "updated_at",
         )
         read_only_fields = ("id", "created_by", "created_by_detail", "created_at", "updated_at")
+
+    def validate(self, attrs):
+        organization = attrs.get("organization", getattr(self.instance, "organization", None))
+        project = attrs.get("project", getattr(self.instance, "project", None))
+        if organization and project and project.organization_id != organization.id:
+            raise serializers.ValidationError({"project": "The project must belong to the selected organization."})
+        return attrs
 
 
 class SecureWiseScanPolicyTemplateSerializer(serializers.ModelSerializer):
@@ -398,11 +415,27 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         # Auto-derive organization from project.
         project = attrs.get("project", getattr(self.instance, "project", None))
-        if project and not attrs.get("organization"):
-            attrs["organization"] = project.organization
+        organization = project.organization if project else attrs.get(
+            "organization", getattr(self.instance, "organization", None)
+        )
+        if organization:
+            attrs["organization"] = organization
+        if project and organization and project.organization_id != organization.id:
+            raise serializers.ValidationError({"project": "The project must belong to the selected organization."})
+        repository = attrs.get("repository", getattr(self.instance, "repository", None))
+        policy = attrs.get("policy", getattr(self.instance, "policy", None))
+        if repository and project and (
+            repository.organization_id != project.organization_id or repository.project_id != project.id
+        ):
+            raise serializers.ValidationError(
+                {"repository": "The repository must be associated with the selected project and organization."}
+            )
+        if policy and organization and policy.organization_id != organization.id:
+            raise serializers.ValidationError({"policy": "The policy must belong to the selected organization."})
+        if policy and project and policy.project_id not in (None, project.id):
+            raise serializers.ValidationError({"policy": "The policy must apply to the selected project."})
 
         scan_type = attrs.get("scan_type", getattr(self.instance, "scan_type", "full"))
-        repository = attrs.get("repository", getattr(self.instance, "repository", None))
         target_url = attrs.get("target_url", getattr(self.instance, "target_url", ""))
         api_spec_url = attrs.get("api_spec_url", getattr(self.instance, "api_spec_url", ""))
 
@@ -641,6 +674,7 @@ class PentestSessionSerializer(serializers.ModelSerializer):
     proposals = PentestTestProposalSerializer(many=True, read_only=True)
     security_inventory = serializers.JSONField(read_only=True)
     coverage = serializers.SerializerMethodField()
+    retest_comparison = serializers.SerializerMethodField()
 
     class Meta:
         model = PentestSession
@@ -662,6 +696,7 @@ class PentestSessionSerializer(serializers.ModelSerializer):
             "proposals",
             "security_inventory",
             "coverage",
+            "retest_comparison",
             "error_message",
             "timeout_seconds",
             "requests_per_minute",
@@ -868,6 +903,45 @@ class PentestSessionSerializer(serializers.ModelSerializer):
         )
         return coverage
 
+    def get_retest_comparison(self, obj):
+        baseline = obj.retest_of
+        if baseline is None:
+            return None
+        baseline_cases = {case.test_key: case for case in baseline.test_cases.all()}
+        current_cases = {case.test_key: case for case in obj.test_cases.all()}
+        fixed = []
+        still_confirmed = []
+        suspected = []
+        newly_confirmed = []
+        not_retested = []
+        for key, previous in baseline_cases.items():
+            current = current_cases.get(key)
+            if previous.status == "confirmed_vulnerability":
+                if current is None or current.status in {"not_executed", "inconclusive"}:
+                    not_retested.append(key)
+                elif current.status == "passed":
+                    fixed.append(key)
+                elif current.status == "confirmed_vulnerability":
+                    still_confirmed.append(key)
+                elif current.status == "suspected_vulnerability":
+                    suspected.append(key)
+        for key, current in current_cases.items():
+            previous = baseline_cases.get(key)
+            if current.status == "confirmed_vulnerability" and (
+                previous is None or previous.status != "confirmed_vulnerability"
+            ):
+                newly_confirmed.append(key)
+        return {
+            "baseline_session_id": str(baseline.id),
+            "baseline_cases": len(baseline_cases),
+            "retest_cases": len(current_cases),
+            "fixed": fixed,
+            "still_confirmed": still_confirmed,
+            "suspected": suspected,
+            "newly_confirmed": newly_confirmed,
+            "not_retested": not_retested,
+        }
+
     def create(self, validated_data):
         scopes = validated_data.pop("scope")
         auth_config = validated_data.pop("auth_config", {})
@@ -1001,6 +1075,18 @@ class SecureWiseReportSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
+
+    def validate(self, attrs):
+        organization = attrs.get("organization", getattr(self.instance, "organization", None))
+        project = attrs.get("project", getattr(self.instance, "project", None))
+        scan = attrs.get("scan", getattr(self.instance, "scan", None))
+        if organization and project and project.organization_id != organization.id:
+            raise serializers.ValidationError({"project": "The project must belong to the selected organization."})
+        if scan and organization and scan.organization_id != organization.id:
+            raise serializers.ValidationError({"scan": "The scan must belong to the selected organization."})
+        if scan and project and scan.project_id != project.id:
+            raise serializers.ValidationError({"scan": "The scan must belong to the selected project."})
+        return attrs
 
 
 # ---------------------------------------------------------------------------

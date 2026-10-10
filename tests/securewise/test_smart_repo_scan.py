@@ -79,6 +79,45 @@ def _make_django_repo(tmp_path: Path) -> Path:
     return tmp_path
 
 
+def test_runtime_trust_requires_exact_reviewed_content_digest(tmp_path, monkeypatch):
+    from apps.securewise.runtime.trust import repository_tree_sha256, trusted_runtime_content
+
+    (tmp_path / "requirements.txt").write_text("django\n")
+    repository_id = "reviewed-repo-id"
+    digest = repository_tree_sha256(tmp_path)
+    monkeypatch.setenv("SECUREWISE_TRUSTED_RUNTIME_CONTENT", f"{repository_id}={digest}")
+
+    trusted, reason = trusted_runtime_content(repository_id, tmp_path)
+    assert trusted is False
+    assert "Runtime builds are disabled" in reason
+
+    monkeypatch.setenv("SECUREWISE_RUNTIME_BUILDS_ENABLED", "true")
+
+    assert trusted_runtime_content(repository_id, tmp_path) == (True, digest)
+
+    (tmp_path / "Dockerfile").write_text("FROM python:3.11-slim\n")
+    trusted, _ = trusted_runtime_content(repository_id, tmp_path)
+    assert trusted is False
+
+
+def test_repository_id_allowlist_does_not_authorize_runtime_builds(tmp_path, monkeypatch):
+    from apps.securewise.runtime.trust import trusted_runtime_content
+
+    (tmp_path / "requirements.txt").write_text("django\n")
+    monkeypatch.delenv("SECUREWISE_TRUSTED_RUNTIME_CONTENT", raising=False)
+    monkeypatch.setenv("SECUREWISE_TRUSTED_RUNTIME_REPOSITORIES", "reviewed-repo-id")
+    monkeypatch.setenv("SECUREWISE_RUNTIME_BUILDS_ENABLED", "true")
+
+    trusted, reason = trusted_runtime_content("reviewed-repo-id", tmp_path)
+    assert trusted is False
+    assert "exact repository content" in reason
+
+    monkeypatch.delenv("SECUREWISE_RUNTIME_BUILDS_ENABLED")
+    trusted, reason = trusted_runtime_content("reviewed-repo-id", tmp_path)
+    assert trusted is False
+    assert "Runtime builds are disabled" in reason
+
+
 def _make_scan_with_repo(org, project, owner, repository, scan_type="full", **kwargs):
     return SecureWiseScan.objects.create(
         organization=org,
@@ -91,9 +130,17 @@ def _make_scan_with_repo(org, project, owner, repository, scan_type="full", **kw
     )
 
 
-def _allow_repo_runtime(stack, repository):
+def _allow_repo_runtime(stack, repository, repo_path):
+    from apps.securewise.runtime.trust import repository_tree_sha256
+
     stack.enter_context(
-        patch.dict(os.environ, {"SECUREWISE_TRUSTED_RUNTIME_REPOSITORIES": str(repository.id)})
+        patch.dict(
+            os.environ,
+            {
+                "SECUREWISE_RUNTIME_BUILDS_ENABLED": "true",
+                "SECUREWISE_TRUSTED_RUNTIME_CONTENT": f"{repository.id}={repository_tree_sha256(repo_path)}",
+            },
+        )
     )
     stack.enter_context(
         patch("apps.securewise.runtime.manager.docker_runner.create_isolated_network", return_value=(True, ""))
@@ -575,7 +622,7 @@ class TestOrchestratorSmartDast:
         import contextlib
 
         with contextlib.ExitStack() as stack:
-            _allow_repo_runtime(stack, repository)
+            _allow_repo_runtime(stack, repository, tmp_path)
             for cls in ("SastScanner", "ScaScanner", "SecretsScanner", "IacScanner", "ContainerScanner"):
                 stack.enter_context(
                     patch(f"apps.securewise.scanners.orchestrator.{cls}.run", return_value=_ok_result())
@@ -655,7 +702,7 @@ class TestOrchestratorSmartDast:
         import contextlib
 
         with contextlib.ExitStack() as stack:
-            _allow_repo_runtime(stack, repository)
+            _allow_repo_runtime(stack, repository, tmp_path)
             for cls in ("SastScanner", "ScaScanner", "SecretsScanner", "IacScanner"):
                 stack.enter_context(
                     patch(f"apps.securewise.scanners.orchestrator.{cls}.run", return_value=_ok_result())
@@ -688,7 +735,7 @@ class TestOrchestratorSmartDast:
         import contextlib
 
         with contextlib.ExitStack() as stack:
-            _allow_repo_runtime(stack, repository)
+            _allow_repo_runtime(stack, repository, tmp_path)
             for cls in ("SastScanner", "ScaScanner", "SecretsScanner", "IacScanner", "ContainerScanner"):
                 stack.enter_context(
                     patch(f"apps.securewise.scanners.orchestrator.{cls}.run", return_value=_ok_result())
@@ -743,7 +790,7 @@ class TestOrchestratorSmartDast:
         import contextlib
 
         with contextlib.ExitStack() as stack:
-            _allow_repo_runtime(stack, repository)
+            _allow_repo_runtime(stack, repository, tmp_path)
             stack.enter_context(patch("apps.securewise.scanners.orchestrator.DastScanner.run", _fake_dast_run))
             stack.enter_context(
                 patch("apps.securewise.runtime.manager.docker_runner.is_docker_available", return_value=(True, ""))
@@ -786,7 +833,7 @@ class TestOrchestratorSmartDast:
         import contextlib
 
         with contextlib.ExitStack() as stack:
-            _allow_repo_runtime(stack, repository)
+            _allow_repo_runtime(stack, repository, tmp_path)
             for cls in ("SastScanner", "ScaScanner", "SecretsScanner", "IacScanner", "ContainerScanner"):
                 stack.enter_context(
                     patch(f"apps.securewise.scanners.orchestrator.{cls}.run", return_value=_ok_result())
@@ -835,7 +882,7 @@ class TestOrchestratorSmartDast:
         import contextlib
 
         with contextlib.ExitStack() as stack:
-            _allow_repo_runtime(stack, repository)
+            _allow_repo_runtime(stack, repository, tmp_path)
             for cls in ("SastScanner", "ScaScanner", "SecretsScanner", "IacScanner", "ContainerScanner"):
                 stack.enter_context(
                     patch(f"apps.securewise.scanners.orchestrator.{cls}.run", return_value=_ok_result())

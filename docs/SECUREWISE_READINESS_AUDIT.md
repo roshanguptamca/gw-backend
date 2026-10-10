@@ -40,7 +40,7 @@ workflows were run against the controlled fixture; it is not production evidence
 | Optional AI-assisted proposal ranking | Implemented as a disabled-by-default structured JSON annotation adapter; AI cannot create or execute tests | Deterministic planning works without provider credentials; mocked provider test verifies allowlisted proposal keys, bounded output, token/cost estimates and minimized prompt content | No | `test_autopentest_worker.py` | Real provider and billing behavior are unverified; configure worker-side HTTPS endpoint, API key/model and accurate provider token rates/budget; cost is an estimate, not a provider billing guarantee | P2 |
 | AutoPentest execution adapters | Partially implemented | Read-only API checks and real Playwright/Chromium journeys ran against the isolated Docker fixture; a separate worker process processed the browser session submitted through HTTP | No | `test_autopentest_worker.py`, opt-in API and browser Docker integrations | Browser journeys are fixture-declarative; unsupported browser flows are skipped, and no destructive or general state-changing requests are supported | P0 |
 | Finding verification and evidence | Partially implemented | The browser fixture IDOR was confirmed only after a second synthetic user rendered the first user's protected invoice marker; role, logout, server-side session expiration, and cookie controls passed; sanitized screenshots/traces and unified finding persisted | No | `test_autopentest_worker.py`, opt-in browser Docker integration | Verification depends on explicit OpenAPI extensions and synthetic fixture expectations; evidence is representative only of those test identities/data | P1 |
-| Remediation recommendations, CWE/OWASP mapping and retest | Partially implemented | Unified `CWE-639` browser finding and endpoint-specific recommendation were persisted; UI exposes evidence and retest linkage | No | `test_autopentest_worker.py`, frontend `AutoPentestPage.test.tsx` | Framework-specific remediation, retest outcome comparison, and broad browser coverage remain incomplete | P1 |
+| Remediation recommendations, CWE/OWASP mapping and retest | Partially implemented | Unified `CWE-639` browser finding and endpoint-specific recommendation were persisted; retests now summarize fixed, still confirmed, suspected, newly confirmed, and not-retested cases | No | `test_autopentest_worker.py`, frontend `AutoPentestPage.test.tsx` | Framework-specific remediation and broad browser coverage remain incomplete | P1 |
 | SecureWise web UI (scans, findings, reports, progress) | Implemented | Existing Vitest page tests available | No | Frontend `ScanDetailPage.test.tsx`, `ScansPage.test.tsx`, `FindingDetailPage.test.tsx` | Frontend production deployment not checked | P1 |
 | AutoPentest UI | Partially implemented | Browser mode supports synthetic usernames/passwords, deterministic journey selection, progress, screenshots/traces, findings, and retest linkage; frontend tests/build pass locally | No | Frontend `AutoPentestPage.test.tsx` | Journeys are selected from reviewed OpenAPI metadata; no route discovery editor or production deployment verification | P1 |
 | Controlled local vulnerable fixture | Implemented for development | Fixture is local-only; Docker execution requires the worker | No | `tests/fixtures/securewise-autopentest-api/` | Never expose the fixture publicly; fixture findings are synthetic and not production evidence | P2 |
@@ -128,7 +128,39 @@ This does not verify the separately deployed Linux worker, production
 database/queue, production scanner readiness, or production behavior; those
 remain **unverified**.
 This is not a production readiness certification or evidence that untrusted
-customer build scripts are adequately sandboxed.
+customer build scripts are adequately sandboxed. Phase 6 adds fail-closed
+exact-content approval and additional tenant/worker controls, but it does not
+make Docker builds a sandbox or verify the dedicated Linux deployment.
+
+## Phase 6 private-beta controls
+
+| Capability | Implementation status | Working locally | Verified in production | Tests available | Blockers | Priority |
+|---|---|---|---|---|---|---|
+| Runtime build approval | Implemented as exact repository-content digest gate | Digest match/mismatch and legacy ID-only rejection tested | No | `test_smart_repo_scan.py`, `test_autopentest_worker.py` | Docker build scripts still execute on the daemon host with network access; no production digest process, rootless daemon, or egress controls verified | P0 |
+| Repository/project/scan/policy/report association checks | Implemented for serializer input | Cross-project repository scan and cross-tenant report/scan mismatch rejected by API tests | No | `test_api.py` | Full production penetration test and cross-tenant review of every API surface still required | P0 |
+| Worker resource/readiness monitoring | Partially implemented | Heartbeats persist best-effort process and disk/load metrics; tenant-scoped queue and engine metrics API tested | No | `test_api.py`, `test_autopentest_worker.py` | No automated alert delivery, cleanup reaper, Docker daemon/container resource metrics, or high-scale queue guarantees | P1 |
+| Worker service isolation | Implemented in worker image/Compose/systemd templates | Config and targeted regression checks; host systemd/rootless-Docker deployment not run here | No | `docker-compose.yml`, `Dockerfile.securewise-worker` | Docker socket grants daemon authority; daemon, network egress and disk quotas require dedicated Linux host configuration and verification | P0 |
+| DAST target scope | Partially implemented for private beta | Unscoped user-supplied targets are blocked; controlled local runtime integrations remain the only supported dynamic target | No | `test_scanners.py`, opt-in `test_docker_integration.py` | External DAST is intentionally unavailable; host firewall/redirect containment for external targets has not been implemented or verified | P0 |
+| Private-beta onboarding | Partially implemented in existing AutoPentest UI | Frontend unit/build verification recorded after the focused UI changes | No | Frontend `AutoPentestPage.test.tsx` | UI cannot attest to production host isolation or repository digest approval; operator review is still required | P1 |
+
+Runtime approval uses `SECUREWISE_TRUSTED_RUNTIME_CONTENT` in the form
+`repository-uuid=sha256`, additionally requires the opt-in
+`SECUREWISE_RUNTIME_BUILDS_ENABLED=true`, and rejects symlinks and oversized
+trees. The repository-ID-only setting
+`SECUREWISE_TRUSTED_RUNTIME_REPOSITORIES` no longer authorizes runtime
+execution. Hashes are operator-managed and do not replace source review.
+External/user-supplied DAST targets are also blocked in the beta; only
+worker-generated internal runtime targets may be tested. See
+[`SECUREWISE_PRIVATE_BETA.md`](SECUREWISE_PRIVATE_BETA.md) for threat
+boundaries, worker deployment and rollback procedures.
+
+Phase 6 execution results and sanitized scanner output are recorded in
+[`SECUREWISE_PHASE6_EXECUTION_EVIDENCE.md`](SECUREWISE_PHASE6_EXECUTION_EVIDENCE.md).
+The full SecureWise backend suite passed locally (375 passed, 4 skipped),
+including one opt-in Docker Desktop fixture run with real Trivy and OWASP ZAP.
+The frontend suite passed (193 tests), TypeScript/production build passed, and
+lint exited successfully with nine existing warnings. This does not include
+production verification or a dedicated Linux/rootless-Docker worker test.
 
 ## Validation performed for this change
 

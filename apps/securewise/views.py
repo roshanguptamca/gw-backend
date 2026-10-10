@@ -11,7 +11,7 @@ import json
 import logging
 from datetime import timedelta
 
-from django.db.models import Q
+from django.db.models import Avg, Count, Q
 from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.text import slugify
@@ -36,6 +36,7 @@ from .models import (
     SecureWiseReport,
     SecureWiseRepository,
     SecureWiseScan,
+    SecureWiseScanEngineResult,
     SecureWiseScanPolicy,
     SecureWiseScanPolicyTemplate,
     SecureWiseWorkerRegistration,
@@ -65,6 +66,7 @@ from .services.ai_recommendation import generate_ai_fix_suggestion
 from .services.github_actions import GitHubActionError, create_github_issue, create_github_pr
 from .services.report import generate_report
 from .services.report_render import render_report_html, render_report_pdf
+from .services.worker import _SCAN_ACTIVE_STATUSES
 from .services.repository import (
     check_private_access,
     check_public_access,
@@ -172,7 +174,47 @@ class MembershipViewSet(viewsets.ModelViewSet):
             from rest_framework.exceptions import PermissionDenied
 
             raise PermissionDenied("Only org admins can add members.")
+        if serializer.validated_data.get("role") == "owner" and self.request.user.id != org.owner_id:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("Only the organization owner can assign the owner role.")
         serializer.save(invited_by=self.request.user)
+
+    def perform_update(self, serializer):
+        instance = serializer.instance
+        membership = _membership(self.request.user, instance.organization)
+        if membership is None or membership.role not in ADMIN_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("Only org admins can update memberships.")
+        if instance.user_id == instance.organization.owner_id:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("The organization owner's membership cannot be changed.")
+        if (
+            serializer.validated_data.get("organization", instance.organization).id != instance.organization_id
+            or serializer.validated_data.get("user", instance.user).id != instance.user_id
+        ):
+            from rest_framework.exceptions import ValidationError
+
+            raise ValidationError({"detail": "Membership organization and user cannot be changed."})
+        if serializer.validated_data.get("role") == "owner" and self.request.user.id != instance.organization.owner_id:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("Only the organization owner can assign the owner role.")
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        membership = _membership(self.request.user, instance.organization)
+        if membership is None or membership.role not in ADMIN_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("Only org admins can remove memberships.")
+        if instance.user_id == instance.organization.owner_id:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("The organization owner's membership cannot be removed.")
+        instance.delete()
 
 
 # ---------------------------------------------------------------------------
@@ -476,6 +518,28 @@ class RepositoryViewSet(viewsets.ModelViewSet):
             request=self.request,
         )
 
+    def perform_update(self, serializer):
+        repository = serializer.instance
+        membership = _membership(self.request.user, repository.organization)
+        if membership is None or membership.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to update this repository.")
+        organization = serializer.validated_data.get("organization", repository.organization)
+        if organization.id != repository.organization_id:
+            from rest_framework.exceptions import ValidationError
+
+            raise ValidationError({"organization": "Repositories cannot be moved to another organization."})
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        membership = _membership(self.request.user, instance.organization)
+        if membership is None or membership.role not in ADMIN_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("Only org admins can delete repositories.")
+        instance.delete()
+
     @action(detail=False, methods=["post"], throttle_classes=[RepositoryValidateThrottle])
     def validate(self, request):
         """Pre-flight URL validation before saving a repository."""
@@ -774,6 +838,84 @@ class ScanViewSet(viewsets.ModelViewSet):
                 scan.save(update_fields=["policy"])
         return scan
 
+    def _require_write_membership(self, request, scan):
+        membership = _membership(request.user, scan.organization)
+        if membership is None or membership.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to manage scans.")
+
+    @action(detail=False, methods=["get"], url_path="worker-status")
+    def worker_status(self, request):
+        """Return tenant-scoped queue and execution metrics plus sanitized readiness."""
+        organization_ids = _get_user_org_ids(request.user)
+        if not organization_ids.exists():
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("Organization membership is required to view worker status.")
+        is_org_admin = SecureWiseMembership.objects.filter(
+            organization_id__in=organization_ids,
+            user=request.user,
+            role__in=ADMIN_ROLES,
+        ).exists()
+        now = timezone.now()
+        recent_cutoff = now - timedelta(days=7)
+        stale_cutoff = now - timedelta(minutes=30)
+        scans = SecureWiseScan.objects.filter(organization_id__in=organization_ids)
+        pentests = PentestSession.objects.filter(organization_id__in=organization_ids)
+        active_scans = scans.filter(status__in=_SCAN_ACTIVE_STATUSES)
+        active_pentests = pentests.filter(status__in=("worker_claimed", "running"))
+        stale_jobs = active_scans.filter(worker_claimed_at__lt=stale_cutoff).count() + active_pentests.filter(
+            worker_claimed_at__lt=stale_cutoff
+        ).count()
+        worker = SecureWiseWorkerRegistration.objects.filter(status="online").order_by("-last_seen_at").first()
+        worker_available = bool(worker and worker.last_seen_at >= now - timedelta(seconds=45))
+        capabilities = set(worker.capabilities if worker_available else ())
+        engine_metrics = list(
+            SecureWiseScanEngineResult.objects.filter(
+                scan__organization_id__in=organization_ids,
+                scan__created_at__gte=recent_cutoff,
+            )
+            .values("engine", "status")
+            .annotate(count=Count("id"), average_duration_seconds=Avg("duration_seconds"))
+            .order_by("engine", "status")
+        )
+        metrics = worker.metrics if worker_available and isinstance(worker.metrics, dict) else {}
+        return Response(
+            {
+                "worker_available": worker_available,
+                "docker_ready": "docker_daemon" in capabilities,
+                "capabilities": sorted(capabilities),
+                "heartbeat_age_seconds": (
+                    max(0, int((now - worker.last_seen_at).total_seconds())) if worker_available else None
+                ),
+                "resources": {
+                    key: metrics[key]
+                    for key in (
+                        "vmrss_kb",
+                        "vmhwm_kb",
+                        "temp_disk_free_bytes",
+                        "temp_disk_total_bytes",
+                        "load_average_1m",
+                    )
+                    if key in metrics
+                } if is_org_admin else {},
+                "queue": {
+                    "queued_scans": scans.filter(status="queued").count(),
+                    "queued_pentests": pentests.filter(status="queued").count(),
+                    "stale_jobs": stale_jobs,
+                    "failed_scans": scans.filter(status="failed", created_at__gte=recent_cutoff).count(),
+                    "failed_pentests": pentests.filter(status="failed", created_at__gte=recent_cutoff).count(),
+                    "average_scan_duration_seconds": scans.filter(
+                        status__in=("completed", "completed_with_warnings", "completed_partial"),
+                        duration_seconds__isnull=False,
+                        completed_at__gte=recent_cutoff,
+                    ).aggregate(value=Avg("duration_seconds"))["value"],
+                },
+                "engine_executions_last_7_days": engine_metrics,
+            }
+        )
+
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -784,6 +926,7 @@ class ScanViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def start(self, request, pk=None):
         scan = self.get_object()
+        self._require_write_membership(request, scan)
         if scan.status not in ("pending", "failed"):
             return Response(
                 {"detail": f"Cannot start a scan with status '{scan.status}'."},
@@ -797,6 +940,7 @@ class ScanViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
         scan = self.get_object()
+        self._require_write_membership(request, scan)
         if scan.status not in ("pending", "queued", "worker_claimed") and not scan.status.startswith("running"):
             return Response(
                 {"detail": f"Cannot cancel a scan with status '{scan.status}'."},
@@ -819,6 +963,7 @@ class ScanViewSet(viewsets.ModelViewSet):
         findings that no longer reproduce.
         """
         scan = self.get_object()
+        self._require_write_membership(request, scan)
         if scan.status not in ("failed", "cancelled", "completed_with_warnings", "completed", "completed_partial"):
             return Response(
                 {"detail": f"Cannot retry a scan with status '{scan.status}'."},
@@ -977,6 +1122,11 @@ class PentestSessionViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
         session = self.get_object()
+        membership = _membership(request.user, session.organization)
+        if membership is None or membership.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to cancel AutoPentest sessions.")
         if session.status not in ("pending", "queued", "worker_claimed", "running"):
             return Response({"detail": f"Cannot cancel a session with status '{session.status}'."}, status=400)
         session.status = "cancelled"
@@ -1193,8 +1343,19 @@ class FindingViewSet(viewsets.ModelViewSet):
             qs = qs.filter(Q(title__icontains=search) | Q(cwe_id__icontains=search))
         return qs
 
+    def create(self, request, *args, **kwargs):
+        return Response(
+            {"detail": "Findings can only be created by a SecureWise scan execution."},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
     def perform_update(self, serializer):
         old_status = serializer.instance.status
+        membership = _membership(self.request.user, serializer.instance.organization)
+        if membership is None or membership.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to update findings.")
         instance = serializer.save()
         if instance.status != old_status:
             _audit(
@@ -1321,6 +1482,11 @@ class FindingViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="accept-risk")
     def accept_risk(self, request, pk=None):
         finding = self.get_object()
+        membership = _membership(request.user, finding.organization)
+        if membership is None or membership.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to change finding status.")
         old_status = finding.status
         finding.status = "accepted_risk"
         finding.reviewed_by = request.user
@@ -1341,6 +1507,11 @@ class FindingViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="mark-false-positive")
     def mark_false_positive(self, request, pk=None):
         finding = self.get_object()
+        membership = _membership(request.user, finding.organization)
+        if membership is None or membership.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to change finding status.")
         old_status = finding.status
         finding.status = "false_positive"
         finding.reviewed_by = request.user
@@ -1453,6 +1624,28 @@ class IntegrationViewSet(viewsets.ModelViewSet):
 
             raise PermissionDenied("Only org admins can manage integrations.")
         serializer.save(created_by=self.request.user)
+
+    def perform_update(self, serializer):
+        integration = serializer.instance
+        membership = _membership(self.request.user, integration.organization)
+        if membership is None or membership.role not in ADMIN_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("Only org admins can manage integrations.")
+        organization = serializer.validated_data.get("organization", integration.organization)
+        if organization.id != integration.organization_id:
+            from rest_framework.exceptions import ValidationError
+
+            raise ValidationError({"organization": "Integrations cannot be moved to another organization."})
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        membership = _membership(self.request.user, instance.organization)
+        if membership is None or membership.role not in ADMIN_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("Only org admins can manage integrations.")
+        instance.delete()
 
 
 # ---------------------------------------------------------------------------

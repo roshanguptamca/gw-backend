@@ -278,7 +278,7 @@ class TestContainerScanner:
         with patch("apps.securewise.scanners.container.shutil.which", return_value=None):
             result = ContainerScanner().run(tmp_path, "scan-8e", {})
         assert result.status == "skipped"
-        assert "trusted Docker builds" in result.skipped_reason
+        assert "exact repository content" in result.skipped_reason
 
     def test_build_and_scan_when_dockerfile_and_tools_available(self, tmp_path):
         (tmp_path / "Dockerfile").write_text("FROM python:3.12\n")
@@ -393,6 +393,13 @@ class TestDastScanner:
         assert result.status == "skipped"
         assert result.skipped_reason == "no target URL configured"
 
+    def test_external_target_is_blocked_without_isolated_runtime_scope(self, tmp_path):
+        with patch("apps.securewise.scanners.dast.requests.get") as request:
+            result = DastScanner().run(tmp_path, "scan-external", {"target_url": "https://example.test"})
+        assert result.status == "skipped"
+        assert result.metadata["execution_mode"] == "private_beta_scope_blocked"
+        request.assert_not_called()
+
     def test_flags_missing_headers(self, tmp_path):
         fake_resp = MagicMock()
         fake_resp.headers = {}
@@ -400,7 +407,15 @@ class TestDastScanner:
         fake_resp.raw.headers.getlist.return_value = []
         with patch("apps.securewise.scanners.dast.shutil.which", return_value=None):
             with patch("apps.securewise.scanners.dast.requests.get", return_value=fake_resp):
-                result = DastScanner().run(tmp_path, "scan-12", {"target_url": "https://example.test"})
+                result = DastScanner().run(
+                    tmp_path,
+                    "scan-12",
+                    {
+                        "target_url": "http://127.0.0.1:8000",
+                        "dast_docker_network": "securewise-net-test",
+                        "dast_docker_target_url": "http://securewise-runtime-test:8000",
+                    },
+                )
         assert result.status == "completed"
         assert any("Content-Security-Policy" in f.title for f in result.findings)
         assert result.metadata["raw_tool"] == "requests-passive-dast"
@@ -408,7 +423,7 @@ class TestDastScanner:
 
     def test_runs_zap_baseline_cli_when_available(self, tmp_path):
         def fake_run(command, cwd, capture_output, timeout):
-            assert command[:3] == ["zap-baseline.py", "-t", "https://example.test"]
+            assert command[:3] == ["zap-baseline.py", "-t", "http://127.0.0.1:8000"]
             assert "-I" in command
             assert timeout == 180
             Path(cwd, "zap-report.json").write_text(
@@ -423,7 +438,7 @@ class TestDastScanner:
                                         "desc": "desc",
                                         "solution": "add header",
                                         "pluginid": "10020",
-                                        "instances": [{"uri": "https://example.test/"}],
+                                        "instances": [{"uri": "http://127.0.0.1:8000/"}],
                                     }
                                 ]
                             }
@@ -435,7 +450,15 @@ class TestDastScanner:
 
         with patch("apps.securewise.scanners.dast.shutil.which", return_value="/usr/local/bin/zap-baseline.py"):
             with patch("apps.securewise.scanners.dast.subprocess.run", side_effect=fake_run):
-                result = DastScanner().run(tmp_path, "scan-12b", {"target_url": "https://example.test"})
+                result = DastScanner().run(
+                    tmp_path,
+                    "scan-12b",
+                    {
+                        "target_url": "http://127.0.0.1:8000",
+                        "dast_docker_network": "securewise-net-test",
+                        "dast_docker_target_url": "http://securewise-runtime-test:8000",
+                    },
+                )
 
         assert result.status == "completed"
         assert result.metadata["raw_tool"] == "zap"
@@ -452,13 +475,21 @@ class TestDastScanner:
                 return MagicMock(returncode=0, stdout="27.0.0", stderr="")
             assert command[:3] == ["docker", "run", "--rm"]
             assert any(part.startswith("ghcr.io/zaproxy/zaproxy@sha256:") for part in command)
-            assert "http://host.docker.internal:8000" in command
+            assert "http://securewise-runtime-test:8000" in command
             Path(cwd, "zap-report.json").write_text(json.dumps({"site": []}))
             return MagicMock(returncode=0, stdout=b"", stderr=b"")
 
         with patch("apps.securewise.scanners.dast.shutil.which", side_effect=fake_which):
             with patch("apps.securewise.scanners.dast.subprocess.run", side_effect=fake_run):
-                result = DastScanner().run(tmp_path, "scan-12c", {"target_url": "http://127.0.0.1:8000"})
+                result = DastScanner().run(
+                    tmp_path,
+                    "scan-12c",
+                    {
+                        "target_url": "http://127.0.0.1:8000",
+                        "dast_docker_network": "securewise-net-test",
+                        "dast_docker_target_url": "http://securewise-runtime-test:8000",
+                    },
+                )
 
         assert result.status == "completed"
         assert result.metadata["raw_tool"] == "zap"
@@ -478,7 +509,15 @@ class TestDastScanner:
                 return_value=MagicMock(returncode=3, stdout=b"", stderr=b"boom"),
             ):
                 with patch("apps.securewise.scanners.dast.requests.get", return_value=fake_resp):
-                    result = DastScanner().run(tmp_path, "scan-12d", {"target_url": "https://example.test"})
+                    result = DastScanner().run(
+                        tmp_path,
+                        "scan-12d",
+                        {
+                            "target_url": "http://127.0.0.1:8000",
+                            "dast_docker_network": "securewise-net-test",
+                            "dast_docker_target_url": "http://securewise-runtime-test:8000",
+                        },
+                    )
 
         assert result.status == "completed"
         assert result.metadata["raw_tool"] == "requests-passive-dast"

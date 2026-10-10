@@ -581,6 +581,7 @@ class SecureWiseScanEngineResult(models.Model):
 class SecureWiseWorkerRegistration(models.Model):
     worker_id = models.CharField(max_length=200, primary_key=True)
     capabilities = models.JSONField(default=list)
+    metrics = models.JSONField(default=dict, blank=True)
     status = models.CharField(max_length=20, default="online")
     last_seen_at = models.DateTimeField()
 

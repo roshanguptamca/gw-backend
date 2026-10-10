@@ -29,10 +29,10 @@ time. Recovered scans reset per-engine progress and re-run idempotently.
    used by the web service. For local Compose, the database host must be the
    Compose service name `db`. Keep Git provider credentials and the SecureWise
    encryption key available only to the control plane and worker; they are not
-   forwarded to scan containers. Set
-   `SECUREWISE_TRUSTED_RUNTIME_REPOSITORIES` to a comma-separated list of
-   reviewed repository UUIDs only when their Dockerfiles and package install
-   scripts have been approved for execution.
+   forwarded to scan containers. Runtime execution is fail-closed unless
+   `SECUREWISE_TRUSTED_RUNTIME_CONTENT` contains exact reviewed content digests;
+   a repository UUID by itself never authorizes a build. See the private-beta
+   threat model below.
 
 3. Start the database and apply migrations:
 
@@ -86,24 +86,43 @@ time. Recovered scans reset per-engine progress and re-run idempotently.
    The test skips with a diagnostic if Docker or the pinned ZAP image is
    unavailable. It never targets a public service.
 
-The `securewise-worker` service alone receives `/var/run/docker.sock`. Do not
-mount the host Docker socket into Django web or any application container.
-Docker socket access is effectively host-root access: use a disposable local
-machine and never run untrusted builds on a shared workstation with sensitive
-host data.
+On Linux set `DOCKER_GID` to the Docker socket's group ID before starting the
+Compose worker; on macOS, Docker Desktop may require no extra group. The worker
+container runs as UID 10001 with a read-only application filesystem, dropped
+capabilities, a private temporary directory, and process/memory/CPU limits.
+The Docker socket is still powerful: use only a disposable development host.
 
 Repository build scripts can execute arbitrary code during `docker build`.
 Until a stronger sandbox is deployed, Docker builds and runtime launches are
-blocked by default. Only reviewed repository UUIDs explicitly listed in
-`SECUREWISE_TRUSTED_RUNTIME_REPOSITORIES` may be built or auto-started. Static
-scanners may still run for non-allowlisted repositories. The runtime gets no
-environment secrets or socket mounts, is resource-limited, drops Linux
-capabilities, runs with a read-only root filesystem and temporary `/tmp`, and
-is attached to an internal network with no outbound routing. Its host port is
-bound to loopback only; ZAP joins that same per-scan network and addresses the
-runtime by its container alias. The Docker build stage still runs on the
-daemon host and is not a hardened sandbox; approve only trusted sources and
-use a dedicated disposable worker host.
+blocked by default. Static scanners may still run for unreviewed repositories.
+Runtime builds additionally require `SECUREWISE_RUNTIME_BUILDS_ENABLED=true`;
+keep it unset until the dedicated worker host, rootless Docker daemon,
+resource quotas, and outbound network restrictions have been verified.
+An administrator must review the exact tree and set
+`SECUREWISE_TRUSTED_RUNTIME_CONTENT` to comma-separated
+`<repository-uuid>=<sha256>` entries. Compute a digest from the reviewed
+checkout with:
+
+```sh
+./venv/bin/python manage.py securewise_runtime_digest /path/to/reviewed/checkout
+```
+
+The digest covers file paths, file content, and executable mode; it ignores
+`.git`, dependency/vendor directories and caches, rejects symlinks, and is
+bounded to 100,000 files / 2 GiB. Any content or executable-mode change stops
+runtime execution until reviewed and re-approved. The old
+`SECUREWISE_TRUSTED_RUNTIME_REPOSITORIES` variable is not an authorization
+mechanism. The Docker build stage still executes on the daemon host with
+network access; content pinning is not a sandbox. Until worker host isolation
+and egress controls are independently verified, only reviewed repositories
+may be enabled.
+
+The worker service alone receives the Docker socket. Never mount it into
+Django web, a scanner, browser, or customer application container. The target
+runtime receives no worker environment secrets, socket mounts, or host mounts;
+it runs resource-limited with dropped capabilities, a read-only root
+filesystem and temporary `/tmp`, on an internal network. Its host port is
+bound to loopback only; ZAP joins the same per-scan network by container alias.
 
 The controlled fixture in `tests/fixtures/securewise-autopentest-api/` is
 intentionally vulnerable and uses synthetic data. It can be built and bound to
@@ -121,8 +140,8 @@ Never deploy that fixture to a public or production environment.
 Authenticated API mode accepts bearer credentials for at least two synthetic
 identities. Credentials are encrypted in the session record and omitted from
 session API responses. The mode is restricted to an explicitly authorized
-loopback scope, a reviewed repository listed in
-`SECUREWISE_TRUSTED_RUNTIME_REPOSITORIES`, and the discovered application port.
+loopback scope, an exact reviewed repository digest with runtime builds
+explicitly enabled, and the discovered application port.
 The worker starts that repository as an isolated runtime and sends only
 documented GET/HEAD operations from temporary bounded request containers on
 the runtime's internal Docker network. Redirects and secret-bearing OpenAPI
@@ -191,14 +210,16 @@ fixture declares a safe endpoint that invalidates a synthetic session.
   scanner binaries (Semgrep, Trivy, Gitleaks, and Docker CLI for Docker-based
   ZAP). Use the pinned worker image or install compatible versions explicitly.
 - Install and configure Docker Engine on the worker host and verify the daemon
-  is reachable by the worker's operating-system user. Docker CLI installation
+  is reachable by the worker's operating-system user. Prefer a rootless Docker
+  daemon owned by the dedicated worker account; do not add that account to the
+  rootful `docker` group, which is equivalent to root. Docker CLI installation
   by itself is not sufficient. The Render Django web service must not receive
   a Docker socket or execute repository code.
 - Limit worker egress to Git and scanner registries; runtime target containers
   use internal per-scan networks and do not receive worker credentials. Use a
   dedicated host and host firewall rules.
-- Configure only reviewed repository UUIDs in
-  `SECUREWISE_TRUSTED_RUNTIME_REPOSITORIES`. Never enable builds for arbitrary
+- Configure only exact reviewed repository digests in
+  `SECUREWISE_TRUSTED_RUNTIME_CONTENT`. Never enable builds for arbitrary
   user-submitted repositories on a shared worker.
 - Keep worker timeouts, memory/CPU limits, filesystem quotas, cleanup
   monitoring, and logs enabled. Alert on old `worker_claimed` jobs, Docker disk
@@ -214,3 +235,10 @@ This deployment has not been production-verified. The database queue is a
 single shared control-plane queue and is a minimal foundation, not a replacement
 for a durable broker with dead-lettering, per-tenant quotas, or high-scale
 concurrency management.
+The private-beta DAST adapter intentionally skips user-supplied external
+targets; it only scans the worker-started application over its per-scan
+internal Docker network.
+
+For a dedicated Linux service unit, threat boundaries, required host quotas,
+rollback, and explicit private-beta restrictions, see
+[`SECUREWISE_PRIVATE_BETA.md`](SECUREWISE_PRIVATE_BETA.md).

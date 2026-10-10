@@ -33,4 +33,9 @@ RUN pip install --upgrade pip \
 COPY . .
 RUN chmod +x /app/entrypoint.sh /app/scheduler_entrypoint.sh
 
+RUN groupadd --system --gid 10001 securewise \
+    && useradd --system --uid 10001 --gid securewise --home-dir /home/securewise --create-home securewise
+
+USER 10001:10001
+
 CMD ["python", "manage.py", "securewise_worker"]
