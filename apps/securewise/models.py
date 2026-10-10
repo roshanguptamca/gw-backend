@@ -619,7 +619,19 @@ class PentestSession(models.Model):
     )
     authorization_confirmed = models.BooleanField(default=False)
     authorization_reference = models.CharField(max_length=500)
-    mode = models.CharField(max_length=20, choices=[("passive", "Passive")], default="passive")
+    mode = models.CharField(
+        max_length=30,
+        choices=[("passive", "Passive"), ("authenticated_api", "Authenticated API")],
+        default="passive",
+    )
+    _encrypted_auth_config = models.BinaryField(null=True, blank=True, db_column="encrypted_auth_config")
+    unified_scan = models.ForeignKey(
+        SecureWiseScan,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="autopentest_sessions",
+    )
     status = models.CharField(max_length=30, choices=PENTEST_SESSION_STATUS_CHOICES, default="pending")
     progress = models.PositiveSmallIntegerField(default=0)
     worker_claimed_at = models.DateTimeField(null=True, blank=True)
@@ -633,6 +645,18 @@ class PentestSession(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+
+    def set_auth_config(self, value: dict) -> None:
+        import json
+
+        self._encrypted_auth_config = _get_fernet().encrypt(json.dumps(value, separators=(",", ":")).encode())
+
+    def get_auth_config(self) -> dict:
+        import json
+
+        if not self._encrypted_auth_config:
+            return {}
+        return json.loads(_get_fernet().decrypt(bytes(self._encrypted_auth_config)).decode())
 
 
 class PentestScope(models.Model):

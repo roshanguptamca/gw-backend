@@ -23,6 +23,7 @@ WORKER_CAPABILITIES = (
     "container",
     "docker_runtime",
     "autopentest_openapi_contract",
+    "autopentest_authenticated_api",
 )
 STALE_CLAIM_AFTER = timedelta(minutes=30)
 WORKER_HEARTBEAT_SECONDS = 15

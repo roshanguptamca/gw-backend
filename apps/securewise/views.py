@@ -982,6 +982,11 @@ class PentestSessionViewSet(viewsets.ModelViewSet):
         session.status = "cancelled"
         session.worker_claimed_at = None
         session.save(update_fields=["status", "worker_claimed_at"])
+        if session.unified_scan_id:
+            SecureWiseScan.objects.filter(
+                id=session.unified_scan_id,
+                status__in=("queued", "worker_claimed", "running", "running_api"),
+            ).update(status="cancelled", worker_claimed_at=None, completed_at=timezone.now())
         return Response({"detail": "AutoPentest session cancelled.", "status": session.status})
 
     @action(detail=True, methods=["get"])
@@ -996,10 +1001,18 @@ class PentestSessionViewSet(viewsets.ModelViewSet):
                     "test_cases": len(cases),
                     "outcomes": counts,
                     "status": session.status,
-                    "limitations": [
-                        "This session performs passive OpenAPI contract checks only.",
-                        "No application runtime, authenticated user flow, or active test was executed.",
-                    ],
+                    "unified_findings_scan": str(session.unified_scan_id) if session.unified_scan_id else None,
+                    "limitations": (
+                        [
+                            "This session performs passive OpenAPI contract checks only.",
+                            "No application runtime, authenticated user flow, or active test was executed.",
+                        ]
+                        if session.mode == "passive"
+                        else [
+                            "Authenticated tests are read-only and run only against the isolated repository runtime.",
+                            "Only documented, supported GET/HEAD API operations are exercised.",
+                        ]
+                    ),
                 },
             }
         )

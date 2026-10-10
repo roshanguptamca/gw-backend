@@ -574,8 +574,13 @@ class PentestScopeSerializer(serializers.ModelSerializer):
 
 class PentestSessionSerializer(serializers.ModelSerializer):
     scope = PentestScopeSerializer(many=True)
+    auth_config = serializers.JSONField(write_only=True, required=False)
+    retest_of = serializers.PrimaryKeyRelatedField(
+        queryset=PentestSession.objects.all(), required=False, allow_null=True
+    )
     test_cases = PentestTestCaseSerializer(many=True, read_only=True)
     organization = serializers.PrimaryKeyRelatedField(read_only=True)
+    unified_scan = serializers.PrimaryKeyRelatedField(read_only=True)
     status = serializers.CharField(read_only=True)
     progress = serializers.IntegerField(read_only=True)
     error_message = serializers.SerializerMethodField()
@@ -591,6 +596,8 @@ class PentestSessionSerializer(serializers.ModelSerializer):
             "authorization_confirmed",
             "authorization_reference",
             "mode",
+            "auth_config",
+            "unified_scan",
             "status",
             "progress",
             "scope",
@@ -606,7 +613,6 @@ class PentestSessionSerializer(serializers.ModelSerializer):
         read_only_fields = (
             "id",
             "organization",
-            "retest_of",
             "status",
             "progress",
             "test_cases",
@@ -636,21 +642,81 @@ class PentestSessionSerializer(serializers.ModelSerializer):
         scope_keys = [(entry["scheme"], entry["host"], entry["port"]) for entry in scopes]
         if len(scope_keys) != len(set(scope_keys)):
             raise serializers.ValidationError({"scope": "Approved scope entries must be unique."})
-        if attrs.get("timeout_seconds", 900) > 900:
-            raise serializers.ValidationError({"timeout_seconds": "The passive assessment timeout is capped at 900 seconds."})
-        if attrs.get("requests_per_minute", 30) > 60:
-            raise serializers.ValidationError({"requests_per_minute": "The assessment rate limit is capped at 60 requests per minute."})
+        retest_of = attrs.get("retest_of")
+        if retest_of and (
+            retest_of.project_id != project.id
+            or retest_of.repository_id != repository.id
+            or retest_of.organization_id != project.organization_id
+        ):
+            raise serializers.ValidationError(
+                {"retest_of": "A retest must use the same project, repository, and organization."}
+            )
+        if not 1 <= attrs.get("timeout_seconds", 900) <= 900:
+            raise serializers.ValidationError({"timeout_seconds": "Assessment timeouts must be between 1 and 900 seconds."})
+        if not 1 <= attrs.get("requests_per_minute", 30) <= 60:
+            raise serializers.ValidationError({"requests_per_minute": "Assessment rates must be between 1 and 60 requests per minute."})
+        mode = attrs.get("mode", "passive")
+        auth_config = attrs.get("auth_config", {})
+        if mode == "authenticated_api":
+            if (
+                not isinstance(auth_config, dict)
+                or auth_config.get("type") != "bearer"
+                or not isinstance(auth_config.get("users"), list)
+                or len(auth_config["users"]) < 2
+            ):
+                raise serializers.ValidationError(
+                    {"auth_config": "Authenticated API mode requires bearer credentials for at least two synthetic users."}
+                )
+            users = auth_config["users"]
+            labels = set()
+            subjects = set()
+            tokens = set()
+            for user in users:
+                if (
+                    not isinstance(user, dict)
+                    or not all(isinstance(user.get(field), str) and user[field].strip() for field in ("label", "subject", "role", "token"))
+                    or len(user["token"]) > 4096
+                ):
+                    raise serializers.ValidationError(
+                        {"auth_config": "Each test identity needs a label, subject, role, and token no longer than 4096 characters."}
+                    )
+                labels.add(user["label"])
+                subjects.add(user["subject"])
+                tokens.add(user["token"])
+            if (
+                len(labels) != len(users)
+                or len(subjects) != len(users)
+                or len(tokens) != len(users)
+            ):
+                raise serializers.ValidationError(
+                    {"auth_config": "Test identity labels, subjects, and tokens must be unique."}
+                )
+            if len(users) > 10:
+                raise serializers.ValidationError({"auth_config": "At most 10 synthetic test identities are allowed."})
+            if any(
+                entry["scheme"] != "http" or entry["host"] not in {"127.0.0.1", "::1", "localhost"}
+                for entry in scopes
+            ):
+                raise serializers.ValidationError(
+                    {"scope": "Authenticated live tests are restricted to approved loopback fixture runtimes."}
+                )
         return attrs
 
     def create(self, validated_data):
         scopes = validated_data.pop("scope")
+        auth_config = validated_data.pop("auth_config", {})
+        retest_of = validated_data.pop("retest_of", None)
         project = validated_data["project"]
         session = PentestSession.objects.create(
             organization=project.organization,
             status="queued",
             created_by=self.context["request"].user,
+            retest_of=retest_of,
             **validated_data,
         )
+        if auth_config:
+            session.set_auth_config(auth_config)
+            session.save(update_fields=["_encrypted_auth_config"])
         PentestScope.objects.bulk_create([PentestScope(session=session, **scope) for scope in scopes])
         return session
 

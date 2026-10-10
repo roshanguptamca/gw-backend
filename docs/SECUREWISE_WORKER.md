@@ -102,6 +102,37 @@ docker run --rm -p 127.0.0.1:3000:3000 securewise-autopentest-fixture
 
 Never deploy that fixture to a public or production environment.
 
+## Authenticated API AutoPentest (controlled fixture only)
+
+Authenticated API mode accepts bearer credentials for at least two synthetic
+identities. Credentials are encrypted in the session record and omitted from
+session API responses. The mode is restricted to an explicitly authorized
+loopback scope, a reviewed repository listed in
+`SECUREWISE_TRUSTED_RUNTIME_REPOSITORIES`, and the discovered application port.
+The worker starts that repository as an isolated runtime and sends only
+documented GET/HEAD operations from temporary bounded request containers on
+the runtime's internal Docker network. Redirects and secret-bearing OpenAPI
+parameters are not followed/sent. Other methods and unsupported parameterized
+routes are recorded as not executed.
+
+The controlled test creates a session through the API and executes the
+database queue entry point against Docker:
+
+```sh
+SECUREWISE_RUN_DOCKER_INTEGRATION=1 \
+  ./venv/bin/python -m pytest \
+  tests/securewise/test_autopentest_worker.py::test_authenticated_api_scans_real_isolated_fixture_and_cleans_up \
+  -s -q
+```
+
+The test verifies one evidence-backed `CWE-639` fixture finding, passing
+authorization controls, unified finding persistence, and removal of runtime,
+request containers, network, and image. It uses pytest's transactional test
+database and invokes `process_next_job()` synchronously; it does **not** prove
+that a separately running `securewise_worker` process claims the API-created
+job. The sanitized results and scan identifiers are recorded in
+[`SECUREWISE_PHASE3_EXECUTION_EVIDENCE.md`](SECUREWISE_PHASE3_EXECUTION_EVIDENCE.md).
+
 ## Dedicated Linux deployment
 
 - Deploy `python manage.py securewise_worker` as a separate supervised process
