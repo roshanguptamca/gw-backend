@@ -156,11 +156,17 @@ class ScannerOrchestrator:
 
         from ..runtime.trust import trusted_runtime_content
 
-        runtime_trusted, runtime_trust_result = (
-            trusted_runtime_content(str(scan.repository_id), repo_path)
-            if scan.repository_id
-            else (False, "Repository-backed runtime trust is unavailable.")
-        )
+        if scan.repository_id and scan.repository.access_mode == "github_app":
+            runtime_trusted, runtime_trust_result = (
+                False,
+                "GitHub App repository scans are static-only; customer build scripts are never executed.",
+            )
+        else:
+            runtime_trusted, runtime_trust_result = (
+                trusted_runtime_content(str(scan.repository_id), repo_path)
+                if scan.repository_id
+                else (False, "Repository-backed runtime trust is unavailable.")
+            )
         metadata = {
             "docker_image": scan.docker_image,
             "api_spec_url": scan.api_spec_url,

@@ -15,7 +15,10 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import tempfile
+import zipfile
 from pathlib import Path
+from pathlib import PurePosixPath
 from urllib.parse import urlparse, urlunparse
 
 logger = logging.getLogger(__name__)
@@ -124,6 +127,9 @@ def clone_repository(scan, repo_path: Path, allowed_root: Path | None = None, ti
     and never logs it. `finally` blocks scrub sensitive locals.
     """
     repo = scan.repository
+    if repo.access_mode == "github_app":
+        _download_github_app_snapshot(scan, repo_path, allowed_root or repo_path.parent)
+        return
     if repo.access_mode == "local_path":
         copy_local_repository(repo.local_path, repo_path, allowed_root=allowed_root)
         return
@@ -144,6 +150,74 @@ def clone_repository(scan, repo_path: Path, allowed_root: Path | None = None, ti
                 del authed_url
 
     safe_clone(clone_url, repo_path, allowed_root=allowed_root, timeout=timeout)
+
+
+def _download_github_app_snapshot(scan, repo_path: Path, allowed_root: Path) -> None:
+    import re
+
+    from apps.securewise.services.github_app import (
+        GitHubAppError,
+        download_archive,
+        get_commit_sha,
+        installation_is_active,
+    )
+
+    repo = scan.repository
+    installation = repo.github_app_installation
+    full_name = repo.name
+    if installation is None or installation.organization_id != repo.organization_id:
+        raise GitHubAppError("Repository is not linked to an organization GitHub App installation.")
+    if not installation_is_active(installation):
+        raise GitHubAppError("GitHub App installation is unavailable or no longer read-only.")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}", full_name):
+        raise GitHubAppError("Repository identifier is invalid.")
+
+    sha = get_commit_sha(installation.installation_id, full_name, scan.branch or repo.default_branch)
+    with tempfile.TemporaryFile(dir=allowed_root) as archive:
+        download_archive(installation.installation_id, full_name, sha, archive)
+        archive.seek(0)
+        extract_pinned_archive(archive, repo_path, allowed_root)
+    scan.commit_sha = sha
+    scan.save(update_fields=["commit_sha"])
+
+
+def extract_pinned_archive(archive, dest: Path, allowed_root: Path, *, max_files: int = 100_000) -> None:
+    """Extract an untrusted GitHub ZIP snapshot without paths, symlinks, or size escapes."""
+    safe_dest = _resolve_safe_dest(dest, allowed_root)
+    safe_dest.mkdir(parents=True, exist_ok=False)
+    total_uncompressed = 0
+    try:
+        with zipfile.ZipFile(archive) as zipped:
+            entries = zipped.infolist()
+            if len(entries) > max_files:
+                raise RuntimeError("Repository archive contains too many files.")
+            archive_root = None
+            for entry in entries:
+                path = PurePosixPath(entry.filename)
+                if path.is_absolute() or not path.parts or any(part in ("", ".", "..") for part in path.parts):
+                    raise RuntimeError("Repository archive contains an unsafe path.")
+                if archive_root is None:
+                    archive_root = path.parts[0]
+                elif path.parts[0] != archive_root:
+                    raise RuntimeError("Repository archive contains multiple root directories.")
+                if entry.is_dir():
+                    continue
+                unix_mode = (entry.external_attr >> 16) & 0xFFFF
+                file_type = unix_mode & 0o170000
+                if file_type not in (0, 0o100000):
+                    raise RuntimeError("Repository archive contains an unsupported special file.")
+                relative = Path(*path.parts[1:]) if len(path.parts) > 1 else Path()
+                if not relative.parts:
+                    continue
+                target = _resolve_safe_dest(safe_dest / relative, safe_dest)
+                total_uncompressed += entry.file_size
+                if total_uncompressed > 2 * 1024 * 1024 * 1024:
+                    raise RuntimeError("Repository archive exceeds the 2 GiB extraction limit.")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with zipped.open(entry) as source, target.open("xb") as output:
+                    shutil.copyfileobj(source, output, length=1024 * 1024)
+    except (zipfile.BadZipFile, OSError) as exc:
+        raise RuntimeError("GitHub returned an invalid repository archive.") from exc
 
 
 def validate_local_repository_path(path: str | Path) -> tuple[bool, str, Path | None]:

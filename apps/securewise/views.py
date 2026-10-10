@@ -9,13 +9,21 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
+import secrets
+import hashlib
 from datetime import timedelta
+from uuid import UUID
 
+from django.db import IntegrityError, transaction
 from django.db.models import Avg, Count, Q
 from django.http import HttpResponse
+from django.utils.decorators import method_decorator
 from django.utils import timezone
 from django.utils.text import slugify
 from django.views.generic import TemplateView
+from django.views.decorators.csrf import csrf_exempt
 
 from rest_framework import mixins, permissions, status, viewsets
 from rest_framework.decorators import action
@@ -29,6 +37,9 @@ from .models import (
     SecureWiseAuditLog,
     SecureWiseFinding,
     SecureWiseGitIntegration,
+    SecureWiseGitHubAppInstallation,
+    SecureWiseGitHubAppState,
+    SecureWiseGitHubWebhookDelivery,
     SecureWiseIntegration,
     SecureWiseMembership,
     SecureWiseOrganization,
@@ -63,6 +74,7 @@ from .serializers import (
     SecureWiseScanSerializer,
 )
 from .services.ai_recommendation import generate_ai_fix_suggestion
+from .services import github_app
 from .services.github_actions import GitHubActionError, create_github_issue, create_github_pr
 from .services.report import generate_report
 from .services.report_render import render_report_html, render_report_pdf
@@ -91,6 +103,13 @@ def _get_user_org_ids(user):
     return SecureWiseMembership.objects.filter(user=user).values_list("organization_id", flat=True)
 
 
+def _parse_uuid(value):
+    try:
+        return UUID(str(value))
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
 def _audit(user, event, org=None, target_type="", target_id="", detail=None, request=None):
     ip = None
     if request:
@@ -105,6 +124,404 @@ def _audit(user, event, org=None, target_type="", target_id="", detail=None, req
         detail=detail or {},
         ip_address=ip,
     )
+
+
+class GitHubAppConnectView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        organization_id = _parse_uuid(request.data.get("organization"))
+        if organization_id is None:
+            return Response({"detail": "A valid organization ID is required."}, status=400)
+        membership = SecureWiseMembership.objects.filter(
+            organization_id=organization_id,
+            user=request.user,
+            role__in=ADMIN_ROLES,
+        ).select_related("organization").first()
+        if membership is None:
+            return Response({"detail": "Organization admin access is required."}, status=403)
+        if not github_app.app_configured():
+            return Response({"detail": "GitHub App credentials are not configured."}, status=503)
+        try:
+            slug = github_app.app_slug()
+        except github_app.GitHubAppError as exc:
+            return Response({"detail": str(exc)}, status=503)
+        now = timezone.now()
+        SecureWiseGitHubAppState.objects.filter(
+            Q(expires_at__lt=now) | Q(consumed_at__lt=now - timedelta(hours=1))
+        ).delete()
+        raw_state = secrets.token_urlsafe(32)
+        SecureWiseGitHubAppState.objects.create(
+            state_digest=github_app.state_digest(raw_state),
+            organization=membership.organization,
+            user=request.user,
+            expires_at=now + timedelta(minutes=10),
+        )
+        return Response(
+            {
+                "installation_url": f"https://github.com/apps/{slug}/installations/new?state={raw_state}",
+                "expires_in_seconds": 600,
+            }
+        )
+
+
+class GitHubAppCallbackView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        state = request.query_params.get("state", "")
+        installation_id = request.query_params.get("installation_id", "")
+        setup_action = request.query_params.get("setup_action", "")
+        if (
+            not state
+            or len(state) > 256
+            or setup_action not in ("install", "update")
+            or not installation_id.isdecimal()
+            or len(installation_id) > 20
+            or int(installation_id) <= 0
+            or int(installation_id) > 2**63 - 1
+        ):
+            return Response({"detail": "Invalid GitHub App callback."}, status=400)
+        if not github_app.app_configured():
+            return Response({"detail": "GitHub App credentials are not configured."}, status=503)
+
+        with transaction.atomic():
+            state_row = (
+                SecureWiseGitHubAppState.objects.select_for_update()
+                .filter(state_digest=github_app.state_digest(state), user=request.user)
+                .select_related("organization")
+                .first()
+            )
+            if (
+                state_row is None
+                or state_row.consumed_at is not None
+                or state_row.expires_at <= timezone.now()
+                or not SecureWiseMembership.objects.filter(
+                    organization=state_row.organization, user=request.user, role__in=ADMIN_ROLES
+                ).exists()
+            ):
+                return Response({"detail": "GitHub App state is invalid, expired, or already used."}, status=400)
+            state_row.consumed_at = timezone.now()
+            state_row.save(update_fields=["consumed_at"])
+
+        try:
+            details = github_app.get_installation(int(installation_id))
+        except github_app.GitHubAppError as exc:
+            return Response({"detail": str(exc)}, status=502)
+        account = details.get("account") or {}
+        if (
+            details.get("id") != int(installation_id)
+            or not isinstance(account, dict)
+            or not isinstance(account.get("login"), str)
+            or not account["login"]
+            or not isinstance(account.get("id"), int)
+            or isinstance(account.get("id"), bool)
+            or account["id"] <= 0
+            or account["id"] > 2**63 - 1
+            or int(installation_id) > 2**63 - 1
+        ):
+            return Response({"detail": "GitHub returned invalid installation details."}, status=502)
+        existing_installation = SecureWiseGitHubAppInstallation.objects.filter(
+            installation_id=int(installation_id)
+        ).first()
+        if existing_installation and existing_installation.organization_id != state_row.organization_id:
+            return Response({"detail": "This installation is already connected to another organization."}, status=409)
+        if existing_installation is None:
+            from django.utils.dateparse import parse_datetime
+
+            created_at = details.get("created_at")
+            installed_at = parse_datetime(created_at) if isinstance(created_at, str) else None
+            if (
+                setup_action != "install"
+                or installed_at is None
+                or not timezone.is_aware(installed_at)
+                or installed_at < state_row.created_at - timedelta(minutes=2)
+                or installed_at > timezone.now() + timedelta(minutes=2)
+            ):
+                return Response(
+                    {"detail": "A new GitHub installation must be created from this authorization flow."},
+                    status=400,
+                )
+        installed_permissions = details.get("permissions") or {}
+        if (
+            not isinstance(installed_permissions, dict)
+            or installed_permissions.get("contents") != "read"
+            or any(
+                permission != "read" for permission in installed_permissions.values()
+            )
+        ):
+            return Response(
+                {"detail": "The GitHub App must have read-only contents access and no write permissions."},
+                status=403,
+            )
+        try:
+            installation, created = SecureWiseGitHubAppInstallation.objects.update_or_create(
+                installation_id=int(installation_id),
+                defaults={
+                    "organization": state_row.organization,
+                    "account_id": int(account["id"]),
+                    "account_login": str(account["login"])[:200],
+                    "account_type": str(account.get("type", ""))[:30],
+                    "permissions": details.get("permissions") or {},
+                    "suspended_at": (
+                        timezone.now()
+                        if details.get("suspended_at") or details.get("suspended_by")
+                        else None
+                    ),
+                    "removed_at": None,
+                    "created_by": request.user,
+                },
+            )
+        except IntegrityError:
+            return Response(
+                {"detail": "This GitHub account is already connected to the organization."},
+                status=409,
+            )
+        _audit(
+            request.user,
+            "github_app_installation_created",
+            org=state_row.organization,
+            target_type="SecureWiseGitHubAppInstallation",
+            target_id=installation.id,
+            detail={"account": installation.account_login, "installation_id": installation.installation_id},
+            request=request,
+        )
+        frontend_url = os.environ.get("SECUREWISE_FRONTEND_URL", "").rstrip("/")
+        if frontend_url.startswith("https://") or frontend_url.startswith("http://localhost"):
+            from django.http import HttpResponseRedirect
+
+            return HttpResponseRedirect(f"{frontend_url}/repositories?github_app=connected")
+        return Response(
+            {
+                "detail": "GitHub App installation connected.",
+                "installation": str(installation.id),
+                "created": created,
+            }
+        )
+
+
+class GitHubAppInstallationView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        installations = SecureWiseGitHubAppInstallation.objects.filter(
+            organization_id__in=_get_user_org_ids(request.user)
+        ).order_by("account_login")
+        return Response(
+            [
+                {
+                    "id": str(item.id),
+                    "organization": str(item.organization_id),
+                    "installation_id": item.installation_id,
+                    "account_login": item.account_login,
+                    "account_type": item.account_type,
+                    "permissions": item.permissions,
+                    "suspended": item.suspended_at is not None,
+                    "removed": item.removed_at is not None,
+                    "available": github_app.installation_is_active(item),
+                }
+                for item in installations
+            ]
+        )
+
+    def post(self, request):
+        installation_id = request.data.get("installation")
+        if not installation_id:
+            return Response({"detail": "Installation is required."}, status=400)
+        installation_uuid = _parse_uuid(installation_id)
+        if installation_uuid is None:
+            return Response({"detail": "A valid installation ID is required."}, status=400)
+        installation = SecureWiseGitHubAppInstallation.objects.filter(
+            id=installation_uuid,
+            organization_id__in=_get_user_org_ids(request.user),
+            removed_at__isnull=True,
+            suspended_at__isnull=True,
+        ).first()
+        if installation is None or not github_app.installation_is_active(installation):
+            return Response({"detail": "Installation not found or unavailable."}, status=404)
+        try:
+            repositories = github_app.list_installation_repositories(installation.installation_id)
+        except github_app.GitHubAppError as exc:
+            return Response({"detail": str(exc)}, status=502)
+        return Response(
+            [
+                {
+                    "id": item.get("id"),
+                    "full_name": item.get("full_name"),
+                    "private": bool(item.get("private")),
+                    "default_branch": item.get("default_branch", "main"),
+                    "html_url": f"https://github.com/{item.get('full_name', '')}",
+                }
+                for item in repositories
+                if isinstance(item.get("id"), int)
+                and not isinstance(item.get("id"), bool)
+                and isinstance(item.get("full_name"), str)
+                and re.fullmatch(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}", item["full_name"])
+            ]
+        )
+
+
+class GitHubAppRepositorySelectionView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        installation_uuid = _parse_uuid(request.data.get("installation"))
+        if installation_uuid is None:
+            return Response({"detail": "A valid installation ID is required."}, status=400)
+        installation = SecureWiseGitHubAppInstallation.objects.filter(
+            id=installation_uuid,
+            organization_id__in=_get_user_org_ids(request.user),
+            removed_at__isnull=True,
+            suspended_at__isnull=True,
+        ).select_related("organization").first()
+        if installation is None or not github_app.installation_is_active(installation):
+            return Response({"detail": "Installation not found or unavailable."}, status=404)
+        if not SecureWiseMembership.objects.filter(
+            organization=installation.organization, user=request.user, role__in=ADMIN_ROLES
+        ).exists():
+            return Response({"detail": "Organization admin access is required."}, status=403)
+        repository_ids = request.data.get("repository_ids")
+        if (
+            not isinstance(repository_ids, list)
+            or not repository_ids
+            or len(repository_ids) > 100
+            or any(not isinstance(value, int) or isinstance(value, bool) or value <= 0 for value in repository_ids)
+        ):
+            return Response({"detail": "Select between 1 and 100 repository IDs."}, status=400)
+        project_id = request.data.get("project")
+        project = None
+        if project_id:
+            project_uuid = _parse_uuid(project_id)
+            if project_uuid is None:
+                return Response({"detail": "A valid project ID is required."}, status=400)
+            project = SecureWiseProject.objects.filter(
+                id=project_uuid, organization=installation.organization
+            ).first()
+            if project is None:
+                return Response({"detail": "Project not found in this organization."}, status=400)
+        try:
+            available = github_app.list_installation_repositories(installation.installation_id)
+        except github_app.GitHubAppError as exc:
+            return Response({"detail": str(exc)}, status=502)
+        by_id = {
+            item.get("id"): item
+            for item in available
+            if isinstance(item.get("id"), int)
+            and not isinstance(item.get("id"), bool)
+            and 0 < item["id"] <= 2**63 - 1
+        }
+        if len(set(repository_ids)) != len(repository_ids) or any(repo_id not in by_id for repo_id in repository_ids):
+            return Response({"detail": "A selected repository is not available to this installation."}, status=400)
+
+        synced = []
+        for repo_id in repository_ids:
+            details = by_id[repo_id]
+            full_name = details.get("full_name", "")
+            if not isinstance(full_name, str) or not re.fullmatch(
+                r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}", full_name
+            ):
+                return Response({"detail": "GitHub returned an invalid repository identifier."}, status=502)
+            defaults = {
+                "github_app_installation": installation,
+                "project": project,
+                "name": full_name,
+                "provider": "github",
+                "repository_url": f"https://github.com/{full_name}",
+                "clone_url": "",
+                "default_branch": str(details.get("default_branch") or "main")[:100],
+                "visibility": "private" if details.get("private") else "public",
+                "access_mode": "github_app",
+                "created_by": request.user,
+            }
+            repository, created = SecureWiseRepository.objects.get_or_create(
+                organization=installation.organization,
+                provider_repository_id=repo_id,
+                defaults=defaults,
+            )
+            if not created and repository.github_app_installation_id != installation.id:
+                return Response({"detail": "Repository is linked to another installation."}, status=409)
+            if not created:
+                changed = []
+                for field, value in defaults.items():
+                    if field == "project" and value is None:
+                        continue
+                    current = (
+                        repository.github_app_installation_id
+                        if field == "github_app_installation"
+                        else getattr(repository, field)
+                    )
+                    expected = value.id if field == "github_app_installation" else value
+                    if current != expected:
+                        setattr(repository, field, value)
+                        changed.append(field)
+                if changed:
+                    repository.save(update_fields=changed + ["updated_at"])
+            _audit(
+                request.user,
+                "github_app_repository_synced",
+                org=installation.organization,
+                target_type="SecureWiseRepository",
+                target_id=repository.id,
+                detail={"repository": full_name, "created": created},
+                request=request,
+            )
+            synced.append(repository)
+        return Response(SecureWiseRepositorySerializer(synced, many=True).data, status=200)
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class GitHubAppWebhookView(APIView):
+    authentication_classes = []
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        content_length = request.headers.get("Content-Length", "")
+        if content_length.isdecimal() and int(content_length) > 1024 * 1024:
+            return Response({"detail": "Webhook payload exceeds the size limit."}, status=413)
+        body = request.body
+        if len(body) > 1024 * 1024:
+            return Response({"detail": "Webhook payload exceeds the size limit."}, status=413)
+        signature = request.headers.get("X-Hub-Signature-256", "")
+        secret = os.environ.get("SECUREWISE_GITHUB_APP_WEBHOOK_SECRET", "")
+        if not github_app.verify_webhook_signature(secret, body, signature):
+            return Response({"detail": "Invalid webhook signature."}, status=401)
+        delivery_id = request.headers.get("X-GitHub-Delivery", "")
+        event_type = request.headers.get("X-GitHub-Event", "")
+        if not delivery_id or len(delivery_id) > 200 or not event_type or len(event_type) > 100:
+            return Response({"detail": "Missing or invalid webhook headers."}, status=400)
+        try:
+            payload = json.loads(body)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return Response({"detail": "Invalid webhook payload."}, status=400)
+        if not isinstance(payload, dict):
+            return Response({"detail": "Invalid webhook payload."}, status=400)
+        payload_hash = hashlib.sha256(body).hexdigest()
+        try:
+            with transaction.atomic():
+                SecureWiseGitHubWebhookDelivery.objects.create(
+                    delivery_id=delivery_id,
+                    event_type=event_type,
+                    payload_sha256=payload_hash,
+                )
+                installation_data = payload.get("installation") or {}
+                installation_id = installation_data.get("id")
+                if isinstance(installation_id, int):
+                    linked = SecureWiseGitHubAppInstallation.objects.select_for_update().filter(
+                        installation_id=installation_id
+                    ).select_related("organization").first()
+                    if linked:
+                        github_app.mark_installation_event(linked, f"{event_type}.{payload.get('action', '')}", payload)
+                        _audit(
+                            None,
+                            "github_app_webhook_received",
+                            org=linked.organization,
+                            target_type="SecureWiseGitHubAppInstallation",
+                            target_id=linked.id,
+                            detail={"event": event_type, "action": payload.get("action", "")},
+                        )
+        except IntegrityError:
+            return Response({"detail": "Webhook delivery already processed."}, status=202)
+        return Response({"detail": "Webhook accepted."}, status=202)
 
 
 # ---------------------------------------------------------------------------
@@ -286,6 +703,11 @@ class GitIntegrationViewSet(viewsets.ModelViewSet):
     def test(self, request, pk=None):
         """Test connectivity for this Git integration."""
         integration = self.get_object()
+        membership = _membership(request.user, integration.organization)
+        if membership is None or membership.role not in ADMIN_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("Only organization admins can test Git integrations.")
         token = integration.get_token()
         if not token:
             return Response({"detail": "No token stored for this integration."}, status=400)

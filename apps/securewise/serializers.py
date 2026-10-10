@@ -145,6 +145,14 @@ class SecureWiseGitIntegrationSerializer(serializers.ModelSerializer):
             "updated_at",
         )
 
+    def validate(self, attrs):
+        auth_type = attrs.get("auth_type", getattr(self.instance, "auth_type", ""))
+        if auth_type == "github_app":
+            raise serializers.ValidationError(
+                {"auth_type": "GitHub App access is managed through the installation flow, not personal tokens."}
+            )
+        return attrs
+
     def create(self, validated_data):
         raw_token = validated_data.pop("access_token", None)
         instance = super().create(validated_data)
@@ -273,8 +281,41 @@ class SecureWiseRepositorySerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         organization = attrs.get("organization", getattr(self.instance, "organization", None))
         project = attrs.get("project", getattr(self.instance, "project", None))
+        integration = attrs.get("integration", getattr(self.instance, "integration", None))
+        access_mode = attrs.get("access_mode", getattr(self.instance, "access_mode", "public"))
         if organization and project and project.organization_id != organization.id:
             raise serializers.ValidationError({"project": "The project must belong to the selected organization."})
+        if integration and organization and integration.organization_id != organization.id:
+            raise serializers.ValidationError(
+                {"integration": "The Git integration must belong to the selected organization."}
+            )
+        if access_mode == "github_app" and (self.instance is None or self.instance.access_mode != "github_app"):
+            raise serializers.ValidationError(
+                {"access_mode": "GitHub App repositories can only be synchronized from an installation."}
+            )
+        if self.instance and self.instance.access_mode == "github_app":
+            immutable_fields = {
+                "organization",
+                "integration",
+                "repository_url",
+                "access_mode",
+                "name",
+                "provider",
+                "default_branch",
+                "visibility",
+            }
+            if immutable_fields.intersection(attrs):
+                raise serializers.ValidationError(
+                    {"repository_url": "GitHub App repository identity is managed by the installation sync."}
+                )
+        installation = attrs.get(
+            "github_app_installation",
+            getattr(self.instance, "github_app_installation", None),
+        )
+        if installation and organization and installation.organization_id != organization.id:
+            raise serializers.ValidationError(
+                {"github_app_installation": "The GitHub App installation must belong to the selected organization."}
+            )
         return attrs
 
 

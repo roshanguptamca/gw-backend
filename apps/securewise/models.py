@@ -139,6 +139,7 @@ VISIBILITY_CHOICES = [
 ACCESS_MODE_CHOICES = [
     ("public", "Public"),
     ("integration", "Integration"),
+    ("github_app", "GitHub App"),
     ("local_path", "Local Path"),
 ]
 
@@ -160,6 +161,9 @@ AUDIT_EVENT_CHOICES = [
     ("git_integration_created", "Git Integration Created"),
     ("git_integration_updated", "Git Integration Updated"),
     ("git_integration_deleted", "Git Integration Deleted"),
+    ("github_app_installation_created", "GitHub App Installation Created"),
+    ("github_app_repository_synced", "GitHub App Repository Synced"),
+    ("github_app_webhook_received", "GitHub App Webhook Received"),
     ("token_used_for_scan", "Token Used for Scan"),
     ("token_failed", "Token Failed"),
     ("repository_added", "Repository Added"),
@@ -239,6 +243,51 @@ class SecureWiseMembership(models.Model):
 # ---------------------------------------------------------------------------
 # Git Integration
 # ---------------------------------------------------------------------------
+
+
+class SecureWiseGitHubAppState(models.Model):
+    """Short-lived, single-use state for a GitHub App installation callback."""
+
+    state_digest = models.CharField(max_length=64, primary_key=True)
+    organization = models.ForeignKey(SecureWiseOrganization, on_delete=models.CASCADE)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class SecureWiseGitHubAppInstallation(models.Model):
+    """Organization-scoped GitHub App installation; access tokens are never stored."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(
+        SecureWiseOrganization, on_delete=models.CASCADE, related_name="github_app_installations"
+    )
+    installation_id = models.PositiveBigIntegerField(unique=True)
+    account_id = models.PositiveBigIntegerField()
+    account_login = models.CharField(max_length=200)
+    account_type = models.CharField(max_length=30, blank=True)
+    permissions = models.JSONField(default=dict, blank=True)
+    suspended_at = models.DateTimeField(null=True, blank=True)
+    removed_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=("organization", "account_id"), name="sw_github_install_org_account_unique")
+        ]
+
+
+class SecureWiseGitHubWebhookDelivery(models.Model):
+    """Replay ledger for signed GitHub App webhook deliveries; payloads are not retained."""
+
+    delivery_id = models.CharField(max_length=200, primary_key=True)
+    event_type = models.CharField(max_length=100)
+    payload_sha256 = models.CharField(max_length=64)
+    received_at = models.DateTimeField(auto_now_add=True)
 
 
 class SecureWiseGitIntegration(models.Model):
@@ -348,6 +397,14 @@ class SecureWiseRepository(models.Model):
         related_name="repositories",
         help_text="Git integration used for private repo access.",
     )
+    github_app_installation = models.ForeignKey(
+        SecureWiseGitHubAppInstallation,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="repositories",
+    )
+    provider_repository_id = models.PositiveBigIntegerField(null=True, blank=True, db_index=True)
     name = models.CharField(max_length=200)
     provider = models.CharField(max_length=30, choices=GIT_PROVIDER_CHOICES, blank=True)
     repository_url = models.CharField(max_length=500, blank=True, validators=[URLValidator()])
@@ -373,6 +430,13 @@ class SecureWiseRepository(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=("organization", "provider_repository_id"),
+                condition=models.Q(provider_repository_id__isnull=False),
+                name="sw_repo_org_provider_id_unique",
+            )
+        ]
 
     def __str__(self):
         return self.name

@@ -162,6 +162,43 @@ The frontend suite passed (193 tests), TypeScript/production build passed, and
 lint exited successfully with nine existing warnings. This does not include
 production verification or a dedicated Linux/rootless-Docker worker test.
 
+## Phase 7 customer code/URL assessment status
+
+Phase 7 adds a GitHub App static-scanning foundation while preserving the
+Phase 6 external DAST block. Source inspection and mocked API tests are not
+evidence of a working deployed GitHub App, a customer private-repository scan,
+or production tenant isolation.
+
+| Capability | Implementation status | Working locally | Verified in production | Tests available | Blockers | Priority |
+|---|---|---|---|---|---|---|
+| GitHub App installation and organization binding | Partially implemented: admin-bound expiring state, callback validation, write-permission rejection, non-rebind rule | Mocked provider API tests pass | No | `tests/securewise/test_github_app.py` | App credentials, reachable setup callback, live installation and customer permission verification | P0 |
+| Selected GitHub repositories | Partially implemented: installation-scoped listing and explicit selection reuse `SecureWiseRepository` | Mocked list/select API tests pass | No | `test_github_app.py`, frontend `RepositoriesPage.test.tsx` | Live account/private repository sync and removal UX | P0 |
+| Private static source scanning | Partially implemented: installation token and bounded commit archive path; exact commit SHA is recorded | Mocked commit/archive and safe extraction tests pass; no real scanner ran against a private repository | No | `test_github_app.py`, existing scanner/worker suites | Live private repository test; per-job scanner isolation; scanner version/license audit; production worker | P0 |
+| GitHub webhook security | Partially implemented: HMAC signature validation, payload size limit, delivery replay ledger, suspend/remove state | Local cryptographic fixture test passes | No | `test_github_app.py` | Public webhook endpoint, configured secret, live signed delivery and broader event handling | P1 |
+| Repository/integration tenant association | Implemented for submitted repository relations; legacy integration test action is admin-only | Cross-org reference and viewer denial tests pass | No | `test_api.py` | Full deployed endpoint/access/export audit remains outstanding | P0 |
+| URL target ownership and authorization | Missing; no customer target registration or legal authorization record | No | No | Existing external target block tests only | TXT/HTTPS challenge, expiry/replay, host/port/path scope, legal approval, DNS rebinding and egress enforcement | P0 |
+| Authorized passive URL assessment | Missing for external targets; Phase 6 DAST block remains | No public/customer target requests run | No | Existing DAST tests cover rejection, not authorized customer scanning | Request-level scope/redirect/DNS defenses and network egress controls | P0 |
+| Unified code+URL reports and customer dashboard | Partially implemented: existing scan report reused; GitHub App selection added to Repositories | Full frontend regression suite, typecheck and production build pass; reports remain scan-bound | No | Existing report tests; frontend repository tests | URL findings, project-level combined report, full onboarding, downloaded data/retention controls | P1 |
+| Tenant roles and invitations | Partially implemented: existing owner/admin/security_engineer/developer/auditor roles reused | Prior API tests plus new cross-reference checks | No | `test_api.py` | Requested member/viewer semantics and secure invitation/removal lifecycle not delivered | P1 |
+
+The Phase 7 GitHub App path is static-only: it does not run repository build,
+install or startup scripts, and it cannot use the runtime-build gate. Scanner
+processes still share the existing worker trust domain; no per-job VM/microVM
+or scanner-host isolation has been demonstrated. App state, archive extraction,
+webhook, and selected repository tests mock GitHub; no real GitHub API call or
+private customer repository scan took place.
+
+No URL verification/authorization capability was added. Do not bypass the
+external DAST restriction by submitting `target_url` directly. Ownership is
+not legal authorization, and neither is currently captured for customer URLs.
+
+Phase 7 execution detail is recorded in
+[`SECUREWISE_PHASE7_EXECUTION_EVIDENCE.md`](SECUREWISE_PHASE7_EXECUTION_EVIDENCE.md),
+with customer constraints in
+[`SECUREWISE_CUSTOMER_SECURITY_MODEL.md`](SECUREWISE_CUSTOMER_SECURITY_MODEL.md)
+and setup limitations in
+[`SECUREWISE_CUSTOMER_ONBOARDING.md`](SECUREWISE_CUSTOMER_ONBOARDING.md).
+
 ## Validation performed for this change
 
 - The controlled integration test passed with Docker Desktop 29.2.0: Trivy

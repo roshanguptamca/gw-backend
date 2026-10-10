@@ -22,6 +22,7 @@ from apps.securewise.models import (
     PentestTestCase,
     SecureWiseAuditLog,
     SecureWiseFinding,
+    SecureWiseGitIntegration,
     SecureWiseMembership,
     SecureWiseOrganization,
     SecureWiseProject,
@@ -327,6 +328,24 @@ class TestProjectAPI:
 # ---------------------------------------------------------------------------
 
 
+class TestGitIntegrationAPI:
+    def test_github_app_cannot_be_connected_as_a_legacy_token_integration(self, auth_client, org):
+        response = auth_client.post(
+            "/api/securewise/git-integrations/",
+            {
+                "organization": str(org.id),
+                "provider": "github",
+                "auth_type": "github_app",
+                "name": "GitHub App",
+                "access_token": "not-a-github-app-token",
+            },
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "auth_type" in response.json()
+        assert SecureWiseGitIntegration.objects.count() == 0
+
+
 class TestRepositoryAPI:
     def test_list_repositories(self, auth_client, repository):
         resp = auth_client.get("/api/securewise/repositories/")
@@ -375,6 +394,44 @@ class TestRepositoryAPI:
     def test_retrieve_repository(self, auth_client, repository):
         resp = auth_client.get(f"/api/securewise/repositories/{repository.id}/")
         assert resp.status_code == 200
+
+    def test_repository_cannot_borrow_another_organizations_integration(self, auth_client, org, project, other_user):
+        other_org = SecureWiseOrganization.objects.create(name="Foreign", slug="foreign", owner=other_user)
+        integration = SecureWiseGitIntegration.objects.create(
+            organization=other_org,
+            provider="github",
+            auth_type="personal_access_token",
+            name="Foreign GitHub",
+        )
+        response = auth_client.post(
+            "/api/securewise/repositories/",
+            {
+                "organization": str(org.id),
+                "project": str(project.id),
+                "integration": str(integration.id),
+                "name": "foreign-integration-repository",
+                "repository_url": "https://github.com/example/private",
+                "access_mode": "integration",
+            },
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "integration" in response.json()
+
+    def test_viewer_cannot_test_github_integration(self, auth_client, org, owner):
+        membership = SecureWiseMembership.objects.get(organization=org, user=owner)
+        membership.role = "auditor"
+        membership.save(update_fields=["role"])
+        integration = SecureWiseGitIntegration.objects.create(
+            organization=org,
+            provider="github",
+            auth_type="personal_access_token",
+            name="Customer GitHub",
+        )
+        integration.set_token("opaque-test-token")
+        integration.save(update_fields=["_encrypted_access_token", "token_last_four"])
+        response = auth_client.post(f"/api/securewise/git-integrations/{integration.id}/test/")
+        assert response.status_code == 403
 
     def test_validate_endpoint_valid_url(self, auth_client):
         resp = auth_client.post(
