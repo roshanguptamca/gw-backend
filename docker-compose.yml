@@ -46,6 +46,23 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Docker-capable scanner worker for local SecureWise runtime/DAST tests.
+  # The Docker socket is intentionally available only to this separate worker,
+  # never to the Django web service.
+  securewise-worker:
+    build: .
+    command: python manage.py securewise_worker
+    profiles: ["securewise-worker"]
+    volumes:
+      - .:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   static_volume:
   media_volume:

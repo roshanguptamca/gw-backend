@@ -36,6 +36,7 @@ ROLE_CHOICES = [
 SCAN_STATUS_CHOICES = [
     ("pending", "Pending"),
     ("queued", "Queued"),
+    ("worker_claimed", "Worker Claimed"),
     ("running", "Running"),
     ("cloning", "Cloning Repository"),
     ("running_sast", "Running SAST"),
@@ -171,6 +172,8 @@ AUDIT_EVENT_CHOICES = [
     ("finding_pr_failed", "Finding PR Failed"),
     ("scan_policy_updated", "Scan Policy Updated"),
     ("scan_policy_deleted", "Scan Policy Deleted"),
+    ("pentest_session_created", "Pentest Session Created"),
+    ("pentest_session_completed", "Pentest Session Completed"),
 ]
 
 
@@ -496,6 +499,7 @@ class SecureWiseScan(models.Model):
     branch = models.CharField(max_length=200, blank=True)
     commit_sha = models.CharField(max_length=64, blank=True)
     status = models.CharField(max_length=30, choices=SCAN_STATUS_CHOICES, default="pending")
+    worker_claimed_at = models.DateTimeField(null=True, blank=True)
     triggered_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -567,6 +571,125 @@ class SecureWiseScanEngineResult(models.Model):
 
     def __str__(self):
         return f"{self.engine} [{self.status}] for scan {self.scan_id}"
+
+
+class SecureWiseWorkerRegistration(models.Model):
+    worker_id = models.CharField(max_length=200, primary_key=True)
+    capabilities = models.JSONField(default=list)
+    status = models.CharField(max_length=20, default="online")
+    last_seen_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ["worker_id"]
+
+
+PENTEST_SESSION_STATUS_CHOICES = [
+    ("pending", "Pending"),
+    ("queued", "Queued"),
+    ("worker_claimed", "Worker Claimed"),
+    ("running", "Running"),
+    ("completed", "Completed"),
+    ("completed_with_warnings", "Completed with Warnings"),
+    ("failed", "Failed"),
+    ("cancelled", "Cancelled"),
+]
+
+PENTEST_OUTCOME_CHOICES = [
+    ("planned", "Planned"),
+    ("confirmed_vulnerability", "Confirmed Vulnerability"),
+    ("suspected_vulnerability", "Suspected Vulnerability"),
+    ("inconclusive", "Inconclusive"),
+    ("passed", "Passed"),
+    ("not_executed", "Not Executed"),
+]
+
+
+class PentestSession(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(SecureWiseOrganization, on_delete=models.CASCADE, related_name="pentest_sessions")
+    project = models.ForeignKey(SecureWiseProject, on_delete=models.CASCADE, related_name="pentest_sessions")
+    repository = models.ForeignKey(
+        SecureWiseRepository, on_delete=models.PROTECT, related_name="pentest_sessions"
+    )
+    retest_of = models.ForeignKey(
+        "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="retests"
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="sw_pentest_sessions"
+    )
+    authorization_confirmed = models.BooleanField(default=False)
+    authorization_reference = models.CharField(max_length=500)
+    mode = models.CharField(max_length=20, choices=[("passive", "Passive")], default="passive")
+    status = models.CharField(max_length=30, choices=PENTEST_SESSION_STATUS_CHOICES, default="pending")
+    progress = models.PositiveSmallIntegerField(default=0)
+    worker_claimed_at = models.DateTimeField(null=True, blank=True)
+    error_message = models.TextField(blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    timeout_seconds = models.PositiveSmallIntegerField(default=900)
+    requests_per_minute = models.PositiveSmallIntegerField(default=30)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class PentestScope(models.Model):
+    session = models.ForeignKey(PentestSession, on_delete=models.CASCADE, related_name="scope")
+    scheme = models.CharField(max_length=5, choices=[("http", "HTTP"), ("https", "HTTPS")])
+    host = models.CharField(max_length=253)
+    port = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("session", "scheme", "host", "port"), name="sw_pentest_scope_unique")
+        ]
+
+
+class PentestTestCase(models.Model):
+    session = models.ForeignKey(PentestSession, on_delete=models.CASCADE, related_name="test_cases")
+    test_key = models.CharField(max_length=200)
+    title = models.CharField(max_length=300)
+    category = models.CharField(max_length=50)
+    endpoint = models.CharField(max_length=500, blank=True)
+    method = models.CharField(max_length=10, blank=True)
+    expected_behavior = models.TextField()
+    status = models.CharField(max_length=30, choices=PENTEST_OUTCOME_CHOICES, default="planned")
+    severity = models.CharField(max_length=20, choices=SEVERITY_CHOICES, default="info")
+    confidence = models.CharField(max_length=20, choices=CONFIDENCE_CHOICES, default="low")
+    cwe_id = models.CharField(max_length=20, blank=True)
+    owasp_category = models.CharField(max_length=50, blank=True)
+    recommendation = models.TextField(blank=True)
+    source = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=("session", "test_key"), name="sw_pentest_test_case_unique")
+        ]
+
+
+class PentestExecution(models.Model):
+    test_case = models.ForeignKey(PentestTestCase, on_delete=models.CASCADE, related_name="executions")
+    outcome = models.CharField(max_length=30, choices=PENTEST_OUTCOME_CHOICES, default="planned")
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    duration_ms = models.PositiveIntegerField(null=True, blank=True)
+    summary = models.TextField(blank=True)
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class PentestEvidence(models.Model):
+    execution = models.ForeignKey(PentestExecution, on_delete=models.CASCADE, related_name="evidence")
+    kind = models.CharField(max_length=50)
+    content = models.JSONField(default=dict)
+    sha256 = models.CharField(max_length=64, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 # ---------------------------------------------------------------------------

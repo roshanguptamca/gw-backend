@@ -17,6 +17,7 @@ from pathlib import Path
 from apps.securewise.scanners.mode_labels import engine_ran_in_real_tool_mode
 from apps.securewise.scanners.orchestrator import ScannerOrchestrator
 from apps.securewise.scanners.repository import clone_repository
+from apps.securewise.runtime.logs import redact_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -40,10 +41,13 @@ class ScannerRunner:
             logger.error("ScannerRunner: scan %s not found", scan_id)
             return
 
+        if scan.status == "cancelled":
+            return
         scan.status = "running"
         scan.started_at = timezone.now()
         scan.progress = 0
-        scan.save(update_fields=["status", "started_at", "progress"])
+        scan.worker_claimed_at = None
+        scan.save(update_fields=["status", "started_at", "progress", "worker_claimed_at"])
 
         SecureWiseAuditLog.objects.create(
             organization=scan.organization,
@@ -78,7 +82,7 @@ class ScannerRunner:
 
         except Exception as exc:
             logger.exception("Scan %s failed during execution", scan_id)
-            error_msg = str(exc)
+            error_msg = redact_secrets(str(exc))[:4000]
 
         # Persist findings — deduplicated by (project, fingerprint) so rescans of
         # unchanged code update the existing issue instead of creating duplicates.

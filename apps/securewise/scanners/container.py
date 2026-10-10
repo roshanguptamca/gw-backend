@@ -10,8 +10,10 @@ import json
 import logging
 import shutil
 import subprocess
+import uuid
 from pathlib import Path
 
+from ..runtime import docker_runner
 from .base import BaseScanner, ScannerResult
 from .parsers.trivy_parser import parse_trivy_vuln_json
 
@@ -25,10 +27,14 @@ class ContainerScanner(BaseScanner):
         return bool(shutil.which("trivy"))
 
     def run(self, repo_path: Path, scan_id: str, metadata: dict) -> ScannerResult:
-        docker_image = metadata.get("docker_image")
+        docker_image = metadata.get("runtime_docker_image") or metadata.get("docker_image")
 
         if docker_image and shutil.which("trivy"):
-            return self._scan_image(docker_image)
+            result = self._scan_image(docker_image)
+            result.metadata["image_source"] = (
+                "runtime_build" if docker_image == metadata.get("runtime_docker_image") else "configured"
+            )
+            return result
 
         if docker_image and not shutil.which("trivy"):
             return ScannerResult(
@@ -40,18 +46,20 @@ class ContainerScanner(BaseScanner):
             )
 
         dockerfile_exists = (repo_path / "Dockerfile").exists()
-        if dockerfile_exists and shutil.which("docker") and shutil.which("trivy"):
+        if dockerfile_exists and shutil.which("trivy") and docker_runner.is_docker_available()[0]:
             return self._build_and_scan(repo_path)
 
         if dockerfile_exists:
+            cli_available, cli_reason = docker_runner.is_docker_cli_available()
+            _, daemon_reason = docker_runner.is_docker_available() if cli_available else (False, cli_reason)
             return ScannerResult(
                 success=True,
                 findings=[],
                 status="skipped",
                 skipped_reason=(
-                    "Dockerfile present but SecureWise cannot build a temporary image because Docker "
-                    "is unavailable in this environment; configure docker_image explicitly or run "
-                    "the scan on a Docker-enabled runner"
+                    "Dockerfile present but container scanning could not build the image: "
+                    f"{daemon_reason or 'Trivy is not installed'}. "
+                    "Configure docker_image explicitly or run the scan on a Docker-enabled worker."
                 ),
                 metadata={"raw_tool": "none"},
             )
@@ -71,17 +79,28 @@ class ContainerScanner(BaseScanner):
                 capture_output=True,
                 timeout=300,
             )
+            if proc.returncode != 0 and not proc.stdout:
+                return ScannerResult(
+                    success=False,
+                    error=(proc.stderr or b"Trivy image scan failed").decode("utf-8", errors="replace")[-2000:],
+                    status="failed",
+                    metadata={"raw_tool": "trivy", "image": image},
+                )
             data = json.loads(proc.stdout or b"{}")
             findings = parse_trivy_vuln_json(data, image)
             for f in findings:
                 f.scanner_type = "container"
-            return ScannerResult(success=True, findings=findings, metadata={"raw_tool": "trivy", "image": image})
+            return ScannerResult(
+                success=True,
+                findings=findings,
+                metadata={"raw_tool": "trivy", "image": image, "tool_exit_code": proc.returncode},
+            )
         except Exception as exc:  # pragma: no cover - defensive
             logger.exception("trivy image scan failed")
             return ScannerResult(success=False, error=str(exc), status="failed", metadata={"raw_tool": "trivy"})
 
     def _build_and_scan(self, repo_path: Path) -> ScannerResult:
-        image_tag = "securewise-scan-tmp:latest"
+        image_tag = f"securewise-scan-tmp:{uuid.uuid4().hex}"
         try:
             build = subprocess.run(
                 ["docker", "build", "-t", image_tag, str(repo_path)],
@@ -107,4 +126,7 @@ class ContainerScanner(BaseScanner):
                 metadata={"raw_tool": "docker+trivy"},
             )
         finally:
-            subprocess.run(["docker", "rmi", "-f", image_tag], capture_output=True, timeout=60)
+            try:
+                subprocess.run(["docker", "rmi", "-f", image_tag], capture_output=True, timeout=60)
+            except (OSError, subprocess.SubprocessError) as exc:
+                logger.warning("Could not remove temporary image %s: %s", image_tag, exc)

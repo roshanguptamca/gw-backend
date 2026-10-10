@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from ..discovery.engine import ApplicationDiscoveryEngine
 from ..runtime.manager import RuntimeEnvironmentManager
+from ..runtime.logs import redact_secrets
 from .api import ApiScanner
 from .base import ScannerFinding
 from .container import ContainerScanner
@@ -24,6 +25,17 @@ from .sca import ScaScanner
 from .secrets import SecretsScanner
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_summary(value):
+    if isinstance(value, str):
+        return redact_secrets(value)
+    if isinstance(value, dict):
+        return {key: _sanitize_summary(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_summary(item) for item in value]
+    return value
+
 
 _ENGINE_CLASSES = {
     "sast": SastScanner,
@@ -80,8 +92,8 @@ def _missing_health_finding(target_url: str) -> ScannerFinding:
         confidence="medium",
         scanner_type="dast",
         endpoint=target_url,
-        cwe_id="CWE-703",
-        owasp_category="A10:2025",
+        cwe_id="",
+        owasp_category="",
         recommendation=(
             "Add a dedicated health endpoint (e.g. GET /health returning 200) and a Docker "
             "HEALTHCHECK instruction, for example:\n"
@@ -112,6 +124,8 @@ class ScannerOrchestrator:
         if scan.docker_image or (
             _repo_has_dockerfile(repo_path) and (discovery is None or discovery.project_type not in ("library", "cli"))
         ):
+            engines.append("container")
+        elif discovery is not None and discovery.requires_runtime and discovery.can_auto_run:
             engines.append("container")
         if scan.api_spec_url or _repo_has_api_spec(repo_path):
             engines.append("api")
@@ -192,7 +206,7 @@ class ScannerOrchestrator:
                     logger.exception("Engine %s failed for scan %s", engine_name, scan.id)
                     result = None
                     engine_result.status = "failed"
-                    engine_result.error_message = str(exc)
+                    engine_result.error_message = redact_secrets(str(exc))[:4000]
                     any_failed = True
 
                 completed = timezone.now()
@@ -205,7 +219,7 @@ class ScannerOrchestrator:
                         any_skipped = True
                     elif not result.success:
                         engine_result.status = "failed"
-                        engine_result.error_message = result.error
+                        engine_result.error_message = redact_secrets(result.error or "")[:4000]
                         any_failed = True
                     else:
                         engine_result.status = "completed"
@@ -213,7 +227,7 @@ class ScannerOrchestrator:
                             if not finding.scanner_type:
                                 finding.scanner_type = engine_name
                             self._dedupe_and_collect(finding, all_findings, seen_fingerprints)
-                    engine_result.raw_summary = result.metadata or {}
+                    engine_result.raw_summary = _sanitize_summary(result.metadata or {})
                     # Label how this engine actually produced its results (real tool vs
                     # fallback heuristic vs passive-only vs not configured), so the scan
                     # can never silently present a fallback/passive run as a full real
@@ -277,14 +291,17 @@ class ScannerOrchestrator:
             return plan, metadata
 
         manager = RuntimeEnvironmentManager()
+        self._active_runtime_manager = manager
         try:
             runtime_result = manager.try_start(repo_path, plan)
         except Exception:  # pragma: no cover - defensive; runtime start must never crash a scan
             logger.exception("Runtime auto-start failed unexpectedly for scan %s", scan.id)
+            manager.stop()
             metadata["dast_skip_reason"] = "Application could not be auto-started due to an unexpected runtime error."
             return plan, metadata
 
         if not runtime_result.started:
+            manager.stop()
             metadata["dast_skip_reason"] = (
                 runtime_result.skip_reason
                 or "Application could not be auto-started because required runtime dependencies were not available."
@@ -296,12 +313,11 @@ class ScannerOrchestrator:
         plan.selected_runtime_url = runtime_result.runtime_url
         plan.selected_health_endpoint = runtime_result.selected_health_endpoint
         metadata["target_url"] = runtime_result.runtime_url
+        metadata["runtime_docker_image"] = runtime_result.image_tag
         if runtime_result.logs:
             metadata["dast_runtime_logs"] = runtime_result.logs
         # Keep the manager reachable so run() can stop the container in its
         # `finally` block regardless of what happens in the engine loop.
-        self._active_runtime_manager = manager
-
         dockerfile_has_healthcheck = _dockerfile_has_healthcheck(repo_path, plan.dockerfile_path)
         if not runtime_result.has_dedicated_health_endpoint or (plan.has_dockerfile and not dockerfile_has_healthcheck):
             self._discovery_findings = [_missing_health_finding(runtime_result.runtime_url)]

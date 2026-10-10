@@ -10,6 +10,7 @@ from .views import (
     IntegrationViewSet,
     MembershipViewSet,
     OrganizationViewSet,
+    PentestSessionViewSet,
     ProjectViewSet,
     ReportViewSet,
     RepositoryViewSet,
@@ -27,6 +28,7 @@ router.register("repositories", RepositoryViewSet, basename="sw-repositories")
 router.register("scan-policies", ScanPolicyViewSet, basename="sw-scan-policies")
 router.register("scan-policy-templates", ScanPolicyTemplateViewSet, basename="sw-scan-policy-templates")
 router.register("scans", ScanViewSet, basename="sw-scans")
+router.register("autopentest/sessions", PentestSessionViewSet, basename="sw-pentest-sessions")
 router.register("findings", FindingViewSet, basename="sw-findings")
 router.register("reports", ReportViewSet, basename="sw-reports")
 router.register("integrations", IntegrationViewSet, basename="sw-integrations")

@@ -9,6 +9,8 @@ from collections import defaultdict
 
 from django.utils import timezone
 
+from apps.securewise.scanners.cwe_mapping import SECURITY_TAXONOMY, taxonomy_metadata
+
 logger = logging.getLogger(__name__)
 
 REPORT_TYPES = (
@@ -20,49 +22,8 @@ REPORT_TYPES = (
     "quality_gate",
 )
 
-# The stable, currently-published OWASP Top 10 edition (2021) — used as the
-# canonical category set for "owasp_top10" style reports.
-_OWASP_TOP10_LABELS = {
-    "A01:2021": "Broken Access Control",
-    "A02:2021": "Cryptographic Failures",
-    "A03:2021": "Injection",
-    "A04:2021": "Insecure Design",
-    "A05:2021": "Security Misconfiguration",
-    "A06:2021": "Vulnerable and Outdated Components",
-    "A07:2021": "Identification and Authentication Failures",
-    "A08:2021": "Software and Data Integrity Failures",
-    "A09:2021": "Security Logging and Monitoring Failures",
-    "A10:2021": "Server-Side Request Forgery (SSRF)",
-}
-
-# A representative slice of the CWE Top 25 Most Dangerous Software Weaknesses.
-_CWE_TOP25 = {
-    "CWE-79",
-    "CWE-787",
-    "CWE-89",
-    "CWE-352",
-    "CWE-22",
-    "CWE-125",
-    "CWE-78",
-    "CWE-416",
-    "CWE-862",
-    "CWE-434",
-    "CWE-94",
-    "CWE-20",
-    "CWE-77",
-    "CWE-287",
-    "CWE-269",
-    "CWE-502",
-    "CWE-798",
-    "CWE-918",
-    "CWE-611",
-    "CWE-476",
-    "CWE-327",
-    "CWE-190",
-    "CWE-400",
-    "CWE-306",
-    "CWE-863",
-}
+_OWASP_TOP10_LABELS = SECURITY_TAXONOMY["owasp_labels"]
+_CWE_TOP25 = frozenset(SECURITY_TAXONOMY["cwe_coverage"])
 
 
 def generate_json_report(scan) -> dict:
@@ -108,6 +69,7 @@ def generate_json_report(scan) -> dict:
     total = len(findings)
     return {
         "report_version": "1.0",
+        "security_taxonomy": taxonomy_metadata(),
         "generated_at": timezone.now().isoformat(),
         "project": {
             "id": str(scan.project.id),

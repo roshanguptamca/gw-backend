@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -39,6 +40,7 @@ class RuntimeResult:
     skip_reason: str = ""
     logs: str = ""
     container_name: str = ""
+    image_tag: str = ""
 
 
 class RuntimeEnvironmentManager:
@@ -87,29 +89,33 @@ class RuntimeEnvironmentManager:
 
         container_port = (run_plan.exposed_ports or run_plan.candidate_ports or [8000])[0]
         host_port = find_free_host_port()
-        image_tag = f"{_IMAGE_TAG_PREFIX}:{int(time.time())}"
+        image_tag = f"{_IMAGE_TAG_PREFIX}:{uuid.uuid4().hex}"
+        self._image_tag = image_tag
 
-        build_ok, build_error = docker_runner.build_image(repo_path, dockerfile_path, image_tag)
-        if workspace_ctx is not None:
-            workspace_ctx.__exit__(None, None, None)
+        try:
+            build_ok, build_error = docker_runner.build_image(repo_path, dockerfile_path, image_tag)
+        finally:
+            if workspace_ctx is not None:
+                workspace_ctx.__exit__(None, None, None)
 
         if not build_ok:
+            self.stop()
             return RuntimeResult(
                 started=False,
                 skip_reason="Application could not be auto-started because the Docker build failed.",
                 logs=redact_secrets(tail_lines(build_error)),
             )
 
-        self._image_tag = image_tag
-
         run_ok, container_name, run_error = docker_runner.run_container(image_tag, host_port, container_port)
         self._container_name = container_name
         if not run_ok:
+            self.stop()
             return RuntimeResult(
                 started=False,
                 skip_reason="Application could not be auto-started because the container failed to start.",
                 logs=redact_secrets(tail_lines(run_error)),
                 container_name=container_name,
+                image_tag=image_tag,
             )
 
         runtime_url = f"http://127.0.0.1:{host_port}"
@@ -117,6 +123,7 @@ class RuntimeEnvironmentManager:
 
         if not health["reachable"]:
             logs = redact_secrets(tail_lines(docker_runner.get_logs(container_name)))
+            self.stop()
             return RuntimeResult(
                 started=False,
                 skip_reason=(
@@ -125,6 +132,7 @@ class RuntimeEnvironmentManager:
                 ),
                 logs=logs,
                 container_name=container_name,
+                image_tag=image_tag,
             )
 
         return RuntimeResult(
@@ -133,6 +141,7 @@ class RuntimeEnvironmentManager:
             selected_health_endpoint=health["selected_endpoint"],
             has_dedicated_health_endpoint=health["has_dedicated_health_endpoint"],
             container_name=container_name,
+            image_tag=image_tag,
         )
 
     def stop(self) -> None:
@@ -150,7 +159,13 @@ class RuntimeEnvironmentManager:
 
         language = run_plan.detected_languages[0] if run_plan.detected_languages else ""
         port = (run_plan.exposed_ports or run_plan.candidate_ports or [8000])[0]
-        content = docker_runner.generate_dockerfile_content(language, run_plan.start_command, port)
+        content = docker_runner.generate_dockerfile_content(
+            language,
+            run_plan.start_command,
+            port,
+            repo_path=repo_path,
+            package_managers=tuple(run_plan.package_managers),
+        )
         if not content or not run_plan.start_command:
             return None, None
 

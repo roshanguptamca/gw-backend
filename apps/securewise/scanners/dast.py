@@ -68,19 +68,34 @@ class DastScanner(BaseScanner):
             target_url,
         )
 
+        zap_failures: list[str] = []
         if shutil.which("zap-baseline.py"):
             result = self._zap_cli_scan(target_url)
             if result is not None:
                 return result
+            zap_failures.append("ZAP CLI did not produce a readable baseline report")
 
-        if shutil.which("docker"):
+        docker_cli_available, docker_cli_reason = shutil.which("docker") is not None, ""
+        if not docker_cli_available:
+            docker_cli_reason = "Docker CLI is not installed"
+        else:
+            from ..runtime.docker_runner import is_docker_available
+
+            docker_cli_available, docker_cli_reason = is_docker_available()
+        if docker_cli_available:
             result = self._zap_docker_scan(target_url)
             if result is not None:
                 return result
+            zap_failures.append("ZAP Docker baseline did not produce a readable report")
+        elif shutil.which("zap-baseline.py") is None:
+            zap_failures.append(docker_cli_reason)
 
         logger.info("OWASP ZAP is unavailable or failed to produce a report; passive requests-based scan used.")
-
-        return self._passive_scan(target_url)
+        result = self._passive_scan(target_url)
+        result.metadata["execution_mode"] = "requests_passive_fallback"
+        if zap_failures:
+            result.metadata["zap_fallback_reason"] = "; ".join(zap_failures)
+        return result
 
     def _zap_cli_scan(self, target_url: str) -> ScannerResult | None:
         with tempfile.TemporaryDirectory(prefix="securewise-zap-") as tmp:
@@ -161,6 +176,7 @@ class DastScanner(BaseScanner):
             findings=findings,
             metadata={
                 "raw_tool": "zap",
+                "execution_mode": "zap_baseline",
                 "runner": runner,
                 "target_url": target_url,
                 "returncode": proc.returncode,
@@ -178,7 +194,11 @@ class DastScanner(BaseScanner):
                 success=False,
                 error=str(exc),
                 status="failed",
-                metadata={"raw_tool": "requests-passive-dast", "target_url": target_url},
+                metadata={
+                    "raw_tool": "requests-passive-dast",
+                    "execution_mode": "requests_passive_fallback",
+                    "target_url": target_url,
+                },
             )
 
         headers = {k.lower(): v for k, v in resp.headers.items()}
@@ -191,7 +211,12 @@ class DastScanner(BaseScanner):
         return ScannerResult(
             success=True,
             findings=findings,
-            metadata={"raw_tool": "requests-passive-dast", "target_url": target_url, "status_code": resp.status_code},
+            metadata={
+                "raw_tool": "requests-passive-dast",
+                "execution_mode": "requests_passive_fallback",
+                "target_url": target_url,
+                "status_code": resp.status_code,
+            },
         )
 
     def _check_security_headers(self, headers: dict, target_url: str) -> list[ScannerFinding]:

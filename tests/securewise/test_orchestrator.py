@@ -89,7 +89,7 @@ class TestResolveEngines:
         scan = _make_scan(org, project, owner, scan_type="full", repository=repo)
         engines = ScannerOrchestrator().resolve_engines(scan, tmp_path)
         assert "dast" in engines
-        assert "container" not in engines
+        assert "container" in engines
 
     def test_full_library_repo_skips_container_and_dast(self, org_project, tmp_path):
         owner, org, project = org_project

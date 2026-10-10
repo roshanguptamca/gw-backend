@@ -41,6 +41,7 @@ _NO_SCHEDULER_COMMANDS = frozenset(
         "seed_driving_theory",
         "seed_v3_questions",
         "seed_nl_driving_content",
+        "securewise_worker",
     }
 )
 

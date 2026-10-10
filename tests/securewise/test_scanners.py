@@ -296,11 +296,13 @@ class TestContainerScanner:
 
     def test_build_and_scan_handles_build_failure(self, tmp_path):
         (tmp_path / "Dockerfile").write_text("FROM python:3.12\n")
+        commands = []
 
         def fake_which(name):
             return f"/usr/bin/{name}"
 
         def fake_run(command, **kwargs):
+            commands.append(command)
             if command[:2] == ["docker", "build"]:
                 return MagicMock(returncode=1)
             return MagicMock(returncode=0)
@@ -310,6 +312,7 @@ class TestContainerScanner:
                 result = ContainerScanner().run(tmp_path, "scan-8g", {})
         assert result.status == "skipped"
         assert "docker build failed" in result.skipped_reason
+        assert any(command[:2] == ["docker", "rmi"] for command in commands)
 
     def test_build_and_scan_handles_exception(self, tmp_path):
         (tmp_path / "Dockerfile").write_text("FROM python:3.12\n")
@@ -334,6 +337,22 @@ class TestContainerScanner:
         with patch("apps.securewise.scanners.container.shutil.which", return_value="/usr/bin/trivy"):
             assert ContainerScanner().is_available() is True
 
+    def test_reuses_runtime_built_image(self, tmp_path):
+        scanner = ContainerScanner()
+        result = ScannerResult(success=True)
+        with (
+            patch("apps.securewise.scanners.container.shutil.which", return_value="/usr/bin/trivy"),
+            patch.object(scanner, "_scan_image", return_value=result) as scan_image,
+        ):
+            actual = scanner.run(
+                tmp_path,
+                "scan-runtime-image",
+                {"runtime_docker_image": "securewise-scan-tmp:runtime-image"},
+            )
+
+        scan_image.assert_called_once_with("securewise-scan-tmp:runtime-image")
+        assert actual.metadata["image_source"] == "runtime_build"
+
 
 class TestApiScanner:
     def test_skipped_when_no_spec(self, tmp_path):
@@ -351,6 +370,7 @@ class TestApiScanner:
         (tmp_path / "openapi.json").write_text(json.dumps(spec))
         result = ApiScanner().run(tmp_path, "scan-10", {})
         assert result.status == "completed"
+        assert result.metadata["execution_mode"] == "openapi_static_analysis"
         titles = " ".join(f.title for f in result.findings)
         assert "securitySchemes" in titles or "security" in titles.lower()
 
@@ -372,6 +392,7 @@ class TestDastScanner:
         assert result.status == "completed"
         assert any("Content-Security-Policy" in f.title for f in result.findings)
         assert result.metadata["raw_tool"] == "requests-passive-dast"
+        assert result.metadata["execution_mode"] == "requests_passive_fallback"
 
     def test_runs_zap_baseline_cli_when_available(self, tmp_path):
         def fake_run(command, cwd, capture_output, timeout):
@@ -407,13 +428,16 @@ class TestDastScanner:
         assert result.status == "completed"
         assert result.metadata["raw_tool"] == "zap"
         assert result.metadata["runner"] == "zap-baseline.py"
+        assert result.metadata["execution_mode"] == "zap_baseline"
         assert result.findings[0].title == "Missing Anti-clickjacking Header"
 
     def test_runs_zap_docker_when_cli_is_unavailable(self, tmp_path):
         def fake_which(binary):
             return None if binary == "zap-baseline.py" else "/usr/local/bin/docker"
 
-        def fake_run(command, cwd, capture_output, timeout):
+        def fake_run(command, cwd=None, capture_output=None, timeout=None, text=False):
+            if command[:3] == ["docker", "version", "--format"]:
+                return MagicMock(returncode=0, stdout="27.0.0", stderr="")
             assert command[:3] == ["docker", "run", "--rm"]
             assert "ghcr.io/zaproxy/zaproxy:stable" in command
             assert "http://host.docker.internal:8000" in command
@@ -427,6 +451,7 @@ class TestDastScanner:
         assert result.status == "completed"
         assert result.metadata["raw_tool"] == "zap"
         assert result.metadata["runner"] == "docker-zap-baseline"
+        assert result.metadata["execution_mode"] == "zap_baseline"
         assert result.findings == []
 
     def test_falls_back_to_passive_scan_when_zap_report_is_missing(self, tmp_path):
@@ -445,6 +470,7 @@ class TestDastScanner:
 
         assert result.status == "completed"
         assert result.metadata["raw_tool"] == "requests-passive-dast"
+        assert result.metadata["execution_mode"] == "requests_passive_fallback"
 
 
 class TestParsers:

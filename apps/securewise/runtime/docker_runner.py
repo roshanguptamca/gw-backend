@@ -12,6 +12,8 @@ Design constraints (see docs/SMART_REPO_SCAN.md):
 from __future__ import annotations
 
 import logging
+import json
+import re
 import shutil
 import subprocess
 import uuid
@@ -28,51 +30,123 @@ _STOP_TIMEOUT = 15
 _MEMORY_LIMIT = "512m"
 _CPU_LIMIT = "1.0"
 
-# Minimal, well-known runtime base images used only when we must generate a
-# temporary Dockerfile for a repo that doesn't ship one.
-GENERATED_DOCKERFILE_TEMPLATES = {
-    "python": (
-        "FROM python:3.11-slim\n"
-        "WORKDIR /app\n"
-        "COPY . /app\n"
-        "RUN pip install --no-cache-dir -r requirements.txt || true\n"
-        "EXPOSE {port}\n"
-        "CMD {start_command}\n"
-    ),
-    "node": (
-        "FROM node:20-slim\n"
-        "WORKDIR /app\n"
-        "COPY . /app\n"
-        "RUN npm install --omit=dev || npm install || true\n"
-        "EXPOSE {port}\n"
-        "CMD {start_command}\n"
-    ),
-    "go": (
-        "FROM golang:1.22\n"
-        "WORKDIR /app\n"
-        "COPY . /app\n"
-        "RUN go build -o /app/bin/service . || true\n"
-        "EXPOSE {port}\n"
-        'CMD ["/app/bin/service"]\n'
-    ),
-    "php": (
-        "FROM php:8.2-cli\n" "WORKDIR /app\n" "COPY . /app\n" "RUN true\n" "EXPOSE {port}\n" "CMD {start_command}\n"
-    ),
-    "ruby": (
-        "FROM ruby:3.3-slim\n"
-        "WORKDIR /app\n"
-        "COPY . /app\n"
-        "RUN bundle install || true\n"
-        "EXPOSE {port}\n"
-        "CMD {start_command}\n"
-    ),
+_DEFAULT_RUNTIME_TAGS = {
+    "python": "3-slim",
+    "node": "lts-slim",
+    "go": "latest",
+    "php": "cli",
+    "ruby": "slim",
 }
 
 
-def is_docker_available() -> tuple[bool, str]:
-    """Check whether Docker is installed *and* the daemon is reachable."""
+def _version_from_repo(repo_path: Path, language: str) -> str:
+    """Read a runtime version from standard project metadata without executing it."""
+    candidates = {
+        "python": (".python-version", "runtime.txt"),
+        "node": (".nvmrc", ".node-version"),
+        "php": (".php-version",),
+        "ruby": (".ruby-version",),
+    }.get(language, ())
+    for name in candidates:
+        try:
+            text = (repo_path / name).read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        match = re.search(r"\d+(?:\.\d+){0,2}", text)
+        if match:
+            return match.group(0)
+
+    if language == "python":
+        try:
+            pyproject = (repo_path / "pyproject.toml").read_text(encoding="utf-8")
+        except OSError:
+            pyproject = ""
+        match = re.search(r"requires-python\s*=\s*[\"']([^\"']+)", pyproject)
+        if match:
+            version = re.search(r"\d+\.\d+", match.group(1))
+            if version:
+                return version.group(0)
+    elif language == "node":
+        try:
+            package = json.loads((repo_path / "package.json").read_text(encoding="utf-8"))
+            version = package.get("engines", {}).get("node", "")
+        except (OSError, ValueError, AttributeError):
+            version = ""
+        match = re.search(r"\d+(?:\.\d+){0,2}", str(version))
+        if match:
+            return match.group(0)
+    elif language == "go":
+        try:
+            go_mod = (repo_path / "go.mod").read_text(encoding="utf-8")
+        except OSError:
+            go_mod = ""
+        match = re.search(r"(?m)^go\s+(\d+\.\d+(?:\.\d+)?)", go_mod)
+        if match:
+            return match.group(1)
+    elif language == "ruby":
+        try:
+            gemfile_lock = (repo_path / "Gemfile.lock").read_text(encoding="utf-8")
+        except OSError:
+            gemfile_lock = ""
+        match = re.search(r"(?m)^   ruby ([\d.]+)", gemfile_lock)
+        if match:
+            return match.group(1)
+    elif language == "php":
+        try:
+            composer = json.loads((repo_path / "composer.json").read_text(encoding="utf-8"))
+            version = composer.get("require", {}).get("php", "")
+        except (OSError, ValueError, AttributeError):
+            version = ""
+        match = re.search(r"\d+\.\d+(?:\.\d+)?", str(version))
+        if match:
+            return match.group(0)
+    return ""
+
+
+def _package_install_command(repo_path: Path, language: str, package_managers: tuple[str, ...]) -> str:
+    managers = set(package_managers)
+    if language == "python":
+        if "poetry" in managers:
+            return "RUN pip install --no-cache-dir poetry && poetry config virtualenvs.create false && poetry install --only main --no-interaction"
+        if "pipenv" in managers:
+            return "RUN pip install --no-cache-dir pipenv && pipenv install --system --deploy"
+        if (repo_path / "requirements.txt").is_file():
+            return "RUN pip install --no-cache-dir -r requirements.txt"
+        if (repo_path / "pyproject.toml").is_file() or (repo_path / "setup.py").is_file():
+            return "RUN pip install --no-cache-dir ."
+    elif language == "node":
+        if (repo_path / "pnpm-lock.yaml").is_file():
+            return "RUN corepack enable && pnpm install --frozen-lockfile"
+        if (repo_path / "yarn.lock").is_file():
+            return "RUN corepack enable && yarn install --frozen-lockfile"
+        if (repo_path / "package-lock.json").is_file() or (repo_path / "npm-shrinkwrap.json").is_file():
+            return "RUN npm ci"
+        if (repo_path / "package.json").is_file():
+            return "RUN npm install"
+    elif language == "go" and (repo_path / "go.mod").is_file():
+        return "RUN go mod download"
+    elif language == "php" and (repo_path / "composer.json").is_file():
+        return (
+            "COPY --from=composer:2 /usr/bin/composer /usr/bin/composer\n"
+            "RUN composer install --no-dev --no-interaction --prefer-dist"
+        )
+    elif language == "ruby" and (repo_path / "Gemfile").is_file():
+        return "RUN bundle install"
+    return ""
+
+
+def is_docker_cli_available() -> tuple[bool, str]:
+    """Check whether the Docker CLI exists, without implying a daemon is running."""
     if not shutil.which("docker"):
         return False, "Docker CLI is not installed in this environment"
+    return True, ""
+
+
+def is_docker_daemon_available() -> tuple[bool, str]:
+    """Check daemon reachability separately from Docker CLI availability."""
+    cli_available, reason = is_docker_cli_available()
+    if not cli_available:
+        return False, reason
 
     try:
         proc = subprocess.run(
@@ -91,16 +165,42 @@ def is_docker_available() -> tuple[bool, str]:
     return True, ""
 
 
+def is_docker_available() -> tuple[bool, str]:
+    """Compatibility helper returning true only when both CLI and daemon work."""
+    return is_docker_daemon_available()
+
+
 def build_dockerfile_command(dockerfile_shell_command: str) -> list[str]:
     """Split a plain-text start command into a Docker CMD-friendly shell form."""
     return ["sh", "-c", dockerfile_shell_command]
 
 
-def generate_dockerfile_content(language: str, start_command: str, port: int) -> str | None:
-    template = GENERATED_DOCKERFILE_TEMPLATES.get(language)
-    if not template:
+def generate_dockerfile_content(
+    language: str,
+    start_command: str,
+    port: int,
+    repo_path: Path | None = None,
+    package_managers: tuple[str, ...] = (),
+) -> str | None:
+    if language not in _DEFAULT_RUNTIME_TAGS:
         return None
-    return template.format(port=port, start_command=start_command)
+    repo_path = repo_path or Path(".")
+    version = _version_from_repo(repo_path, language)
+    runtime_tag = version or _DEFAULT_RUNTIME_TAGS[language]
+    base_image = {
+        "python": f"python:{runtime_tag}-slim",
+        "node": f"node:{runtime_tag}" if runtime_tag.endswith("-slim") else f"node:{runtime_tag}-slim",
+        "go": f"golang:{runtime_tag}",
+        "php": f"php:{runtime_tag}",
+        "ruby": f"ruby:{runtime_tag}-slim",
+    }[language]
+    install_command = _package_install_command(repo_path, language, package_managers)
+    command = f'CMD {json.dumps(["sh", "-c", start_command])}' if start_command else ""
+    lines = [f"FROM {base_image}", "WORKDIR /app", "COPY . /app"]
+    if install_command:
+        lines.extend(install_command.splitlines())
+    lines.extend((f"EXPOSE {port}", command))
+    return "\n".join(line for line in lines if line) + "\n"
 
 
 def build_image(context_path: Path, dockerfile_path: Path, tag: str) -> tuple[bool, str]:

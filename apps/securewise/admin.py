@@ -14,6 +14,12 @@ from .models import (
     SecureWiseScanEngineResult,
     SecureWiseScanPolicy,
     SecureWiseScanPolicyTemplate,
+    SecureWiseWorkerRegistration,
+    PentestEvidence,
+    PentestExecution,
+    PentestScope,
+    PentestSession,
+    PentestTestCase,
 )
 
 
@@ -98,6 +104,59 @@ class ScanEngineResultAdmin(admin.ModelAdmin):
     list_filter = ("engine", "status")
     search_fields = ("scan__id",)
     readonly_fields = ("id", "created_at", "updated_at")
+
+
+@admin.register(SecureWiseWorkerRegistration)
+class WorkerRegistrationAdmin(admin.ModelAdmin):
+    list_display = ("worker_id", "status", "last_seen_at")
+    readonly_fields = ("worker_id", "capabilities", "status", "last_seen_at")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+class PentestScopeInline(admin.TabularInline):
+    model = PentestScope
+    extra = 0
+
+
+@admin.register(PentestSession)
+class PentestSessionAdmin(admin.ModelAdmin):
+    list_display = ("id", "project", "repository", "mode", "status", "progress", "created_at")
+    list_filter = ("mode", "status")
+    readonly_fields = ("id", "progress", "started_at", "completed_at", "created_at", "updated_at")
+    inlines = (PentestScopeInline,)
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(PentestTestCase)
+class PentestTestCaseAdmin(admin.ModelAdmin):
+    list_display = ("title", "category", "status", "severity", "session")
+    list_filter = ("category", "status", "severity")
+    readonly_fields = tuple(field.name for field in PentestTestCase._meta.fields)
+
+
+@admin.register(PentestExecution)
+class PentestExecutionAdmin(admin.ModelAdmin):
+    list_display = ("test_case", "outcome", "started_at", "completed_at")
+    readonly_fields = tuple(field.name for field in PentestExecution._meta.fields)
+
+
+@admin.register(PentestEvidence)
+class PentestEvidenceAdmin(admin.ModelAdmin):
+    list_display = ("execution", "kind", "sha256", "created_at")
+    readonly_fields = tuple(field.name for field in PentestEvidence._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(SecureWiseFinding)

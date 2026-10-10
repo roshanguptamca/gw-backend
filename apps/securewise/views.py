@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-import threading
 
 from django.db.models import Q
 from django.http import HttpResponse
@@ -36,8 +35,11 @@ from .models import (
     SecureWiseScan,
     SecureWiseScanPolicy,
     SecureWiseScanPolicyTemplate,
+    PentestSession,
 )
 from .permissions import ADMIN_ROLES, WRITE_ROLES, _membership
+from .runtime.logs import redact_secrets, tail_lines
+from .scanners.cwe_mapping import SECURITY_TAXONOMY, taxonomy_metadata
 from .scanners.repository import validate_local_repository_path
 from .serializers import (
     ScanEngineResultSerializer,
@@ -53,6 +55,7 @@ from .serializers import (
     SecureWiseScanPolicySerializer,
     SecureWiseScanPolicyTemplateSerializer,
     SecureWiseScanSerializer,
+    PentestSessionSerializer,
 )
 from .services.ai_recommendation import generate_ai_fix_suggestion
 from .services.github_actions import GitHubActionError, create_github_issue, create_github_pr
@@ -65,7 +68,6 @@ from .services.repository import (
     normalize_url,
     validate_url_format,
 )
-from .services.scanner import ScannerRunner
 
 logger = logging.getLogger(__name__)
 
@@ -785,24 +787,20 @@ class ScanViewSet(viewsets.ModelViewSet):
             )
         scan.status = "queued"
         scan.save(update_fields=["status"])
-        # Run scanner in background thread (MVP — use Celery/RQ in production)
-        # TODO: Replace threading with Celery task for production
-        runner = ScannerRunner()
-        t = threading.Thread(target=runner.run_scan, args=(str(scan.id),), daemon=True)
-        t.start()
         serializer = self.get_serializer(scan)
         return Response(serializer.data)
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
         scan = self.get_object()
-        if scan.status not in ("pending", "queued") and not scan.status.startswith("running"):
+        if scan.status not in ("pending", "queued", "worker_claimed") and not scan.status.startswith("running"):
             return Response(
                 {"detail": f"Cannot cancel a scan with status '{scan.status}'."},
                 status=400,
             )
         scan.status = "cancelled"
-        scan.save(update_fields=["status"])
+        scan.worker_claimed_at = None
+        scan.save(update_fields=["status", "worker_claimed_at"])
         return Response({"detail": "Scan cancelled.", "status": "cancelled"})
 
     @action(detail=True, methods=["post"])
@@ -824,6 +822,7 @@ class ScanViewSet(viewsets.ModelViewSet):
             )
         scan.engine_results.all().delete()
         scan.status = "queued"
+        scan.worker_claimed_at = None
         scan.progress = 0
         scan.error_message = ""
         scan.started_at = None
@@ -833,6 +832,7 @@ class ScanViewSet(viewsets.ModelViewSet):
         scan.save(
             update_fields=[
                 "status",
+                "worker_claimed_at",
                 "progress",
                 "error_message",
                 "started_at",
@@ -849,9 +849,6 @@ class ScanViewSet(viewsets.ModelViewSet):
             target_id=str(scan.id),
             detail={"scan_type": scan.scan_type},
         )
-        runner = ScannerRunner()
-        t = threading.Thread(target=runner.run_scan, args=(str(scan.id),), daemon=True)
-        t.start()
         serializer = self.get_serializer(scan)
         return Response(serializer.data)
 
@@ -862,35 +859,37 @@ class ScanViewSet(viewsets.ModelViewSet):
         if scan.started_at:
             end = scan.completed_at or timezone.now()
             elapsed_seconds = int((end - scan.started_at).total_seconds())
-        engines = [
-            {
+        results = list(scan.engine_results.all())
+        engines = []
+        for er in results:
+            raw_summary = er.raw_summary or {}
+            log_excerpt = (
+                raw_summary.get("dast_runtime_logs")
+                or raw_summary.get("stdout")
+                or raw_summary.get("stderr")
+                or er.error_message
+                or er.skipped_reason
+                or ""
+            )
+            engines.append({
                 "engine": er.engine,
                 "status": er.status,
                 "findings_count": er.findings_count,
                 "skipped_reason": er.skipped_reason,
                 "diagnostics": {
-                    "log_excerpt": (
-                        (
-                            (er.raw_summary or {}).get("dast_runtime_logs")
-                            or (er.raw_summary or {}).get("stdout")
-                            or (er.raw_summary or {}).get("stderr")
-                            or er.error_message
-                            or er.skipped_reason
-                            or ""
-                        )[:4000]
-                        if (
-                            (er.raw_summary or {}).get("dast_runtime_logs")
-                            or (er.raw_summary or {}).get("stdout")
-                            or (er.raw_summary or {}).get("stderr")
-                            or er.error_message
-                            or er.skipped_reason
-                        )
-                        else ""
-                    ),
+                    "log_excerpt": redact_secrets(tail_lines(str(log_excerpt), max_lines=80))[:4000],
+                    "mode": raw_summary.get("mode", ""),
+                    "execution_mode": raw_summary.get("execution_mode", ""),
+                    "coverage": raw_summary.get("coverage", {}),
                 },
-            }
-            for er in scan.engine_results.all()
-        ]
+            })
+        coverage = {
+            "requested_engines": len(scan.selected_engines or []),
+            "completed_engines": sum(er.status == "completed" for er in results),
+            "skipped_engines": sum(er.status == "skipped" for er in results),
+            "failed_engines": sum(er.status == "failed" for er in results),
+            "total_findings": scan.findings.count(),
+        }
         return Response(
             {
                 "id": str(scan.id),
@@ -898,6 +897,7 @@ class ScanViewSet(viewsets.ModelViewSet):
                 "progress": scan.progress,
                 "elapsed_seconds": elapsed_seconds,
                 "findings_count": scan.findings.count(),
+                "coverage": coverage,
                 "engines": engines,
             }
         )
@@ -907,6 +907,67 @@ class ScanViewSet(viewsets.ModelViewSet):
         scan = self.get_object()
         serializer = ScanEngineResultSerializer(scan.engine_results.all(), many=True)
         return Response(serializer.data)
+
+
+class PentestSessionViewSet(viewsets.ModelViewSet):
+    serializer_class = PentestSessionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get", "post", "head", "options"]
+
+    def get_queryset(self):
+        return (
+            PentestSession.objects.filter(organization_id__in=_get_user_org_ids(self.request.user))
+            .select_related("organization", "project", "repository", "created_by")
+            .prefetch_related("scope", "test_cases__executions__evidence")
+        )
+
+    def perform_create(self, serializer):
+        project = serializer.validated_data["project"]
+        membership = _membership(self.request.user, project.organization)
+        if membership is None or membership.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to create AutoPentest sessions.")
+        session = serializer.save()
+        _audit(
+            self.request.user,
+            "pentest_session_created",
+            org=session.organization,
+            target_type="PentestSession",
+            target_id=session.id,
+            detail={"repository": session.repository.name, "mode": session.mode},
+            request=self.request,
+        )
+
+    @action(detail=True, methods=["post"])
+    def cancel(self, request, pk=None):
+        session = self.get_object()
+        if session.status not in ("pending", "queued", "worker_claimed", "running"):
+            return Response({"detail": f"Cannot cancel a session with status '{session.status}'."}, status=400)
+        session.status = "cancelled"
+        session.worker_claimed_at = None
+        session.save(update_fields=["status", "worker_claimed_at"])
+        return Response({"detail": "AutoPentest session cancelled.", "status": session.status})
+
+    @action(detail=True, methods=["get"])
+    def report(self, request, pk=None):
+        session = self.get_object()
+        cases = list(session.test_cases.all())
+        counts = {outcome: sum(case.status == outcome for case in cases) for outcome, _ in cases[0]._meta.get_field("status").choices} if cases else {}
+        return Response(
+            {
+                "session": PentestSessionSerializer(session, context={"request": request}).data,
+                "summary": {
+                    "test_cases": len(cases),
+                    "outcomes": counts,
+                    "status": session.status,
+                    "limitations": [
+                        "This session performs passive OpenAPI contract checks only.",
+                        "No application runtime, authenticated user flow, or active test was executed.",
+                    ],
+                },
+            }
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1277,11 +1338,15 @@ class DashboardSummaryView(APIView):
             deduct = min(100, (critical_count * 10) + (high_count * 5))
             security_score = max(0, 100 - deduct)
 
-        # OWASP Top 10 (2021) coverage across open findings
+        # Coverage across open findings uses the versioned taxonomy dataset.
         from .services.report import _CWE_TOP25, _OWASP_TOP10_LABELS
 
         owasp_coverage = {code: findings_qs.filter(owasp_category=code).count() for code in _OWASP_TOP10_LABELS}
-        cwe_top25_coverage = findings_qs.filter(cwe_id__in=list(_CWE_TOP25)).count()
+        cwe_ids_covered = list(
+            findings_qs.filter(cwe_id__in=list(_CWE_TOP25))
+            .values_list("cwe_id", flat=True)
+            .distinct()
+        )
 
         # Quality gate pass/fail counts across recent scans
         recent_scan_qs = SecureWiseScan.objects.filter(organization_id__in=org_ids, quality_gate_passed__isnull=False)
@@ -1301,7 +1366,9 @@ class DashboardSummaryView(APIView):
                 "recent_scans": recent_scans_data,
                 "top_risky_projects": list(risky_projects),
                 "owasp_top10_coverage": owasp_coverage,
-                "cwe_top25_coverage_count": cwe_top25_coverage,
+                "cwe_ids_covered": cwe_ids_covered,
+                "cwe_coverage": SECURITY_TAXONOMY["cwe_coverage"],
+                "security_taxonomy": taxonomy_metadata(),
                 "quality_gate_counts": quality_gate_counts,
             }
         )

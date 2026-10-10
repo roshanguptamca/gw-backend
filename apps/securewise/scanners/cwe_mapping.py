@@ -9,26 +9,16 @@ so findings remain consistent as new editions are ratified.
 
 from __future__ import annotations
 
-# issue_key -> (cwe_id, owasp_category)
+import json
+from pathlib import Path
+
+_DATASET_PATH = Path(__file__).with_name("data") / "security_taxonomy_v1.json"
+with _DATASET_PATH.open(encoding="utf-8") as _dataset_file:
+    SECURITY_TAXONOMY = json.load(_dataset_file)
+
+DATASET_VERSION = SECURITY_TAXONOMY["dataset_version"]
 _MAPPING: dict[str, tuple[str, str]] = {
-    "sql_injection": ("CWE-89", "A03:2021"),
-    "xss": ("CWE-79", "A03:2021"),
-    "missing_authorization": ("CWE-862", "A01:2021"),
-    "hardcoded_secret": ("CWE-798", "A02:2021"),
-    "weak_crypto": ("CWE-327", "A02:2021"),
-    "ssrf": ("CWE-918", "A10:2021"),
-    "path_traversal": ("CWE-22", "A01:2021"),
-    "command_injection": ("CWE-78", "A03:2021"),
-    "insecure_deserialization": ("CWE-502", "A08:2021"),
-    "xxe": ("CWE-611", "A05:2021"),
-    "csrf": ("CWE-352", "A01:2021"),
-    "open_redirect": ("CWE-601", "A01:2021"),
-    "missing_security_headers": ("CWE-693", "A05:2021"),
-    "insecure_cors": ("CWE-942", "A05:2021"),
-    "vulnerable_dependency": ("CWE-1104", "A06:2021"),
-    "iac_misconfiguration": ("CWE-16", "A05:2021"),
-    "weak_tls": ("CWE-326", "A02:2021"),
-    "prototype_pollution": ("CWE-1321", "A03:2021"),
+    key: tuple(value) for key, value in SECURITY_TAXONOMY["issue_mappings"].items()
 }
 
 
@@ -40,3 +30,12 @@ def map_finding(issue_key: str) -> dict:
     """
     cwe_id, owasp_category = _MAPPING.get(issue_key, ("", ""))
     return {"cwe_id": cwe_id, "owasp_category": owasp_category}
+
+
+def taxonomy_metadata() -> dict[str, str]:
+    return {
+        "dataset_version": DATASET_VERSION,
+        "cwe_top25_edition": SECURITY_TAXONOMY["cwe_top25_edition"],
+        "owasp_edition": SECURITY_TAXONOMY["owasp_edition"],
+        "cwe_source": SECURITY_TAXONOMY["cwe_source"],
+    }

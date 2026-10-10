@@ -652,13 +652,10 @@ class TestScanAPI:
         assert data["can_retry"] is True
 
     def test_start_scan(self, auth_client, scan):
-        # Mock Thread to avoid SQLite table-locking issue in tests
-        with patch("apps.securewise.views.threading.Thread") as mock_thread:
-            mock_thread.return_value.start = lambda: None
-            resp = auth_client.post(f"/api/securewise/scans/{scan.id}/start/")
+        resp = auth_client.post(f"/api/securewise/scans/{scan.id}/start/")
         assert resp.status_code == 200
         scan.refresh_from_db()
-        assert scan.status in ("queued", "pending")
+        assert scan.status == "queued"
 
     def test_start_already_running_scan_fails(self, auth_client, scan):
         scan.status = "running"
@@ -881,7 +878,8 @@ class TestReportAPI:
         )
         report_id = create_resp.json()["id"]
 
-        resp = auth_client.get(f"/api/securewise/reports/{report_id}/pdf/")
+        with patch("apps.securewise.views.render_report_pdf", return_value=b"%PDF-1.4" + b"x" * 600):
+            resp = auth_client.get(f"/api/securewise/reports/{report_id}/pdf/")
         assert resp.status_code == 200
         assert resp["Content-Type"] == "application/pdf"
         assert resp.content.startswith(b"%PDF")
@@ -906,6 +904,9 @@ class TestDashboardAPI:
         assert "recent_scans" in data
         assert "top_risky_projects" in data
         assert "critical_high_count" in data
+        assert data["security_taxonomy"]["cwe_top25_edition"] == "MITRE CWE Top 25 2025"
+        assert set(data["cwe_ids_covered"]).issubset(data["cwe_coverage"])
+        assert len(data["cwe_coverage"]) == 25
 
     def test_dashboard_no_data(self, other_client):
         resp = other_client.get("/api/securewise/dashboard/summary/")
@@ -913,6 +914,7 @@ class TestDashboardAPI:
         data = resp.json()
         assert data["total_projects"] == 0
         assert data["total_scans"] == 0
+        assert data["cwe_ids_covered"] == []
 
 
 # ---------------------------------------------------------------------------
