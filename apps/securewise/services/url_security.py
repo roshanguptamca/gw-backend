@@ -5,10 +5,12 @@ from __future__ import annotations
 import hashlib
 import http.client
 import ipaddress
+import json
 import os
 import secrets
 import socket
 import ssl
+import stat
 import time
 from datetime import timedelta
 from urllib.parse import urljoin, urlsplit, urlunsplit
@@ -181,7 +183,29 @@ def path_is_allowed(path: str, allowed_paths: list[str], excluded_paths: list[st
 
 
 def url_egress_enforced() -> bool:
-    return os.environ.get("SECUREWISE_URL_EGRESS_ENFORCED", "").lower() == "true"
+    if os.environ.get("SECUREWISE_URL_EGRESS_ENFORCED", "").lower() != "true":
+        return False
+    proof_path = os.environ.get(
+        "SECUREWISE_URL_EGRESS_PROOF_FILE",
+        "/etc/securewise/url-egress-verification.json",
+    )
+    try:
+        proof_stat = os.stat(proof_path, follow_symlinks=False)
+        if not stat.S_ISREG(proof_stat.st_mode) or proof_stat.st_uid != 0:
+            return False
+        if proof_stat.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+            return False
+        with open(proof_path, encoding="utf-8") as proof_file:
+            proof = json.load(proof_file)
+        checked_at = float(proof["checked_at"])
+        return (
+            proof.get("verified") is True
+            and proof.get("hostname") == socket.gethostname()
+            and len(str(proof.get("ruleset_sha256", ""))) == 64
+            and 0 <= time.time() - checked_at <= 300
+        )
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+        return False
 
 
 def worker_has_url_egress(worker_id: str | None = None) -> bool:

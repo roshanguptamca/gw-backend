@@ -32,7 +32,7 @@ workflows were run against the controlled fixture; it is not production evidence
 | Container scanning | Implemented for Docker-image vulnerability scanning | Controlled fixture scanned by real Trivy; runtime-built image reused | No | `test_scanners.py`, opt-in `test_docker_integration.py` | Dedicated Linux worker deployment and broader image compatibility remain unverified | P0 |
 | Docker runtime build/start/health/cleanup | Implemented for supported single-container apps | Fixture image built, started, health-checked over internal network, and cleaned up | No | `test_smart_repo_scan.py`, opt-in `test_docker_integration.py` | Compose/multi-service apps, required secrets, and a dedicated Linux worker remain unverified | P0 |
 | DAST | Partially implemented | Real OWASP ZAP baseline completed against the controlled fixture | No | `test_scanners.py`, opt-in `test_docker_integration.py` | Baseline is passive; no active testing, authenticated crawling, or production execution evidence | P0 |
-| Worker scheduling and capability registration | Partially implemented (database-backed queue) | A separate `securewise_worker` OS process claimed an HTTP API-submitted browser job using a persistent isolated SQLite database; heartbeat, restart queue processing, and expired-lease recovery were verified locally | No | `test_autopentest_worker.py`, `test_api.py`, opt-in authenticated API and browser Docker integrations | Local macOS verification only; production Linux worker, durable broker, and deployed database remain unverified | P0 |
+| Worker scheduling and capability registration | Implemented for the existing database-backed queue; provider-neutral capability selection added | Separate worker OS process, heartbeat, restart recovery and lease behavior were verified in prior phases; current worker/runner tests pass | No | `test_autopentest_worker.py`, `test_runners.py`, `test_engine_progress_api.py`, `test_api.py` | No Linux/cloud deployment; no external broker; resource quotas are not enforced as admission control | P0 |
 | Worker cancellation, timeouts and cleanup | Partially implemented | Queued cancellation survived worker restart; browser assessment completed with runtime/container/network cleanup; timeout and cancellation code paths have unit coverage | No | `test_autopentest_worker.py`, `test_smart_repo_scan.py`, opt-in browser Docker integration | Mid-journey cancellation and forced host/process death cleanup were not demonstrated; hard worker termination can still orphan host Docker resources | P0 |
 | AutoPentest authorization and exact host/port scope records | Partially implemented | API tests validate consent, exact loopback scope and encrypted synthetic identities; live requests were limited to the built runtime alias and approved port | No | `test_autopentest_worker.py` | Runtime builds still execute reviewed Dockerfiles on the Docker host; do not allowlist arbitrary repositories | P0 |
 | AutoPentest deterministic planner | Partially implemented | Controlled OpenAPI fixture drives API and browser journeys, including two-user ownership, role, logout, explicit session expiration, and cookie checks | No | `test_autopentest_worker.py` | Requires a reviewed OpenAPI extension; arbitrary frontend routes, Django permission/model analysis, CORS and business logic are not inferred | P1 |
@@ -139,7 +139,9 @@ make Docker builds a sandbox or verify the dedicated Linux deployment.
 | Runtime build approval | Implemented as exact repository-content digest gate | Digest match/mismatch and legacy ID-only rejection tested | No | `test_smart_repo_scan.py`, `test_autopentest_worker.py` | Docker build scripts still execute on the daemon host with network access; no production digest process, rootless daemon, or egress controls verified | P0 |
 | Repository/project/scan/policy/report association checks | Implemented for serializer input | Cross-project repository scan and cross-tenant report/scan mismatch rejected by API tests | No | `test_api.py` | Full production penetration test and cross-tenant review of every API surface still required | P0 |
 | Worker resource/readiness monitoring | Partially implemented | Heartbeats persist best-effort process and disk/load metrics; tenant-scoped queue and engine metrics API tested | No | `test_api.py`, `test_autopentest_worker.py` | No automated alert delivery, cleanup reaper, Docker daemon/container resource metrics, or high-scale queue guarantees | P1 |
-| Worker service isolation | Implemented in worker image/Compose/systemd templates | Config and targeted regression checks; host systemd/rootless-Docker deployment not run here | No | `docker-compose.yml`, `Dockerfile.securewise-worker` | Docker socket grants daemon authority; daemon, network egress and disk quotas require dedicated Linux host configuration and verification | P0 |
+| Generic worker discovery/selection | Partially implemented: provider-neutral registry, capability matching, architecture and one-job slot | Local capability selection and ARM64/AMD64 fixtures tested; no provider field affects business logic | No | `test_runners.py`, `test_autopentest_worker.py` | No Linux VM test; memory/CPU/disk quotas are not yet selection thresholds; multiple provider hosts not executed | P0 |
+| Worker deployment automation | Partially implemented: Ubuntu/Debian systemd installer, verifier and conservative uninstaller | Bash syntax checked only; no Linux host run | No | `deploy/linux-worker/` | Installation, service, DB TLS, scanners and rollback unverified on a VM | P0 |
+| Worker service isolation | Partially implemented in worker image/Compose/systemd templates | Config and targeted regression checks; host systemd/rootless-Docker deployment not run here | No | `docker-compose.yml`, `Dockerfile.securewise-worker`, `deploy/linux-worker/` | Docker socket grants daemon authority; daemon, network egress and disk quotas require dedicated Linux host configuration and verification | P0 |
 | DAST target scope | Partially implemented for private beta | Unscoped user-supplied targets are blocked; controlled local runtime integrations remain the only supported dynamic target | No | `test_scanners.py`, opt-in `test_docker_integration.py` | External DAST is intentionally unavailable; host firewall/redirect containment for external targets has not been implemented or verified | P0 |
 | Private-beta onboarding | Partially implemented in existing AutoPentest UI | Frontend unit/build verification recorded after the focused UI changes | No | Frontend `AutoPentestPage.test.tsx` | UI cannot attest to production host isolation or repository digest approval; operator review is still required | P1 |
 
@@ -192,16 +194,35 @@ private customer repository scan took place.
 URL ownership verification and separate legal authorization are now
 implemented at source level. DNS/HTTPS proof, URL networking and findings have
 not been verified against a live controlled HTTPS target. The environment
-variable and worker registration capability are attestations, not proof of a
-firewall. External URL scans must remain disabled until a dedicated network
-egress policy is independently verified. Do not bypass authorization or egress
+variable `SECUREWISE_URL_EGRESS_ENFORCED=true` alone is not sufficient; the
+worker also requires a recent root-owned proof file generated by the nftables
+structural verifier. No firewall is installed or verified here; URL scans
+remain blocked in this environment. Do not bypass authorization or egress
 gates by submitting `target_url` directly.
 
 The controlled local Semgrep fixture produced real findings and verified that
 repository build/install scripts were not executed. This is not a live
-private-GitHub-repository scan. The full backend run had 1,035 passes, 6 skips,
-and 15 unrelated marketplace/resume PDF/email failures caused by missing
-`libgobject-2.0-0`; the SecureWise URL-target suite passed 12 tests.
+private-GitHub-repository scan. The current SecureWise backend suite passes
+(412 passed, 4 skipped); earlier full repository results are documented in the
+Phase 7.1 evidence.
+
+## Phase 7.3 provider-neutral runner status
+
+| Capability | Implementation status | Working locally | Verified in production | Tests available | Blockers | Priority |
+|---|---|---|---|---|---|---|
+| Generic runner discovery and selection | Partially implemented: dynamic engine/architecture/scanner version/resource discovery, capability matching and provider-agnostic scheduling | Local worker tests pass; ARM64/AMD64 fields exercised as controlled test data | No | `tests/securewise/test_runners.py` | No Linux provider host; per-job VM/microVM isolation and usage quotas incomplete | P0 |
+| One active job per runner | Implemented with a persistent worker registration slot and heartbeat lease | Unit tests verify a second job is rejected while the worker slot is occupied | No | `test_runners.py`, `test_autopentest_worker.py` | Hard host failure cleanup/recovery not exercised on Linux | P0 |
+| ARM64/AMD64 scanner support | Partially implemented: architecture normalized; tool versions detected by executing installed tools; unknown arch rejected | ARM64 normalization and AMD64 selection tested; local Semgrep fixture is prior evidence | No | `test_runners.py` | No real ARM64 scanner/Docker/Playwright execution; scanner license/version provenance remains open | P0 |
+| Provider-specific deployment | Documentation only; Oracle guide is optional and application code remains provider-neutral | No | No | Deployment scripts not provider-specific | Oracle quota, cloud provider access, VMs and live migration unavailable | P1 |
+| GitHub Actions runner/result ingestion | Missing; security contract documented only | No | No | None | No per-job identity, authenticated API, replay ledger, artifact validation or actual Action workflow | P0 |
+| URL host firewall proof | Partially implemented fail-closed root-owned proof and nftables structural check | Missing-proof rejection tested; no host rules inspected | No | `test_application_targets.py` | Dedicated worker and externally verified firewall policy | P0 |
+| Resource/free-tier quotas | Partially implemented metrics and one-job-per-worker concurrency only | Worker reports host metrics | No | `test_runners.py`, worker API tests | No org scan, repository/archive, CPU/memory/disk/evidence admission quotas | P1 |
+
+No Oracle Always Free instance, AWS/Azure/GCP/Hetzner/DigitalOcean VM, GitHub
+Actions run, ARM64 scanner host, Linux systemd service, or host firewall was
+used. See `SECUREWISE_PHASE7_3_EXECUTION_EVIDENCE.md` and the multi-runner
+design for exact evidence limits. The platform is not production-ready or
+customer-beta ready based on this implementation.
 
 Phase 7 execution detail is recorded in
 [`SECUREWISE_PHASE7_EXECUTION_EVIDENCE.md`](SECUREWISE_PHASE7_EXECUTION_EVIDENCE.md),

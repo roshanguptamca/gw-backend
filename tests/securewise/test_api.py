@@ -761,10 +761,25 @@ class TestScanAPI:
         assert data["can_retry"] is True
 
     def test_start_scan(self, auth_client, scan):
+        SecureWiseWorkerRegistration.objects.create(
+            worker_id="api-start-sast-worker",
+            capabilities=["sast"],
+            metrics={"architecture": "amd64"},
+            status="online",
+            last_seen_at=timezone.now(),
+        )
         resp = auth_client.post(f"/api/securewise/scans/{scan.id}/start/")
         assert resp.status_code == 200
         scan.refresh_from_db()
         assert scan.status == "queued"
+
+    def test_start_scan_is_blocked_without_compatible_runner(self, auth_client, scan):
+        resp = auth_client.post(f"/api/securewise/scans/{scan.id}/start/")
+        assert resp.status_code == 409
+        assert resp.json()["status"] == "blocked"
+        assert "No online idle runner" in resp.json()["detail"]
+        scan.refresh_from_db()
+        assert scan.status == "pending"
 
     def test_start_already_running_scan_fails(self, auth_client, scan):
         scan.status = "running"
@@ -781,6 +796,13 @@ class TestScanAPI:
             scan_type="dast",
             status="completed_partial",
             triggered_by=owner,
+        )
+        SecureWiseWorkerRegistration.objects.create(
+            worker_id="api-retry-dast-worker",
+            capabilities=["dast"],
+            metrics={"architecture": "amd64"},
+            status="online",
+            last_seen_at=timezone.now(),
         )
         resp = auth_client.post(f"/api/securewise/scans/{scan.id}/retry/")
         assert resp.status_code == 200

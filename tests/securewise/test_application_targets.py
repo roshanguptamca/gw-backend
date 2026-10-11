@@ -302,11 +302,13 @@ def test_scan_creation_requires_scope_and_worker_capability(target_workspace, mo
     assert missing_project.status_code == 400
 
     monkeypatch.setenv("SECUREWISE_URL_EGRESS_ENFORCED", "true")
+    monkeypatch.setattr(url_security, "url_egress_enforced", lambda: True)
     SecureWiseWorkerRegistration.objects.create(
         worker_id="url-worker",
-        capabilities=["url_egress_restricted"],
+        capabilities=["dast", "url_egress_restricted"],
         status="online",
         last_seen_at=timezone.now(),
+        metrics={"architecture": "amd64"},
     )
     monkeypatch.setattr(url_security, "resolve_public_addresses", lambda host: ("203.0.113.10",))
     queued = client.post(f"/api/securewise/scans/{scan.id}/start/", {}, format="json")
@@ -332,6 +334,13 @@ def test_scan_start_fails_closed_without_network_egress_capability(target_worksp
     assert result.json()["status"] == "blocked"
     scan.refresh_from_db()
     assert scan.status == "pending"
+
+
+def test_url_egress_env_flag_alone_does_not_enable_network_access(monkeypatch, tmp_path):
+    monkeypatch.setenv("SECUREWISE_URL_EGRESS_ENFORCED", "true")
+    monkeypatch.setenv("SECUREWISE_URL_EGRESS_PROOF_FILE", str(tmp_path / "missing-proof.json"))
+
+    assert not url_security.url_egress_enforced()
 
 
 def test_private_dns_and_redirect_destinations_are_rejected(monkeypatch):
@@ -435,11 +444,13 @@ def test_url_jobs_are_claimed_only_by_workers_with_declared_egress_control(targe
     )
 
     monkeypatch.setenv("SECUREWISE_URL_EGRESS_ENFORCED", "true")
+    monkeypatch.setattr(url_security, "url_egress_enforced", lambda: True)
     SecureWiseWorkerRegistration.objects.create(
         worker_id="unsafe-worker",
         capabilities=["dast"],
         status="online",
         last_seen_at=timezone.now(),
+        metrics={"architecture": "amd64"},
     )
     assert claim_next_job("unsafe-worker") is None
 
@@ -448,6 +459,7 @@ def test_url_jobs_are_claimed_only_by_workers_with_declared_egress_control(targe
         capabilities=["dast", "url_egress_restricted"],
         status="online",
         last_seen_at=timezone.now(),
+        metrics={"architecture": "amd64"},
     )
     assert claim_next_job("safe-worker") == ("scan", str(scan.id))
 

@@ -46,27 +46,24 @@ _SCAN_ACTIVE_STATUSES = (
 
 
 def register_worker(worker_id: str) -> SecureWiseWorkerRegistration:
-    from apps.securewise.runtime.docker_runner import is_docker_available, is_docker_image_available
-
-    capabilities = list(WORKER_CAPABILITIES)
-    capabilities.extend(tool for tool in ("semgrep", "trivy", "gitleaks") if shutil.which(tool))
-    if is_docker_available()[0]:
-        capabilities.append("docker_daemon")
-        if shutil.which("docker"):
-            capabilities.append("zap_baseline_docker")
-            if is_docker_image_available(PLAYWRIGHT_RUNNER_IMAGE):
-                capabilities.append("playwright")
-    if shutil.which("zap-baseline.py"):
-        capabilities.append("zap_baseline_cli")
+    from .runners import discover_runner_capabilities
     from .url_security import url_egress_enforced
 
+    runner_type = os.environ.get("SECUREWISE_RUNNER_TYPE", "linux_worker")
+    if runner_type not in {"local", "linux_worker", "github_actions"}:
+        runner_type = "linux_worker"
+    discovered = discover_runner_capabilities(runner_type=runner_type)
+    capabilities = list(discovered.capabilities)
     if url_egress_enforced():
         capabilities.append("url_egress_restricted")
+    metrics = worker_resource_metrics()
+    metrics.update(discovered.as_dict())
+    metrics["provider"] = os.environ.get("SECUREWISE_RUNNER_PROVIDER", "self_hosted")[:40]
     registration, _ = SecureWiseWorkerRegistration.objects.update_or_create(
         worker_id=worker_id,
         defaults={
             "capabilities": capabilities,
-            "metrics": worker_resource_metrics(),
+            "metrics": metrics,
             "status": "online",
             "last_seen_at": timezone.now(),
         },
@@ -98,10 +95,16 @@ def worker_resource_metrics() -> dict:
 
 
 def heartbeat_worker(worker_id: str) -> None:
-    SecureWiseWorkerRegistration.objects.filter(worker_id=worker_id, status="online").update(
-        last_seen_at=timezone.now(),
-        metrics=worker_resource_metrics(),
-    )
+    registration = SecureWiseWorkerRegistration.objects.filter(
+        worker_id=worker_id,
+        status="online",
+    ).first()
+    if registration is None:
+        return
+    metrics = registration.metrics if isinstance(registration.metrics, dict) else {}
+    registration.last_seen_at = timezone.now()
+    registration.metrics = {**metrics, **worker_resource_metrics()}
+    registration.save(update_fields=["last_seen_at", "metrics"])
 
 
 def default_worker_id() -> str:
@@ -163,34 +166,72 @@ def claim_next_job(worker_id: str = "") -> tuple[str, str] | None:
     """Claim the oldest queued scan or AutoPentest session."""
     now = timezone.now()
     stale_before = now - STALE_CLAIM_AFTER
+    registration = None
+    if worker_id:
+        registration = SecureWiseWorkerRegistration.objects.filter(worker_id=worker_id, status="online").first()
+        if registration is None or registration.last_seen_at < now - timedelta(seconds=45):
+            return None
+        if registration.active_job_id:
+            if registration.active_job_started_at and registration.active_job_started_at < stale_before:
+                SecureWiseWorkerRegistration.objects.filter(
+                    worker_id=worker_id,
+                    active_job_id=registration.active_job_id,
+                    active_job_started_at=registration.active_job_started_at,
+                ).update(active_job_id="", active_job_type="", active_job_started_at=None)
+                registration.refresh_from_db()
+            if registration.active_job_id:
+                return None
+
     candidates = []
     for job_type, model in (("scan", SecureWiseScan), ("pentest", PentestSession)):
         eligible = model.objects.filter(
-                Q(status="queued")
-                | Q(status__in=_SCAN_ACTIVE_STATUSES if job_type == "scan" else ("worker_claimed", "running"))
+            Q(status="queued")
+            | (
+                Q(status__in=_SCAN_ACTIVE_STATUSES if job_type == "scan" else ("worker_claimed", "running"))
                 & Q(worker_claimed_at__lt=stale_before)
             )
+        )
         if job_type == "scan" and not _worker_can_run_url_scan(worker_id):
             eligible = eligible.filter(target_url="")
-        candidate = (
-            eligible
-            .order_by("created_at")
-            .values_list("id", "status", "created_at")
-            .first()
-        )
-        if candidate:
+        for candidate in eligible.order_by("created_at").values_list("id", "status", "created_at")[:50]:
+            if worker_id and job_type == "scan":
+                from apps.securewise.services.runners import worker_supports_scan
+
+                scan = SecureWiseScan.objects.get(id=candidate[0])
+                supported, _ = worker_supports_scan(registration, scan, now=now)
+                if not supported:
+                    continue
             candidates.append((candidate[2], job_type, candidate[0], candidate[1]))
+            break
     if not candidates:
         return None
 
     _, job_type, job_id, old_status = min(candidates)
     model = SecureWiseScan if job_type == "scan" else PentestSession
+    if registration:
+        reserved = SecureWiseWorkerRegistration.objects.filter(worker_id=worker_id, active_job_id="").update(
+            active_job_id=str(job_id),
+            active_job_type=job_type,
+            active_job_started_at=now,
+        )
+        if reserved != 1:
+            return None
     claim_filter = Q(status="queued")
     if old_status != "queued":
         active_statuses = _SCAN_ACTIVE_STATUSES if job_type == "scan" else ("worker_claimed", "running")
         claim_filter = Q(status=old_status, status__in=active_statuses, worker_claimed_at__lt=stale_before)
     claimed = model.objects.filter(Q(id=job_id) & claim_filter).update(status="worker_claimed", worker_claimed_at=now)
+    if claimed != 1 and registration:
+        release_worker_job(worker_id, str(job_id))
     return (job_type, str(job_id)) if claimed == 1 else None
+
+
+def release_worker_job(worker_id: str, job_id: str) -> None:
+    SecureWiseWorkerRegistration.objects.filter(worker_id=worker_id, active_job_id=job_id).update(
+        active_job_id="",
+        active_job_type="",
+        active_job_started_at=None,
+    )
 
 
 def process_next_job(worker_id: str = "") -> tuple[str, str] | None:
@@ -218,6 +259,8 @@ def process_next_job(worker_id: str = "") -> tuple[str, str] | None:
     finally:
         stop_heartbeat.set()
         heartbeat.join(timeout=WORKER_HEARTBEAT_SECONDS + 1)
+        if worker_id:
+            release_worker_job(worker_id, job_id)
 
 
 def _refresh_job_lease(stop: threading.Event, job_type: str, job_id: str, worker_id: str) -> None:
@@ -228,4 +271,7 @@ def _refresh_job_lease(stop: threading.Event, job_type: str, job_id: str, worker
         now = timezone.now()
         model.objects.filter(id=job_id, status__in=active_statuses).update(worker_claimed_at=now)
         if worker_id:
-            heartbeat_worker(worker_id)
+            SecureWiseWorkerRegistration.objects.filter(worker_id=worker_id, active_job_id=job_id).update(
+                last_seen_at=now,
+                active_job_started_at=now,
+            )

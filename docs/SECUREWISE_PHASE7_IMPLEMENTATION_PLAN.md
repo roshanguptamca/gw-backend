@@ -88,3 +88,13 @@ workflow. Real GitHub/App and URL challenges/scans, verified network egress,
 complete membership onboarding, combined reports, retention controls and
 production isolation remain blockers; see the execution evidence and customer
 security model for exact verification limits.
+
+## Phase 7.3 runner update
+
+Added a provider-neutral runner capability registry/selector, persistent
+one-active-job lease, architecture and scanner version reporting, no-compatible
+runner blocked responses, a root-owned host egress proof gate, a generic
+Ubuntu/Debian systemd deployment path and provider-specific setup guidance
+only in documentation. Existing scanner, queue, finding and report models are
+reused. No cloud provider or GitHub Actions runner is live-verified;
+GitHub Actions ingestion and organization resource quotas remain unimplemented.

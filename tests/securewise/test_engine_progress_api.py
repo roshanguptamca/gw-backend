@@ -124,6 +124,11 @@ class TestScanProgressEndpoint:
         SecureWiseWorkerRegistration.objects.create(
             worker_id="fixture-worker",
             capabilities=["docker_daemon", "trivy", "zap_baseline_docker"],
+            metrics={
+                "runner_type": "linux_worker",
+                "architecture": "arm64",
+                "scanner_versions": {"trivy": "0.72.0"},
+            },
             status="online",
             last_seen_at=timezone.now(),
         )
@@ -136,7 +141,11 @@ class TestScanProgressEndpoint:
         assert readiness["docker_ready"] is True
         assert readiness["trivy_available"] is True
         assert readiness["zap_available"] is True
-        assert readiness["worker_id"] == "fixture-worker"
+        assert "worker_id" not in readiness
+        assert readiness["runner_type"] == "linux_worker"
+        assert readiness["architecture"] == "arm64"
+        assert readiness["scanner_versions"] == {"trivy": "0.72.0"}
+        assert response.json()["worker_readiness"]["runners"][0]["online"] == 1
         assert readiness["diagnostics"] == []
 
     def test_other_org_user_cannot_view_progress(self, client_b, scan_a):

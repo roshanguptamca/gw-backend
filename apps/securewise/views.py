@@ -139,11 +139,15 @@ class GitHubAppConnectView(APIView):
         organization_id = _parse_uuid(request.data.get("organization"))
         if organization_id is None:
             return Response({"detail": "A valid organization ID is required."}, status=400)
-        membership = SecureWiseMembership.objects.filter(
-            organization_id=organization_id,
-            user=request.user,
-            role__in=ADMIN_ROLES,
-        ).select_related("organization").first()
+        membership = (
+            SecureWiseMembership.objects.filter(
+                organization_id=organization_id,
+                user=request.user,
+                role__in=ADMIN_ROLES,
+            )
+            .select_related("organization")
+            .first()
+        )
         if membership is None:
             return Response({"detail": "Organization admin access is required."}, status=403)
         if not github_app.app_configured():
@@ -252,9 +256,7 @@ class GitHubAppCallbackView(APIView):
         if (
             not isinstance(installed_permissions, dict)
             or installed_permissions.get("contents") != "read"
-            or any(
-                permission != "read" for permission in installed_permissions.values()
-            )
+            or any(permission != "read" for permission in installed_permissions.values())
         ):
             return Response(
                 {"detail": "The GitHub App must have read-only contents access and no write permissions."},
@@ -270,9 +272,7 @@ class GitHubAppCallbackView(APIView):
                     "account_type": str(account.get("type", ""))[:30],
                     "permissions": details.get("permissions") or {},
                     "suspended_at": (
-                        timezone.now()
-                        if details.get("suspended_at") or details.get("suspended_by")
-                        else None
+                        timezone.now() if details.get("suspended_at") or details.get("suspended_by") else None
                     ),
                     "removed_at": None,
                     "created_by": request.user,
@@ -374,12 +374,16 @@ class GitHubAppRepositorySelectionView(APIView):
         installation_uuid = _parse_uuid(request.data.get("installation"))
         if installation_uuid is None:
             return Response({"detail": "A valid installation ID is required."}, status=400)
-        installation = SecureWiseGitHubAppInstallation.objects.filter(
-            id=installation_uuid,
-            organization_id__in=_get_user_org_ids(request.user),
-            removed_at__isnull=True,
-            suspended_at__isnull=True,
-        ).select_related("organization").first()
+        installation = (
+            SecureWiseGitHubAppInstallation.objects.filter(
+                id=installation_uuid,
+                organization_id__in=_get_user_org_ids(request.user),
+                removed_at__isnull=True,
+                suspended_at__isnull=True,
+            )
+            .select_related("organization")
+            .first()
+        )
         if installation is None or not github_app.installation_is_active(installation):
             return Response({"detail": "Installation not found or unavailable."}, status=404)
         if not SecureWiseMembership.objects.filter(
@@ -400,9 +404,7 @@ class GitHubAppRepositorySelectionView(APIView):
             project_uuid = _parse_uuid(project_id)
             if project_uuid is None:
                 return Response({"detail": "A valid project ID is required."}, status=400)
-            project = SecureWiseProject.objects.filter(
-                id=project_uuid, organization=installation.organization
-            ).first()
+            project = SecureWiseProject.objects.filter(id=project_uuid, organization=installation.organization).first()
             if project is None:
                 return Response({"detail": "Project not found in this organization."}, status=400)
         try:
@@ -412,9 +414,7 @@ class GitHubAppRepositorySelectionView(APIView):
         by_id = {
             item.get("id"): item
             for item in available
-            if isinstance(item.get("id"), int)
-            and not isinstance(item.get("id"), bool)
-            and 0 < item["id"] <= 2**63 - 1
+            if isinstance(item.get("id"), int) and not isinstance(item.get("id"), bool) and 0 < item["id"] <= 2**63 - 1
         }
         if len(set(repository_ids)) != len(repository_ids) or any(repo_id not in by_id for repo_id in repository_ids):
             return Response({"detail": "A selected repository is not available to this installation."}, status=400)
@@ -512,9 +512,12 @@ class GitHubAppWebhookView(APIView):
                 installation_data = payload.get("installation") or {}
                 installation_id = installation_data.get("id")
                 if isinstance(installation_id, int):
-                    linked = SecureWiseGitHubAppInstallation.objects.select_for_update().filter(
-                        installation_id=installation_id
-                    ).select_related("organization").first()
+                    linked = (
+                        SecureWiseGitHubAppInstallation.objects.select_for_update()
+                        .filter(installation_id=installation_id)
+                        .select_related("organization")
+                        .first()
+                    )
                     if linked:
                         github_app.mark_installation_event(linked, f"{event_type}.{payload.get('action', '')}", payload)
                         _audit(
@@ -1278,21 +1281,30 @@ class ScanViewSet(viewsets.ModelViewSet):
             return ""
         if scan.testing_authorization_id is None:
             return "An approved testing authorization is required for external URL scans."
-        authorization = SecureWiseTestingAuthorization.objects.select_for_update().select_related("target").filter(
-            id=scan.testing_authorization_id
-        ).first()
+        authorization = (
+            SecureWiseTestingAuthorization.objects.select_for_update()
+            .select_related("target")
+            .filter(id=scan.testing_authorization_id)
+            .first()
+        )
         if authorization is None or not url_security.authorization_is_active(authorization):
             return "URL ownership or testing authorization has expired or been revoked."
         if not url_security.worker_has_url_egress():
             return "Passive URL scanning is disabled until a protected worker and egress policy are available."
-        active_jobs = authorization.scans.filter(status__in=("queued", *_SCAN_ACTIVE_STATUSES)).exclude(
-            id=scan.id
-        ).exists()
+        active_jobs = (
+            authorization.scans.filter(status__in=("queued", *_SCAN_ACTIVE_STATUSES)).exclude(id=scan.id).exists()
+        )
         if active_jobs:
             return "Another scan is already running under this authorization."
         if authorization.scans.filter(created_at__gte=timezone.now() - timedelta(minutes=1)).count() >= 3:
             return "Authorization request rate limit exceeded; wait before starting another scan."
         return ""
+
+    def _runner_selection_block(self, scan):
+        from apps.securewise.services.runners import select_runner
+
+        selection = select_runner(scan)
+        return "" if selection.available else selection.blocked_reason
 
     @action(detail=False, methods=["get"], url_path="worker-status")
     def worker_status(self, request):
@@ -1314,9 +1326,10 @@ class ScanViewSet(viewsets.ModelViewSet):
         pentests = PentestSession.objects.filter(organization_id__in=organization_ids)
         active_scans = scans.filter(status__in=_SCAN_ACTIVE_STATUSES)
         active_pentests = pentests.filter(status__in=("worker_claimed", "running"))
-        stale_jobs = active_scans.filter(worker_claimed_at__lt=stale_cutoff).count() + active_pentests.filter(
-            worker_claimed_at__lt=stale_cutoff
-        ).count()
+        stale_jobs = (
+            active_scans.filter(worker_claimed_at__lt=stale_cutoff).count()
+            + active_pentests.filter(worker_claimed_at__lt=stale_cutoff).count()
+        )
         worker = SecureWiseWorkerRegistration.objects.filter(status="online").order_by("-last_seen_at").first()
         worker_available = bool(worker and worker.last_seen_at >= now - timedelta(seconds=45))
         capabilities = set(worker.capabilities if worker_available else ())
@@ -1330,25 +1343,34 @@ class ScanViewSet(viewsets.ModelViewSet):
             .order_by("engine", "status")
         )
         metrics = worker.metrics if worker_available and isinstance(worker.metrics, dict) else {}
+        from apps.securewise.services.runners import runner_fleet_summary
+
+        runner_fleet = runner_fleet_summary(now=now)
         return Response(
             {
                 "worker_available": worker_available,
                 "docker_ready": "docker_daemon" in capabilities,
                 "capabilities": sorted(capabilities),
+                "runners": runner_fleet,
                 "heartbeat_age_seconds": (
                     max(0, int((now - worker.last_seen_at).total_seconds())) if worker_available else None
                 ),
-                "resources": {
-                    key: metrics[key]
-                    for key in (
-                        "vmrss_kb",
-                        "vmhwm_kb",
-                        "temp_disk_free_bytes",
-                        "temp_disk_total_bytes",
-                        "load_average_1m",
-                    )
-                    if key in metrics
-                } if is_org_admin else {},
+                "resources": (
+                    {
+                        key: metrics[key]
+                        for key in (
+                            "vmrss_kb",
+                            "vmhwm_kb",
+                            "available_memory_bytes",
+                            "temp_disk_free_bytes",
+                            "temp_disk_total_bytes",
+                            "load_average_1m",
+                        )
+                        if key in metrics
+                    }
+                    if is_org_admin
+                    else {}
+                ),
                 "queue": {
                     "queued_scans": scans.filter(status="queued").count(),
                     "queued_pentests": pentests.filter(status="queued").count(),
@@ -1385,6 +1407,15 @@ class ScanViewSet(viewsets.ModelViewSet):
         block_reason = self._url_authorization_block(scan)
         if block_reason:
             return Response({"detail": block_reason, "status": "blocked"}, status=409)
+        runner_block_reason = self._runner_selection_block(scan)
+        if runner_block_reason:
+            return Response(
+                {
+                    "detail": f"Scan blocked: no secure compatible runner is available. {runner_block_reason}",
+                    "status": "blocked",
+                },
+                status=409,
+            )
         scan.status = "queued"
         scan.save(update_fields=["status"])
         serializer = self.get_serializer(scan)
@@ -1426,6 +1457,15 @@ class ScanViewSet(viewsets.ModelViewSet):
         block_reason = self._url_authorization_block(scan)
         if block_reason:
             return Response({"detail": block_reason, "status": "blocked"}, status=409)
+        runner_block_reason = self._runner_selection_block(scan)
+        if runner_block_reason:
+            return Response(
+                {
+                    "detail": f"Retry blocked: no secure compatible runner is available. {runner_block_reason}",
+                    "status": "blocked",
+                },
+                status=409,
+            )
         scan.engine_results.all().delete()
         scan.status = "queued"
         scan.worker_claimed_at = None
@@ -1517,12 +1557,29 @@ class ScanViewSet(viewsets.ModelViewSet):
                 readiness_diagnostics.append("Trivy is not installed on the worker.")
             if not {"zap_baseline_cli", "zap_baseline_docker"} & capabilities:
                 readiness_diagnostics.append("Neither ZAP baseline nor Docker-based ZAP is available.")
+        from apps.securewise.services.runners import runner_fleet_summary
+
         worker_readiness = {
             "worker_available": worker_available,
             "docker_ready": "docker_daemon" in capabilities,
             "trivy_available": "trivy" in capabilities,
             "zap_available": bool({"zap_baseline_cli", "zap_baseline_docker"} & capabilities),
-            "worker_id": worker.worker_id if worker_available else "",
+            "runner_type": (
+                (worker.metrics or {}).get("runner_type", "linux_worker")
+                if worker_available and isinstance(worker.metrics, dict)
+                else ""
+            ),
+            "architecture": (
+                (worker.metrics or {}).get("architecture", "unknown")
+                if worker_available and isinstance(worker.metrics, dict)
+                else ""
+            ),
+            "scanner_versions": (
+                (worker.metrics or {}).get("scanner_versions", {})
+                if worker_available and isinstance(worker.metrics, dict)
+                else {}
+            ),
+            "runners": runner_fleet_summary(),
             "last_seen_at": worker.last_seen_at.isoformat() if worker else None,
             "diagnostics": readiness_diagnostics,
         }

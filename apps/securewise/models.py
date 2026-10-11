@@ -739,6 +739,9 @@ class SecureWiseWorkerRegistration(models.Model):
     metrics = models.JSONField(default=dict, blank=True)
     status = models.CharField(max_length=20, default="online")
     last_seen_at = models.DateTimeField()
+    active_job_id = models.CharField(max_length=64, blank=True)
+    active_job_type = models.CharField(max_length=20, blank=True)
+    active_job_started_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["worker_id"]

@@ -171,10 +171,7 @@ class ScannerOrchestrator:
             "docker_image": scan.docker_image,
             "api_spec_url": scan.api_spec_url,
             "target_url": scan.target_url,
-            "testing_authorization_id": (
-                str(scan.testing_authorization_id) if scan.testing_authorization_id else ""
-            ),
-            "worker_id": getattr(scan, "_securewise_worker_id", ""),
+            "testing_authorization_id": (str(scan.testing_authorization_id) if scan.testing_authorization_id else ""),
             "trusted_runtime_repository": runtime_trusted,
             "runtime_trust_diagnostic": runtime_trust_result if not runtime_trusted else "",
             "runtime_content_sha256": runtime_trust_result if runtime_trusted else "",
@@ -222,7 +219,10 @@ class ScannerOrchestrator:
                 engine = engine_cls()
                 started = timezone.now()
                 try:
-                    result = engine.run(repo_path, str(scan.id), metadata)
+                    run_metadata = dict(metadata)
+                    if engine_name == "dast" and scan.testing_authorization_id:
+                        run_metadata["worker_id"] = getattr(scan, "_securewise_worker_id", "")
+                    result = engine.run(repo_path, str(scan.id), run_metadata)
                 except Exception as exc:  # pragma: no cover - defensive
                     logger.exception("Engine %s failed for scan %s", engine_name, scan.id)
                     result = None
