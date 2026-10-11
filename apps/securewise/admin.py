@@ -2,11 +2,13 @@ from django.contrib import admin
 
 from .models import (
     SecureWiseAuditLog,
+    SecureWiseApplicationTarget,
     SecureWiseFinding,
     SecureWiseGitIntegration,
     SecureWiseIntegration,
     SecureWiseMembership,
     SecureWiseOrganization,
+    SecureWiseOwnershipChallenge,
     SecureWiseProject,
     SecureWiseReport,
     SecureWiseRepository,
@@ -14,6 +16,7 @@ from .models import (
     SecureWiseScanEngineResult,
     SecureWiseScanPolicy,
     SecureWiseScanPolicyTemplate,
+    SecureWiseTestingAuthorization,
     SecureWiseWorkerRegistration,
     PentestEvidence,
     PentestExecution,
@@ -44,6 +47,25 @@ class MembershipAdmin(admin.ModelAdmin):
     list_display = ("user", "organization", "role", "created_at")
     list_filter = ("role",)
     search_fields = ("user__username", "user__email", "organization__name")
+    readonly_fields = ("id", "created_at")
+
+
+@admin.register(SecureWiseApplicationTarget)
+class ApplicationTargetAdmin(admin.ModelAdmin):
+    list_display = ("hostname", "organization", "project", "verified_at", "ownership_revoked_at")
+    search_fields = ("hostname", "organization__name", "project__name")
+    readonly_fields = ("id", "created_at", "updated_at")
+
+
+@admin.register(SecureWiseOwnershipChallenge)
+class OwnershipChallengeAdmin(admin.ModelAdmin):
+    list_display = ("target", "method", "expires_at", "verified_at")
+    readonly_fields = ("id", "challenge_digest", "created_at")
+
+
+@admin.register(SecureWiseTestingAuthorization)
+class TestingAuthorizationAdmin(admin.ModelAdmin):
+    list_display = ("target", "testing_environment", "starts_at", "expires_at", "approved_by", "revoked_at")
     readonly_fields = ("id", "created_at")
 
 

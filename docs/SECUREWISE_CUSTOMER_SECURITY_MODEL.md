@@ -14,7 +14,7 @@ egress firewall, object storage, or data region was verified for Phase 7.
 | GitHub App → repository archive | Installation token generated for API access and held only in memory; selected repository IDs verified against that installation; archive resolved to a commit SHA; redirects accepted only to HTTPS `codeload.github.com`; archive paths, symlinks, file count and expanded size checked | Download requires outbound access to GitHub API and codeload. Apply worker-host egress policy and test an operator-owned private repository before beta. |
 | Worker → repository source | App scans use a source archive, not `git clone`; code scanners read a temporary directory; GitHub App source never passes the runtime content digest gate | Scanners run in the existing worker trust domain, which has Docker daemon authority. Parser/tool compromise and host-level isolation are not eliminated. Use a dedicated disposable worker, least privilege and firewall restrictions. |
 | Worker → customer build/runtime | GitHub App source is static-only; runtime build is blocked for that access mode. Existing runtime builds still need both reviewed exact-content approval and explicit worker opt-in. | A digest is not a sandbox. Do not enable customer runtime builds until ephemeral/rootless isolation, daemon quotas, egress controls and teardown are independently verified. |
-| Worker → customer URL | Existing beta policy blocks externally supplied DAST targets. | Customer target ownership challenges, legal authorization, per-request DNS pinning, redirect validation and network-layer SSRF controls are not implemented. No public/customer URL scan should be enabled. |
+| Worker → customer URL | Source-level target ownership challenge, separate time-bound authorization, exact host/port/path scope, pinned HTTPS requests, public-address validation, redirect checks, rate/concurrency limits and passive GET-only checks | No network-layer egress firewall or isolated URL worker has been verified. The capability flag is an operator attestation only; never enable external scans until the host/network policy is independently enforced and checked. No customer URL scan has run. |
 | Worker → AI provider | AI planner remains optional and disabled unless configured; source code is not sent by the GitHub App flow. | Provider data processing and retention require explicit customer choice and contractual review. |
 | Evidence/reports → customer | Existing organization-scoped findings, evidence and report querysets; reports remain in existing database models | Combined repository+URL reports, signed short-lived object-storage links, configurable retention and customer deletion workflow are incomplete. |
 
@@ -61,15 +61,27 @@ execution.
 ## URL assessment safety
 
 Technical ownership verification and legal authorization are separate
-requirements. Neither currently exists as a customer URL registration
-workflow. Existing DAST restrictions remain in force; do not bypass them by
-posting a `target_url` directly to the scan API. Before enabling URL assessment,
-implement expiring DNS TXT or HTTPS challenge verification, a separately
-approved exact host/port/path/method scope with expiry/revocation, public-IP
-resolution and rebinding defense, redirect revalidation, request-level scope
-checks, low rate/concurrency limits, and network egress controls that deny
-private, loopback, link-local and metadata destinations. Start with passive
-checks only; active tests need an additional explicit approval.
+requirements. The source now supports expiring, single-use DNS TXT or HTTPS
+well-known challenges and a separate organization-admin approval for exact
+host, approved HTTPS port, path allow/exclusions, passive HTTP method and
+expiry. Ownership revocation revokes active authorizations. Scan creation,
+start and each request/redirect recheck the authorization. Hostnames are
+resolved and all results must be globally routable; the connection is pinned
+to a validated address while TLS verifies the original hostname. Redirects,
+ports, paths, response size and time are bounded. Proxy environment variables
+are not used; only GET requests are issued. External ZAP and active tests
+remain unavailable.
+
+These are application-level controls, not network isolation. The worker
+registration's `url_egress_restricted` capability is derived from
+`SECUREWISE_URL_EGRESS_ENFORCED=true`; neither value verifies nftables,
+firewall policy, a dedicated host or separate network namespace. This flag was
+not enabled here. Before any external URL job can be enabled, deploy a
+dedicated URL worker behind network-layer deny rules for private, loopback,
+link-local, metadata and other forbidden destinations, restrict outbound
+ports/proxies, test redirect and DNS-rebinding cases against the actual host
+policy, and capture independent deployment evidence. Until then, the API gate
+must remain disabled; do not bypass it by posting `target_url` directly.
 
 ## Customer data lifecycle
 

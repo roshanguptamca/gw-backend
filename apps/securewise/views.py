@@ -13,8 +13,10 @@ import os
 import re
 import secrets
 import hashlib
+import ipaddress
 from datetime import timedelta
 from uuid import UUID
+from urllib.parse import urlsplit
 
 from django.db import IntegrityError, transaction
 from django.db.models import Avg, Count, Q
@@ -35,6 +37,7 @@ from .models import (
     PentestSession,
     PentestTestProposal,
     SecureWiseAuditLog,
+    SecureWiseApplicationTarget,
     SecureWiseFinding,
     SecureWiseGitIntegration,
     SecureWiseGitHubAppInstallation,
@@ -43,6 +46,7 @@ from .models import (
     SecureWiseIntegration,
     SecureWiseMembership,
     SecureWiseOrganization,
+    SecureWiseOwnershipChallenge,
     SecureWiseProject,
     SecureWiseReport,
     SecureWiseRepository,
@@ -50,6 +54,7 @@ from .models import (
     SecureWiseScanEngineResult,
     SecureWiseScanPolicy,
     SecureWiseScanPolicyTemplate,
+    SecureWiseTestingAuthorization,
     SecureWiseWorkerRegistration,
 )
 from .permissions import ADMIN_ROLES, WRITE_ROLES, _membership
@@ -75,6 +80,7 @@ from .serializers import (
 )
 from .services.ai_recommendation import generate_ai_fix_suggestion
 from .services import github_app
+from .services import url_security
 from .services.github_actions import GitHubActionError, create_github_issue, create_github_pr
 from .services.report import generate_report
 from .services.report_render import render_report_html, render_report_pdf
@@ -1227,7 +1233,7 @@ class ScanViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = SecureWiseScan.objects.filter(organization_id__in=_get_user_org_ids(self.request.user)).select_related(
-            "project", "repository", "policy", "triggered_by"
+            "project", "repository", "policy", "triggered_by", "testing_authorization__target"
         )
         project_id = self.request.query_params.get("project")
         if project_id:
@@ -1266,6 +1272,27 @@ class ScanViewSet(viewsets.ModelViewSet):
             from rest_framework.exceptions import PermissionDenied
 
             raise PermissionDenied("You do not have permission to manage scans.")
+
+    def _url_authorization_block(self, scan):
+        if not scan.target_url:
+            return ""
+        if scan.testing_authorization_id is None:
+            return "An approved testing authorization is required for external URL scans."
+        authorization = SecureWiseTestingAuthorization.objects.select_for_update().select_related("target").filter(
+            id=scan.testing_authorization_id
+        ).first()
+        if authorization is None or not url_security.authorization_is_active(authorization):
+            return "URL ownership or testing authorization has expired or been revoked."
+        if not url_security.worker_has_url_egress():
+            return "Passive URL scanning is disabled until a protected worker and egress policy are available."
+        active_jobs = authorization.scans.filter(status__in=("queued", *_SCAN_ACTIVE_STATUSES)).exclude(
+            id=scan.id
+        ).exists()
+        if active_jobs:
+            return "Another scan is already running under this authorization."
+        if authorization.scans.filter(created_at__gte=timezone.now() - timedelta(minutes=1)).count() >= 3:
+            return "Authorization request rate limit exceeded; wait before starting another scan."
+        return ""
 
     @action(detail=False, methods=["get"], url_path="worker-status")
     def worker_status(self, request):
@@ -1346,6 +1373,7 @@ class ScanViewSet(viewsets.ModelViewSet):
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
     @action(detail=True, methods=["post"])
+    @transaction.atomic
     def start(self, request, pk=None):
         scan = self.get_object()
         self._require_write_membership(request, scan)
@@ -1354,6 +1382,9 @@ class ScanViewSet(viewsets.ModelViewSet):
                 {"detail": f"Cannot start a scan with status '{scan.status}'."},
                 status=400,
             )
+        block_reason = self._url_authorization_block(scan)
+        if block_reason:
+            return Response({"detail": block_reason, "status": "blocked"}, status=409)
         scan.status = "queued"
         scan.save(update_fields=["status"])
         serializer = self.get_serializer(scan)
@@ -1374,6 +1405,7 @@ class ScanViewSet(viewsets.ModelViewSet):
         return Response({"detail": "Scan cancelled.", "status": "cancelled"})
 
     @action(detail=True, methods=["post"])
+    @transaction.atomic
     def retry(self, request, pk=None):
         """
         Re-run a scan that failed, was cancelled, or completed with warnings —
@@ -1391,6 +1423,9 @@ class ScanViewSet(viewsets.ModelViewSet):
                 {"detail": f"Cannot retry a scan with status '{scan.status}'."},
                 status=400,
             )
+        block_reason = self._url_authorization_block(scan)
+        if block_reason:
+            return Response({"detail": block_reason, "status": "blocked"}, status=409)
         scan.engine_results.all().delete()
         scan.status = "queued"
         scan.worker_claimed_at = None

@@ -171,6 +171,10 @@ class ScannerOrchestrator:
             "docker_image": scan.docker_image,
             "api_spec_url": scan.api_spec_url,
             "target_url": scan.target_url,
+            "testing_authorization_id": (
+                str(scan.testing_authorization_id) if scan.testing_authorization_id else ""
+            ),
+            "worker_id": getattr(scan, "_securewise_worker_id", ""),
             "trusted_runtime_repository": runtime_trusted,
             "runtime_trust_diagnostic": runtime_trust_result if not runtime_trusted else "",
             "runtime_content_sha256": runtime_trust_result if runtime_trusted else "",

@@ -58,6 +58,10 @@ def register_worker(worker_id: str) -> SecureWiseWorkerRegistration:
                 capabilities.append("playwright")
     if shutil.which("zap-baseline.py"):
         capabilities.append("zap_baseline_cli")
+    from .url_security import url_egress_enforced
+
+    if url_egress_enforced():
+        capabilities.append("url_egress_restricted")
     registration, _ = SecureWiseWorkerRegistration.objects.update_or_create(
         worker_id=worker_id,
         defaults={
@@ -109,7 +113,8 @@ def claim_next_scan() -> str | None:
     now = timezone.now()
     stale_before = now - STALE_CLAIM_AFTER
     candidate = (
-        SecureWiseScan.objects.filter(Q(status="queued") | Q(status="worker_claimed", worker_claimed_at__lt=stale_before))
+        SecureWiseScan.objects.filter(target_url="")
+        .filter(Q(status="queued") | Q(status="worker_claimed", worker_claimed_at__lt=stale_before))
         .order_by("created_at")
         .values_list("id", "status")
         .first()
@@ -139,18 +144,36 @@ def process_next_scan() -> str | None:
     return scan_id
 
 
-def claim_next_job() -> tuple[str, str] | None:
+def _worker_can_run_url_scan(worker_id: str) -> bool:
+    if not worker_id:
+        return False
+    from .url_security import url_egress_enforced
+
+    if not url_egress_enforced():
+        return False
+    registration = SecureWiseWorkerRegistration.objects.filter(
+        worker_id=worker_id,
+        status="online",
+        last_seen_at__gte=timezone.now() - timedelta(seconds=45),
+    ).first()
+    return bool(registration and "url_egress_restricted" in (registration.capabilities or []))
+
+
+def claim_next_job(worker_id: str = "") -> tuple[str, str] | None:
     """Claim the oldest queued scan or AutoPentest session."""
     now = timezone.now()
     stale_before = now - STALE_CLAIM_AFTER
     candidates = []
     for job_type, model in (("scan", SecureWiseScan), ("pentest", PentestSession)):
-        candidate = (
-            model.objects.filter(
+        eligible = model.objects.filter(
                 Q(status="queued")
                 | Q(status__in=_SCAN_ACTIVE_STATUSES if job_type == "scan" else ("worker_claimed", "running"))
                 & Q(worker_claimed_at__lt=stale_before)
             )
+        if job_type == "scan" and not _worker_can_run_url_scan(worker_id):
+            eligible = eligible.filter(target_url="")
+        candidate = (
+            eligible
             .order_by("created_at")
             .values_list("id", "status", "created_at")
             .first()
@@ -171,7 +194,7 @@ def claim_next_job() -> tuple[str, str] | None:
 
 
 def process_next_job(worker_id: str = "") -> tuple[str, str] | None:
-    claimed = claim_next_job()
+    claimed = claim_next_job(worker_id)
     if claimed is None:
         return None
     job_type, job_id = claimed
@@ -186,7 +209,7 @@ def process_next_job(worker_id: str = "") -> tuple[str, str] | None:
         if job_type == "scan":
             from apps.securewise.services.scanner import ScannerRunner
 
-            ScannerRunner().run_scan(job_id)
+            ScannerRunner().run_scan(job_id, worker_id=worker_id)
         else:
             from apps.securewise.services.autopentest import PentestRunner
 

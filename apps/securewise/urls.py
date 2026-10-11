@@ -2,6 +2,7 @@ from django.urls import include, path
 
 from rest_framework.routers import DefaultRouter
 
+from .application_views import ApplicationTargetActionView, ApplicationTargetView, TestingAuthorizationView
 from .views import (
     AuditLogViewSet,
     DashboardSummaryView,
@@ -52,5 +53,17 @@ urlpatterns = [
         name="sw-github-app-repository-selection",
     ),
     path("github-app/webhook/", GitHubAppWebhookView.as_view(), name="sw-github-app-webhook"),
+    path("application-targets/", ApplicationTargetView.as_view(), name="sw-application-targets"),
+    path(
+        "application-targets/<uuid:target_id>/<str:action>/",
+        ApplicationTargetActionView.as_view(),
+        name="sw-application-target-action",
+    ),
+    path("testing-authorizations/", TestingAuthorizationView.as_view(), name="sw-testing-authorizations"),
+    path(
+        "testing-authorizations/<uuid:authorization_id>/revoke/",
+        TestingAuthorizationView.as_view(),
+        name="sw-testing-authorization-revoke",
+    ),
     path("dashboard/summary/", DashboardSummaryView.as_view(), name="sw-dashboard-summary"),
 ]

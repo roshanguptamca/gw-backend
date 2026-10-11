@@ -62,6 +62,14 @@ class DastScanner(BaseScanner):
                 },
             )
 
+        authorization_id = metadata.get("testing_authorization_id")
+        if authorization_id:
+            return self._authorized_passive_scan(
+                target_url,
+                authorization_id,
+                str(metadata.get("worker_id") or ""),
+            )
+
         if not metadata.get("dast_docker_network") or not metadata.get("dast_docker_target_url"):
             reason = (
                 "External and user-supplied DAST targets are disabled for the private beta. "
@@ -117,6 +125,77 @@ class DastScanner(BaseScanner):
         if zap_failures:
             result.metadata["zap_fallback_reason"] = "; ".join(zap_failures)
         return result
+
+    def _authorized_passive_scan(self, target_url: str, authorization_id: str, worker_id: str) -> ScannerResult:
+        from types import SimpleNamespace
+        from uuid import UUID
+
+        from ..models import SecureWiseTestingAuthorization
+        from ..services.url_security import URLSecurityError, authorize_request
+
+        try:
+            authorization_id = str(UUID(str(authorization_id)))
+        except (TypeError, ValueError):
+            return ScannerResult(
+                success=True,
+                findings=[],
+                status="skipped",
+                skipped_reason="Approved URL testing authorization ID is invalid.",
+                metadata={"raw_tool": "none", "execution_mode": "authorization_blocked"},
+            )
+        try:
+            authorization = SecureWiseTestingAuthorization.objects.select_related("target").get(
+                id=authorization_id
+            )
+            status_code, response_headers, _, final_url = authorize_request(
+                authorization,
+                target_url,
+                worker_id=worker_id,
+            )
+        except SecureWiseTestingAuthorization.DoesNotExist:
+            return ScannerResult(
+                success=True,
+                findings=[],
+                status="skipped",
+                skipped_reason="Approved URL testing authorization no longer exists.",
+                metadata={"raw_tool": "none", "execution_mode": "authorization_blocked"},
+            )
+        except URLSecurityError as exc:
+            return ScannerResult(
+                success=True,
+                findings=[],
+                status="skipped",
+                skipped_reason=str(exc),
+                metadata={"raw_tool": "none", "execution_mode": "authorization_blocked"},
+            )
+
+        class HeaderCollection:
+            def getlist(self, name):
+                value = response_headers.get(name.lower())
+                return [value] if value is not None else []
+
+        response = SimpleNamespace(
+            headers=response_headers,
+            status_code=status_code,
+            raw=SimpleNamespace(headers=HeaderCollection()),
+        )
+        findings = []
+        findings.extend(self._check_security_headers(response_headers, final_url))
+        findings.extend(self._check_cookies(response, final_url))
+        findings.extend(self._check_cors(response_headers, final_url))
+        findings.extend(self._check_verbose_headers(response_headers, final_url))
+        return ScannerResult(
+            success=True,
+            findings=findings,
+            metadata={
+                "raw_tool": "requests-passive-dast",
+                "execution_mode": "authorized_passive_http",
+                "target_url": final_url,
+                "status_code": status_code,
+                "testing_authorization_id": authorization_id,
+                "active_tests": False,
+            },
+        )
 
     def _zap_cli_scan(self, target_url: str) -> ScannerResult | None:
         with tempfile.TemporaryDirectory(prefix="securewise-zap-") as tmp:

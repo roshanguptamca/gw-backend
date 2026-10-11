@@ -164,6 +164,11 @@ AUDIT_EVENT_CHOICES = [
     ("github_app_installation_created", "GitHub App Installation Created"),
     ("github_app_repository_synced", "GitHub App Repository Synced"),
     ("github_app_webhook_received", "GitHub App Webhook Received"),
+    ("application_target_registered", "Application Target Registered"),
+    ("application_target_challenge_created", "Application Target Challenge Created"),
+    ("application_target_verified", "Application Target Verified"),
+    ("testing_authorization_approved", "Testing Authorization Approved"),
+    ("testing_authorization_revoked", "Testing Authorization Revoked"),
     ("token_used_for_scan", "Token Used for Scan"),
     ("token_failed", "Token Failed"),
     ("repository_added", "Repository Added"),
@@ -288,6 +293,85 @@ class SecureWiseGitHubWebhookDelivery(models.Model):
     event_type = models.CharField(max_length=100)
     payload_sha256 = models.CharField(max_length=64)
     received_at = models.DateTimeField(auto_now_add=True)
+
+
+class SecureWiseApplicationTarget(models.Model):
+    """A customer application hostname with separately verified ownership."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(
+        SecureWiseOrganization, on_delete=models.CASCADE, related_name="application_targets"
+    )
+    project = models.ForeignKey("SecureWiseProject", on_delete=models.CASCADE, related_name="application_targets")
+    scheme = models.CharField(max_length=5, default="https")
+    hostname = models.CharField(max_length=253)
+    port = models.PositiveIntegerField(default=443)
+    base_path = models.CharField(max_length=500, default="/")
+    verified_at = models.DateTimeField(null=True, blank=True)
+    ownership_revoked_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="sw_created_targets"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["hostname"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=("organization", "hostname", "port"),
+                name="sw_target_org_host_port_unique",
+            )
+        ]
+
+
+class SecureWiseOwnershipChallenge(models.Model):
+    METHOD_CHOICES = [("dns_txt", "DNS TXT"), ("https_well_known", "HTTPS well-known")]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    target = models.ForeignKey(
+        SecureWiseApplicationTarget, on_delete=models.CASCADE, related_name="ownership_challenges"
+    )
+    method = models.CharField(max_length=30, choices=METHOD_CHOICES)
+    challenge_digest = models.CharField(max_length=64)
+    expires_at = models.DateTimeField()
+    verified_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class SecureWiseTestingAuthorization(models.Model):
+    ENVIRONMENT_CHOICES = [
+        ("production", "Production"),
+        ("staging", "Staging"),
+        ("test", "Test"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(
+        SecureWiseOrganization, on_delete=models.CASCADE, related_name="testing_authorizations"
+    )
+    target = models.ForeignKey(
+        SecureWiseApplicationTarget, on_delete=models.CASCADE, related_name="testing_authorizations"
+    )
+    authorized_hosts = models.JSONField(default=list)
+    allowed_ports = models.JSONField(default=list)
+    allowed_paths = models.JSONField(default=list)
+    excluded_paths = models.JSONField(default=list, blank=True)
+    approved_scan_methods = models.JSONField(default=list)
+    testing_environment = models.CharField(max_length=20, choices=ENVIRONMENT_CHOICES)
+    starts_at = models.DateTimeField()
+    expires_at = models.DateTimeField()
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="sw_testing_approvals"
+    )
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
 
 
 class SecureWiseGitIntegration(models.Model):
@@ -553,6 +637,13 @@ class SecureWiseScan(models.Model):
     repository = models.ForeignKey(
         SecureWiseRepository,
         on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="scans",
+    )
+    testing_authorization = models.ForeignKey(
+        SecureWiseTestingAuthorization,
+        on_delete=models.PROTECT,
         null=True,
         blank=True,
         related_name="scans",

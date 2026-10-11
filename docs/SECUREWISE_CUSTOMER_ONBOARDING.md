@@ -1,9 +1,10 @@
 # SecureWise customer onboarding
 
-This guide describes the Phase 7 GitHub App code-scanning path that is present
-in the branch. It does not describe a fully available customer URL assessment:
-target registration, DNS/HTTPS ownership proof, and legal authorization are
-still missing, and external DAST remains blocked.
+This guide describes the Phase 7 GitHub App code-scanning foundation and the
+Phase 7.1 URL ownership/authorization workflow present in the branch. The
+customer URL assessment is fail-closed unless a dedicated worker has a
+verified network-layer egress policy. Neither a live GitHub App scan nor an
+external URL scan has been completed; this branch is not customer-beta ready.
 
 ## Operator setup (required before connecting a customer)
 
@@ -41,6 +42,15 @@ still missing, and external DAST remains blocked.
 6. Configure/verify Django session cookies and CSRF for the deployed frontend
    and API origins. GitHub returns to an authenticated setup callback; the
    initiating SecureWise organization admin must still be signed in.
+7. Before enabling URL scans, deploy a dedicated URL worker and enforce
+   host/network-layer egress restrictions that block private, loopback,
+   link-local, metadata and other forbidden ranges, including after redirects
+   and DNS changes. The application uses `SECUREWISE_URL_EGRESS_ENFORCED=true`
+   as an operator declaration and the worker advertises
+   `url_egress_restricted`; neither setting verifies firewall rules. Do not set
+   the flag or advertise this capability until the deployed firewall and
+   worker separation have been independently verified. No firewall setup
+   script or production egress evidence is included in this change.
 
 For rollback, disable GitHub App setup and repository scans before reverting
 the deployment. Restoring a database backup is preferred. Reversing the
@@ -70,10 +80,41 @@ Repository synchronization only accepts IDs returned by the selected
 installation. A removed or suspended installation cannot be used for the next
 archive download. Webhook delivery replay is suppressed.
 
+## Application ownership and passive URL assessment
+
+1. In **Application Targets**, select an organization project and enter an
+   exact HTTPS URL. Supported ports are 443 and 8443; IP literals, private or
+   non-global DNS destinations, query strings and fragments are rejected.
+2. Publish the one-time proof shown by the page at the DNS TXT name
+   `_securewise-verification.<hostname>` or the HTTPS well-known path
+   `/.well-known/securewise-verification.txt`. Challenges expire after 24
+   hours and are stored as digests. Verify the exact host. Reverification does
+   not itself authorize testing.
+3. An organization admin separately approves a staging/test environment,
+   exact allowed and excluded path prefixes, and a bounded expiry. The
+   authorization permits only passive HTTP checks and can be revoked.
+4. Start the passive assessment only after the deployment operator has
+   independently verified the URL worker's network egress policy. The
+   application re-resolves and validates addresses, pins HTTPS connections,
+   revalidates redirects/scope, ignores ambient proxies, applies request
+   limits, and sends only a GET. External ZAP, active tests, destructive
+   operations and high-volume testing are unavailable.
+5. If the network policy is not verified, the worker is not registered with
+   the required capability and scans remain blocked. Do not set
+   `SECUREWISE_URL_EGRESS_ENFORCED=true` based only on this document or a
+   successful test suite.
+
+Local verification currently mocks DNS/HTTPS proofs and HTTP transport. It
+does not prove a live domain challenge or real target assessment. Loopback and
+private fixture servers are correctly rejected, so no local HTTPS end-to-end
+target scan was performed.
+
 ## Not yet available
 
-- Application URL ownership verification, explicit legal test authorization,
-  scoped path exclusions, authorized URL scans and retests.
+- Live GitHub App installation/private repository scanning and live URL
+  ownership verification/authorized passive assessment.
+- Independently verified worker network egress policy and dedicated URL
+  worker isolation; external URL scans must remain disabled until this exists.
 - Active URL testing, external ZAP, general authenticated website testing or
   automatic push/PR scans.
 - Combined project reports spanning code and URL findings. Existing reports

@@ -15,8 +15,8 @@ AutoPentest and API client.
 | Repository records and private Git credentials | Reusable, incomplete | `SecureWiseRepository`, `SecureWiseGitIntegration`; existing encrypted credentials and clone helper | New GitHub App-linked repository mode coexists with legacy PAT/OAuth for existing integrations; the legacy mode is not presented as the App flow. |
 | GitHub App flow | Partially implemented | New organization-bound installation/state/webhook models and API service | Manual App installation, state validation, read-only permission check, selected-repository synchronization, short-lived token use, webhook signature/replay handling are implemented with mocked-provider tests. No live App credentials, installation, webhook endpoint or customer repository was tested. |
 | Static source scanning | Reusable, partially implemented | Existing worker queue, scanner adapters and findings; GitHub App archive ingestion added | App scans resolve and record a commit SHA and extract a bounded archive without running build scripts. Worker-host isolation and scanner license/version provenance remain unverified. |
-| URL verification and customer target scope | Missing | Existing scan target URL and AutoPentest `PentestScope` are not ownership proof or target authorization records | Add target and challenge records, public-DNS and redirect validation, explicit separate legal authorization, expiration/revocation and passive-only first release. Enforce URL safety at request time and document required network egress controls. |
-| Passive URL scanner | Incomplete / unsafe for SaaS | Existing DAST supports passive requests/ZAP, but Phase 6 blocks non-runtime targets | Reuse passive DAST only after target ownership, authorization, DNS/address and path scope checks; active tests stay disabled. |
+| URL verification and customer target scope | Partially implemented | New organization/project-owned target and challenge records, explicit separate authorization with exact host/port/path/method/time bounds, ownership/authorization revocation | DNS TXT/HTTPS challenge APIs and UI exist; challenge expiry and scope/revocation are tested with mocked DNS/HTTPS. Live proof and external egress enforcement remain unverified. |
+| Passive URL scanner | Partially implemented; externally disabled without deployment protection | Existing DAST and new pinned HTTPS/passive HTTP path | GET-only passive header/cookie/CORS checks revalidate authorization and scope for requests/redirects. No customer URL was requested, and no firewall/isolated URL worker has been verified. |
 | AutoPentest and evidence | Reusable, incomplete | `PentestSession`, scope, test cases/executions/evidence, approval workflow, Playwright and authenticated API adapters | Reuse for explicit synthetic-account assessments; do not broaden external testing until every request/redirect can enforce approved scope. |
 | Findings and combined reports | Implemented, incomplete | `SecureWiseFinding`, scan histories, deduplication, report JSON/HTML/PDF | Add repository/commit/target linkage through existing scan metadata and report projection where safe; preserve engine/source and confirmed/suspected distinction. |
 | Tenant API authorization | Partially implemented | Organization-scoped querysets, membership role helpers, cross-tenant tests | New installation/repository endpoints are organization-scoped, with admin-only selection; repository integration mismatch is rejected. URL target, invitation, deletion, evidence and full export review remains incomplete. |
@@ -69,9 +69,9 @@ AutoPentest and API client.
 - Static private-repository test asserts pinned commit, no token in URL/log,
   and no build/install/start hooks executed. Real private-repository testing
   requires operator-owned App credentials and installation.
-- URL tests use only loopback or an owned local fixture; public target scans
-  are not run. Authorization, public-address filtering, DNS revalidation,
-  redirect rejection and safe passive behavior are tested.
+- URL tests mock DNS and HTTP transport to verify public-address filtering,
+  scope, expiry/revocation and redirect rejection. No real target request or
+  local loopback request is run; no egress firewall has been verified.
 - Reports preserve scanner observations versus verified findings and make
   skipped engines/coverage limitations explicit.
 - Backend and frontend suites, Django checks, migration drift, lint/build and
@@ -80,10 +80,11 @@ AutoPentest and API client.
 
 ## Phase 7 implementation update
 
-The first vertical slice now covers GitHub App setup and repository selection,
+The Phase 7.1 slice now covers GitHub App setup and repository selection,
 commit-pinned archive retrieval, explicit static-only worker handling,
-webhook signature/replay controls, and an organization integration-reference
-fix. URL target authorization/scanning, complete membership onboarding,
-combined reports, retention controls, production isolation and real GitHub
-operations remain blockers; see the execution evidence and customer security
-model for exact verification limits.
+webhook signature/replay controls, organization-scoped URL target proof and
+authorization, request-level scoped passive checks, and the customer URL
+workflow. Real GitHub/App and URL challenges/scans, verified network egress,
+complete membership onboarding, combined reports, retention controls and
+production isolation remain blockers; see the execution evidence and customer
+security model for exact verification limits.

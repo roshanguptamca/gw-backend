@@ -27,7 +27,7 @@ class ScannerRunner:
     Orchestrates cloning a repository and running one or more scan engines.
     """
 
-    def run_scan(self, scan_id: str) -> None:
+    def run_scan(self, scan_id: str, worker_id: str = "") -> None:
         """Entry point called by the view after saving the scan."""
         from django.utils import timezone
 
@@ -43,6 +43,7 @@ class ScannerRunner:
 
         if scan.status == "cancelled":
             return
+        scan._securewise_worker_id = worker_id
         scan.engine_results.all().delete()
         scan.status = "running"
         scan.started_at = timezone.now()

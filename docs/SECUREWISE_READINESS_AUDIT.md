@@ -176,9 +176,10 @@ or production tenant isolation.
 | Private static source scanning | Partially implemented: installation token and bounded commit archive path; exact commit SHA is recorded | Mocked commit/archive and safe extraction tests pass; no real scanner ran against a private repository | No | `test_github_app.py`, existing scanner/worker suites | Live private repository test; per-job scanner isolation; scanner version/license audit; production worker | P0 |
 | GitHub webhook security | Partially implemented: HMAC signature validation, payload size limit, delivery replay ledger, suspend/remove state | Local cryptographic fixture test passes | No | `test_github_app.py` | Public webhook endpoint, configured secret, live signed delivery and broader event handling | P1 |
 | Repository/integration tenant association | Implemented for submitted repository relations; legacy integration test action is admin-only | Cross-org reference and viewer denial tests pass | No | `test_api.py` | Full deployed endpoint/access/export audit remains outstanding | P0 |
-| URL target ownership and authorization | Missing; no customer target registration or legal authorization record | No | No | Existing external target block tests only | TXT/HTTPS challenge, expiry/replay, host/port/path scope, legal approval, DNS rebinding and egress enforcement | P0 |
-| Authorized passive URL assessment | Missing for external targets; Phase 6 DAST block remains | No public/customer target requests run | No | Existing DAST tests cover rejection, not authorized customer scanning | Request-level scope/redirect/DNS defenses and network egress controls | P0 |
-| Unified code+URL reports and customer dashboard | Partially implemented: existing scan report reused; GitHub App selection added to Repositories | Full frontend regression suite, typecheck and production build pass; reports remain scan-bound | No | Existing report tests; frontend repository tests | URL findings, project-level combined report, full onboarding, downloaded data/retention controls | P1 |
+| URL target ownership and authorization | Partially implemented: exact-host target, one-time DNS TXT/HTTPS challenges, expiry, revocation, explicit separate passive-only authorization and path/port scope | Mocked DNS/HTTPS proofs and authorization lifecycle tests pass | No | `tests/securewise/test_application_targets.py` | Live challenge verification, external egress enforcement and deployment evidence | P0 |
+| Authorized passive URL assessment | Partially implemented: safe pinned HTTPS GET, public-IP and redirect validation, per-request scope/authorization checks, GET-only passive checks and worker capability gate | Controlled mocked transport/scope tests pass; no real target requested | No | `test_application_targets.py`, existing scanner suite | Dedicated verified network egress firewall and controlled HTTPS fixture integration | P0 |
+| GitHub App private static source scanning | Partially implemented: commit-pinned archive and static-only path; real Semgrep was run only on the controlled local fixture | Semgrep findings and persistence verified locally; private repository flow remains mocked | No | `test_github_app.py`, `test_application_targets.py`, scanner/worker suites | GitHub App credentials, operator-owned private repository and live worker execution | P0 |
+| Unified code+URL reports and customer dashboard | Partially implemented: existing scan reports/findings reused; GitHub repository and URL onboarding pages added | Frontend suite (199), typecheck and production build pass; URL UI test passes | No | Existing report tests; frontend application-target/repository tests | Combined project-level report, full onboarding, downloaded data/retention controls | P1 |
 | Tenant roles and invitations | Partially implemented: existing owner/admin/security_engineer/developer/auditor roles reused | Prior API tests plus new cross-reference checks | No | `test_api.py` | Requested member/viewer semantics and secure invitation/removal lifecycle not delivered | P1 |
 
 The Phase 7 GitHub App path is static-only: it does not run repository build,
@@ -188,9 +189,19 @@ or scanner-host isolation has been demonstrated. App state, archive extraction,
 webhook, and selected repository tests mock GitHub; no real GitHub API call or
 private customer repository scan took place.
 
-No URL verification/authorization capability was added. Do not bypass the
-external DAST restriction by submitting `target_url` directly. Ownership is
-not legal authorization, and neither is currently captured for customer URLs.
+URL ownership verification and separate legal authorization are now
+implemented at source level. DNS/HTTPS proof, URL networking and findings have
+not been verified against a live controlled HTTPS target. The environment
+variable and worker registration capability are attestations, not proof of a
+firewall. External URL scans must remain disabled until a dedicated network
+egress policy is independently verified. Do not bypass authorization or egress
+gates by submitting `target_url` directly.
+
+The controlled local Semgrep fixture produced real findings and verified that
+repository build/install scripts were not executed. This is not a live
+private-GitHub-repository scan. The full backend run had 1,035 passes, 6 skips,
+and 15 unrelated marketplace/resume PDF/email failures caused by missing
+`libgobject-2.0-0`; the SecureWise URL-target suite passed 12 tests.
 
 Phase 7 execution detail is recorded in
 [`SECUREWISE_PHASE7_EXECUTION_EVIDENCE.md`](SECUREWISE_PHASE7_EXECUTION_EVIDENCE.md),

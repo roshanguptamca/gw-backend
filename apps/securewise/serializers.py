@@ -27,6 +27,7 @@ from .models import (
     SecureWiseScanEngineResult,
     SecureWiseScanPolicy,
     SecureWiseScanPolicyTemplate,
+    SecureWiseTestingAuthorization,
 )
 from .runtime.logs import redact_secrets, tail_lines
 
@@ -396,6 +397,11 @@ class SecureWiseScanPolicyTemplateSerializer(serializers.ModelSerializer):
 
 class SecureWiseScanSerializer(serializers.ModelSerializer):
     triggered_by_detail = MinimalUserSerializer(source="triggered_by", read_only=True)
+    testing_authorization = serializers.PrimaryKeyRelatedField(
+        queryset=SecureWiseTestingAuthorization.objects.all(),
+        required=False,
+        allow_null=True,
+    )
     finding_counts = serializers.SerializerMethodField()
     can_retry = serializers.SerializerMethodField()
     error_message = serializers.SerializerMethodField()
@@ -407,6 +413,7 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
             "organization",
             "project",
             "repository",
+            "testing_authorization",
             "policy",
             "scan_type",
             "branch",
@@ -479,6 +486,60 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
         scan_type = attrs.get("scan_type", getattr(self.instance, "scan_type", "full"))
         target_url = attrs.get("target_url", getattr(self.instance, "target_url", ""))
         api_spec_url = attrs.get("api_spec_url", getattr(self.instance, "api_spec_url", ""))
+        testing_authorization = attrs.get(
+            "testing_authorization",
+            getattr(self.instance, "testing_authorization", None),
+        )
+        if target_url:
+            if organization is None or project is None:
+                raise serializers.ValidationError(
+                    {"project": "External URL scans must belong to an organization project."}
+                )
+            if testing_authorization is None:
+                raise serializers.ValidationError(
+                    {"testing_authorization": "External target URLs require an approved testing authorization."}
+                )
+            if (
+                testing_authorization.organization_id != organization.id
+                or testing_authorization.target.project_id != project.id
+            ):
+                raise serializers.ValidationError(
+                    {"testing_authorization": "The authorization must belong to this project and organization."}
+                )
+            from .services.url_security import (
+                URLSecurityError,
+                authorization_is_active,
+                parse_https_url,
+                path_is_allowed,
+            )
+
+            try:
+                _, hostname, port, path = parse_https_url(target_url)
+            except URLSecurityError as exc:
+                raise serializers.ValidationError({"target_url": str(exc)}) from exc
+            from urllib.parse import urlsplit
+
+            if urlsplit(target_url).query:
+                raise serializers.ValidationError({"target_url": "Target URLs cannot contain query parameters."})
+            if (
+                not authorization_is_active(testing_authorization)
+                or hostname not in testing_authorization.authorized_hosts
+                or port not in testing_authorization.allowed_ports
+                or not path_is_allowed(
+                    path,
+                    testing_authorization.allowed_paths,
+                    testing_authorization.excluded_paths,
+                )
+            ):
+                raise serializers.ValidationError(
+                    {"target_url": "Target is not covered by a current approved authorization."}
+                )
+        elif testing_authorization is not None:
+            attrs["target_url"] = (
+                f"https://{testing_authorization.target.hostname}:{testing_authorization.target.port}"
+                f"{testing_authorization.target.base_path}"
+            )
+            target_url = attrs["target_url"]
 
         # Engines that operate on cloned source code need a repository.
         source_dependent_types = {"sast", "sca", "secrets", "iac", "container"}
