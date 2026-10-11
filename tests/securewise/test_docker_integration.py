@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import subprocess
 from pathlib import Path
 
@@ -33,16 +34,19 @@ def test_worker_runs_real_trivy_and_zap_against_controlled_fixture(monkeypatch):
     if not docker_available:
         pytest.skip(reason)
 
-    zap_available = subprocess.run(
-        [
-            "docker",
-            "image",
-            "inspect",
-            "ghcr.io/zaproxy/zaproxy@sha256:7aaa659b0d43078febd82e29bad112285c370727e86ab8340444220e17d9f0d2",
-        ],
-        capture_output=True,
-        timeout=20,
-    ).returncode == 0
+    zap_available = (
+        subprocess.run(
+            [
+                "docker",
+                "image",
+                "inspect",
+                "ghcr.io/zaproxy/zaproxy@sha256:7aaa659b0d43078febd82e29bad112285c370727e86ab8340444220e17d9f0d2",
+            ],
+            capture_output=True,
+            timeout=20,
+        ).returncode
+        == 0
+    )
     if not zap_available:
         pytest.skip("Pull the digest-pinned OWASP ZAP image before running this integration test.")
 
@@ -110,13 +114,17 @@ def test_worker_runs_real_trivy_and_zap_against_controlled_fixture(monkeypatch):
     assert dast.raw_summary["execution_mode"] == "zap_baseline"
     assert dast.raw_summary["runner"] == "docker-zap-baseline"
     assert scan.findings.filter(scanner_type="dast").exists()
+    assert any("CSP" in title for title in scan.findings.filter(scanner_type="dast").values_list("title", flat=True))
 
     image = container.raw_summary["image"]
-    assert subprocess.run(
-        ["docker", "image", "inspect", image],
-        capture_output=True,
-        timeout=20,
-    ).returncode != 0
+    assert (
+        subprocess.run(
+            ["docker", "image", "inspect", image],
+            capture_output=True,
+            timeout=20,
+        ).returncode
+        != 0
+    )
     remaining_runtime_containers = set(
         subprocess.run(
             ["docker", "ps", "-aq", "--filter", "name=securewise-runtime-"],
@@ -133,6 +141,7 @@ def test_worker_runs_real_trivy_and_zap_against_controlled_fixture(monkeypatch):
     evidence = {
         "scan_id": str(scan.id),
         "status": scan.status,
+        "worker_architecture": platform.machine(),
         "engines": {
             "container": {
                 "status": container.status,
@@ -145,6 +154,7 @@ def test_worker_runs_real_trivy_and_zap_against_controlled_fixture(monkeypatch):
                 "execution_mode": dast.raw_summary["execution_mode"],
                 "runner": dast.raw_summary["runner"],
                 "findings": dast.findings_count,
+                "finding_titles": list(scan.findings.filter(scanner_type="dast").values_list("title", flat=True)),
             },
         },
         "persisted_findings": scan.findings.count(),

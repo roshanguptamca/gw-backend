@@ -1,6 +1,6 @@
 # SecureWise readiness audit
 
-**Audit date:** 2026-10-10
+**Audit date:** 2026-10-11
 **Repositories inspected:** `roshanguptamca/gw-backend` and the local
 `roshanguptamca/securewise-frontend` checkout.
 **Branch:** `feature/securewise-autopentest-foundation`
@@ -230,6 +230,29 @@ with customer constraints in
 [`SECUREWISE_CUSTOMER_SECURITY_MODEL.md`](SECUREWISE_CUSTOMER_SECURITY_MODEL.md)
 and setup limitations in
 [`SECUREWISE_CUSTOMER_ONBOARDING.md`](SECUREWISE_CUSTOMER_ONBOARDING.md).
+
+## Phase 7.4 controlled end-to-end assessment status
+
+| Capability | Implementation status | Working locally | Verified in production | Tests/evidence | Blockers | Priority |
+|---|---|---|---|---|---|---|
+| Authenticated API assessment | Implemented for bounded, read-only checks against a reviewed isolated runtime | Real API job detected one synthetic cross-user IDOR, passed three authorization cases, persisted a unified finding, and cleaned runtime resources | No | Opt-in Docker test in `test_autopentest_worker.py`; Phase 7.4 execution evidence | Current complete API/retest workflow was executed in the pytest process; no Linux VM deployment | P0 |
+| Playwright browser assessment | Implemented for declared fixture journeys and synthetic users | Real ARM64 Chromium run confirmed one IDOR, passed six checks, persisted seven evidence records, served report API, and retested the unresolved finding | No | Opt-in Docker test `test_authenticated_browser_scans_real_fixture_and_cleans_up` | Full retest path not repeated through an independent current-revision worker process or Linux VM | P0 |
+| Runtime image/container scan | Implemented and reused by existing scan pipeline | Trivy 0.72.0 scanned the controlled runtime-built image; 268 findings reported; temporary image removed | No | Opt-in `test_docker_integration.py` | No dedicated Linux worker or customer image | P0 |
+| Passive DAST against isolated runtime | Implemented with explicit ZAP baseline execution | Digest-pinned OWASP ZAP baseline ran over an internal Docker network and persisted a CSP-related result; actual mode recorded as `zap_baseline` | No | Opt-in `test_docker_integration.py` | Fixture is HTTP/local; TLS and external customer URL behavior are not verified | P0 |
+| Target ownership and authorization workflow | Partially implemented | Ownership challenge, expiry/revocation, tenant scope and scan-block tests pass with mocked DNS/HTTPS providers | No | `test_application_targets.py` | No live domain challenge or approved customer target | P0 |
+| External URL network protection | Fail-closed application control; host policy unverified | Private/loopback, metadata, DNS pinning, redirect and port controls have application-layer tests; egress proof check is false locally | No | `test_application_targets.py`; Phase 7.4 evidence | No independently verified Linux host firewall or external network test; external URL scan must remain blocked | P0 |
+| SecureWise report and retest flow | Implemented for AutoPentest sessions | Report API returned test cases/evidence; retest correctly reports one still-confirmed IDOR finding | No | Opt-in browser integration and Phase 7.4 evidence | Frontend is locally tested only; no deployed user flow | P1 |
+| Standalone worker process | Existing worker command/queue reused | Separate-process queue processing remains verified in Phase 4 evidence; Phase 7.4 extended the current queue entry-point fixture test but did not relaunch a separate process for report/retest | No | Phase 4 execution evidence; Phase 7.4 integration test | Repeat current full workflow through a standalone worker on persistent DB/Linux VM | P0 |
+
+The local Docker server reports `linux/aarch64`; the Django host remains
+macOS. This is real ARM64 container execution, not verification of a generic
+Linux VM or cloud provider. No live DNS challenge, customer URL, host egress
+firewall, Oracle/AWS/Azure/GCP/Hetzner/DigitalOcean VM, or production service
+was used. External URL testing remains disabled, and the full acceptance
+criterion/customer-beta readiness is not established. See
+[`SECUREWISE_PHASE7_4_EXECUTION_EVIDENCE.md`](SECUREWISE_PHASE7_4_EXECUTION_EVIDENCE.md)
+for run IDs, exact scanner outcomes, verification results, and manual Linux
+worker commands.
 
 ## Validation performed for this change
 

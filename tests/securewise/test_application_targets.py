@@ -373,6 +373,86 @@ def test_private_dns_and_redirect_destinations_are_rejected(monkeypatch):
         )
 
 
+@pytest.mark.parametrize(
+    "address",
+    [
+        "127.0.0.1",
+        "10.0.0.8",
+        "100.64.0.1",
+        "169.254.169.254",
+        "172.16.0.1",
+        "192.168.1.1",
+        "::1",
+        "fc00::1",
+        "fe80::1",
+    ],
+)
+def test_url_resolution_rejects_private_and_metadata_ranges(monkeypatch, address):
+    family = 10 if ":" in address else 2
+    monkeypatch.setattr(
+        url_security.socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [(family, 1, 6, "", (address, 0))],
+    )
+
+    with pytest.raises(url_security.URLSecurityError, match="forbidden"):
+        url_security.resolve_public_addresses("target.example")
+
+
+def test_safe_https_get_pins_validated_address_across_dns_rebinding(monkeypatch):
+    resolutions = []
+    pinned = []
+
+    def resolve(host, *args, **kwargs):
+        resolutions.append(host)
+        address = "93.184.216.34" if len(resolutions) == 1 else "127.0.0.1"
+        return [(2, 1, 6, "", (address, 0))]
+
+    monkeypatch.setattr(url_security.socket, "getaddrinfo", resolve)
+    monkeypatch.setattr(
+        url_security,
+        "_pinned_get_once",
+        lambda url, ip, **kwargs: (pinned.append(ip) or 200, {}, b""),
+    )
+
+    result = url_security.safe_https_get(
+        "https://app.example/",
+        allowed_hosts={"app.example"},
+        allowed_ports={443},
+        allowed_paths=["/"],
+        excluded_paths=[],
+    )
+
+    assert result[0] == 200
+    assert resolutions == ["app.example"]
+    assert pinned == ["93.184.216.34"]
+
+
+def test_safe_https_get_rejects_unapproved_redirect_hosts_and_ports(monkeypatch):
+    monkeypatch.setattr(
+        url_security.socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [(2, 1, 6, "", ("93.184.216.34", 0))],
+    )
+    monkeypatch.setattr(
+        url_security,
+        "_pinned_get_once",
+        lambda url, ip, **kwargs: (302, {"location": "https://other.example/"}, b""),
+    )
+
+    with pytest.raises(url_security.URLSecurityError, match="outside the approved host and port scope"):
+        url_security.safe_https_get(
+            "https://app.example/",
+            allowed_hosts={"app.example"},
+            allowed_ports={443},
+            allowed_paths=["/"],
+            excluded_paths=[],
+        )
+
+    with pytest.raises(url_security.URLSecurityError, match="approved ports"):
+        url_security.parse_https_url("https://app.example:9443/")
+
+
 def test_authorized_dast_uses_only_scoped_passive_http(target_workspace, monkeypatch, tmp_path):
     _, _, _, project, client = target_workspace
     target_id = register_and_verify(client, project, monkeypatch)
