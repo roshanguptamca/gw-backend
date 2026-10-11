@@ -76,8 +76,8 @@
 | Frontend `npm run typecheck` | Passed |
 | Frontend `npm run build` | Passed |
 | Frontend `npm run lint` | Passed with 8 warnings in existing unrelated files |
-| Frontend Prettier check | Not run: Prettier executable is absent from the local install |
-| `git diff --check` | Passed before documentation updates |
+| Frontend Prettier check | Passed in the frontend commit hook |
+| `git diff --check` | Passed for the final backend changes |
 
 Tests exercise callback state/permissions, installation scoping, repository
 selection and immutable GitHub identity, webhook HMAC/replay/suspension
