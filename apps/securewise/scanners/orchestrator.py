@@ -7,14 +7,14 @@ and performs simple cross-engine correlation.
 from __future__ import annotations
 
 import logging
-
 from pathlib import Path
 
 from django.utils import timezone
 
 from ..discovery.engine import ApplicationDiscoveryEngine
-from ..runtime.manager import RuntimeEnvironmentManager
 from ..runtime.logs import redact_secrets
+from ..runtime.manager import RuntimeEnvironmentManager
+from ..services.worker_profile import LIGHTWEIGHT_ENGINE_TYPES, is_lightweight_worker
 from .api import ApiScanner
 from .base import ScannerFinding
 from .container import ContainerScanner
@@ -141,6 +141,14 @@ class ScannerOrchestrator:
             # Library/CLI repos are intentionally excluded here because they
             # have no HTTP runtime to target.
             engines.append("dast")
+        if is_lightweight_worker():
+            engines = [
+                engine for engine in engines if engine in LIGHTWEIGHT_ENGINE_TYPES or engine in {"container", "dast"}
+            ]
+            if "container" not in engines:
+                engines.append("container")
+            if "dast" not in engines:
+                engines.append("dast")
         return engines
 
     def run(self, scan, repo_path: Path):
@@ -186,7 +194,7 @@ class ScannerOrchestrator:
         # don't already have an explicit target_url. This never runs for
         # unit tests using bare tmp_path fixtures with no repository FK —
         # see docs/SMART_REPO_SCAN.md.
-        if "dast" in engines and not scan.target_url and scan.repository_id:
+        if "dast" in engines and not scan.target_url and scan.repository_id and not is_lightweight_worker():
             discovery_plan, metadata = self._run_discovery_and_runtime(scan, repo_path, metadata)
             runtime_manager = getattr(self, "_active_runtime_manager", None)
 
@@ -216,13 +224,26 @@ class ScannerOrchestrator:
                 )
 
                 engine_cls = _ENGINE_CLASSES[engine_name]
-                engine = engine_cls()
                 started = timezone.now()
                 try:
                     run_metadata = dict(metadata)
-                    if engine_name == "dast" and scan.testing_authorization_id:
-                        run_metadata["worker_id"] = getattr(scan, "_securewise_worker_id", "")
-                    result = engine.run(repo_path, str(scan.id), run_metadata)
+                    if is_lightweight_worker() and engine_name not in LIGHTWEIGHT_ENGINE_TYPES:
+                        from .base import ScannerResult
+
+                        result = ScannerResult(
+                            success=True,
+                            status="skipped",
+                            skipped_reason=(
+                                "Disabled by the lightweight worker profile; Docker builds, application runtimes, "
+                                "browser execution, and customer URL scanning are not run."
+                            ),
+                            metadata={"raw_tool": "none", "worker_profile": "lightweight"},
+                        )
+                    else:
+                        engine = engine_cls()
+                        if engine_name == "dast" and scan.testing_authorization_id:
+                            run_metadata["worker_id"] = getattr(scan, "_securewise_worker_id", "")
+                        result = engine.run(repo_path, str(scan.id), run_metadata)
                 except Exception as exc:  # pragma: no cover - defensive
                     logger.exception("Engine %s failed for scan %s", engine_name, scan.id)
                     result = None

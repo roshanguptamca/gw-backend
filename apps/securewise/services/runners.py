@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import platform
 import os
+import platform
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -12,6 +12,7 @@ from datetime import timedelta
 from django.utils import timezone
 
 from apps.securewise.models import SecureWiseScan, SecureWiseWorkerRegistration
+from apps.securewise.services.worker_profile import is_lightweight_worker, lightweight_scan_allowed
 
 ENGINE_CAPABILITIES = {
     "sast": "sast",
@@ -39,6 +40,7 @@ class RunnerCapabilities:
     scanner_versions: dict[str, str]
     capabilities: tuple[str, ...]
     docker_available: bool
+    scanner_availability: dict[str, str]
     isolation_capabilities: tuple[str, ...] = ()
     host_egress_proof_fresh: bool = False
 
@@ -48,6 +50,7 @@ class RunnerCapabilities:
             "architecture": self.architecture,
             "available_memory_bytes": self.available_memory_bytes,
             "scanner_versions": self.scanner_versions,
+            "scanner_availability": self.scanner_availability,
             "capabilities": list(self.capabilities),
             "docker_available": self.docker_available,
             "isolation_capabilities": list(self.isolation_capabilities),
@@ -97,20 +100,28 @@ def _tool_version(executable: str, arguments: tuple[str, ...]) -> str:
 
 def discover_runner_capabilities(*, runner_type: str = "linux_worker") -> RunnerCapabilities:
     """Inspect installed tools and host properties without assuming a cloud provider."""
+    lightweight = is_lightweight_worker()
     from apps.securewise.runtime.docker_runner import is_docker_available, is_docker_image_available
     from apps.securewise.services.worker import PLAYWRIGHT_RUNNER_IMAGE, WORKER_CAPABILITIES
 
-    versions = {
-        name: version for name, command in SCANNER_COMMANDS.items() if (version := _tool_version(command[0], command))
-    }
-    docker_available = is_docker_available()[0]
-    capabilities = list(WORKER_CAPABILITIES)
+    scanner_availability = {}
+    versions = {}
+    for name, command in SCANNER_COMMANDS.items():
+        if lightweight:
+            scanner_availability[name] = "disabled"
+            continue
+        version = _tool_version(command[0], command)
+        scanner_availability[name] = "available" if version else "unavailable"
+        if version:
+            versions[name] = version
+    docker_available = False if lightweight else is_docker_available()[0]
+    capabilities = ["sast", "sca", "secrets", "iac", "api"] if lightweight else list(WORKER_CAPABILITIES)
     if docker_available:
         capabilities.append("docker_daemon")
         if is_docker_image_available(PLAYWRIGHT_RUNNER_IMAGE):
             capabilities.append("playwright")
         capabilities.append("zap_baseline_docker")
-    if shutil.which("zap-baseline.py"):
+    if not lightweight and shutil.which("zap-baseline.py"):
         capabilities.append("zap_baseline_cli")
     architecture = platform.machine().lower()
     if architecture in {"aarch64", "arm64"}:
@@ -128,7 +139,8 @@ def discover_runner_capabilities(*, runner_type: str = "linux_worker") -> Runner
         scanner_versions=versions,
         capabilities=tuple(sorted(set(capabilities))),
         docker_available=docker_available,
-        host_egress_proof_fresh=url_egress_enforced(),
+        scanner_availability=scanner_availability,
+        host_egress_proof_fresh=False if lightweight else url_egress_enforced(),
     )
 
 
@@ -160,11 +172,16 @@ def worker_supports_scan(
         return False, "Runner heartbeat is stale or offline."
     if registration.active_job_id:
         return False, "Runner already has an active job."
+    metrics = registration.metrics if isinstance(registration.metrics, dict) else {}
+    if metrics.get("worker_profile") == "lightweight" and not lightweight_scan_allowed(scan):
+        return (
+            False,
+            "Lightweight worker only accepts repository-static scans without URL, image, or external spec targets.",
+        )
     capabilities = set(registration.capabilities or ())
     missing = sorted(required_capabilities(scan) - capabilities)
     if missing:
         return False, f"Runner lacks required capabilities: {', '.join(missing)}."
-    metrics = registration.metrics if isinstance(registration.metrics, dict) else {}
     architecture = metrics.get("architecture", "")
     if architecture not in {"arm64", "amd64"}:
         return False, f"Unsupported or unknown runner architecture: {architecture or 'unknown'}."
@@ -218,6 +235,7 @@ def runner_fleet_summary(*, now=None) -> list[dict]:
                 "idle": 0,
                 "capabilities": set(),
                 "scanner_versions": {},
+                "scanner_availability": {},
             },
         )
         row["online"] += 1
@@ -225,11 +243,16 @@ def runner_fleet_summary(*, now=None) -> list[dict]:
         row["capabilities"].update(registration.capabilities or ())
         for name, version in (metrics.get("scanner_versions", {}) or {}).items():
             row["scanner_versions"].setdefault(name, set()).add(version)
+        for name, status in (metrics.get("scanner_availability", {}) or {}).items():
+            row["scanner_availability"].setdefault(name, set()).add(status)
     return [
         {
             **row,
             "capabilities": sorted(row["capabilities"]),
             "scanner_versions": {name: sorted(versions) for name, versions in sorted(row["scanner_versions"].items())},
+            "scanner_availability": {
+                name: sorted(statuses) for name, statuses in sorted(row["scanner_availability"].items())
+            },
         }
         for _, row in sorted(summary.items())
     ]

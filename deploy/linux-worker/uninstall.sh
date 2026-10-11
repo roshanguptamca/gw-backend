@@ -7,7 +7,9 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 systemctl disable --now securewise-worker.service 2>/dev/null || true
+systemctl stop securewise-worker-connectivity-check.service 2>/dev/null || true
 rm -f /etc/systemd/system/securewise-worker.service
+rm -f /etc/systemd/system/securewise-worker-connectivity-check.service
 systemctl daemon-reload
 systemctl reset-failed securewise-worker.service 2>/dev/null || true
-echo "Service definition removed. Code, virtualenv, account, environment, state, logs and firewall were preserved."
+echo "Worker service definitions removed. Code, virtualenvs, account, environment, state, logs and firewall were preserved."

@@ -1551,12 +1551,19 @@ class ScanViewSet(viewsets.ModelViewSet):
                 else "No SecureWise worker has registered."
             )
         else:
-            if "docker_daemon" not in capabilities:
-                readiness_diagnostics.append("Docker daemon is unavailable on the worker.")
-            if "trivy" not in capabilities:
-                readiness_diagnostics.append("Trivy is not installed on the worker.")
-            if not {"zap_baseline_cli", "zap_baseline_docker"} & capabilities:
-                readiness_diagnostics.append("Neither ZAP baseline nor Docker-based ZAP is available.")
+            worker_metrics = worker.metrics if isinstance(worker.metrics, dict) else {}
+            if worker_metrics.get("worker_profile") == "lightweight":
+                readiness_diagnostics.append(
+                    "Lightweight profile: external scanners, Docker, browser and customer URL execution are disabled; "
+                    "only repository-static fallback checks are available."
+                )
+            else:
+                if "docker_daemon" not in capabilities:
+                    readiness_diagnostics.append("Docker daemon is unavailable on the worker.")
+                if "trivy" not in capabilities:
+                    readiness_diagnostics.append("Trivy is not installed on the worker.")
+                if not {"zap_baseline_cli", "zap_baseline_docker"} & capabilities:
+                    readiness_diagnostics.append("Neither ZAP baseline nor Docker-based ZAP is available.")
         from apps.securewise.services.runners import runner_fleet_summary
 
         worker_readiness = {
@@ -1578,6 +1585,16 @@ class ScanViewSet(viewsets.ModelViewSet):
                 (worker.metrics or {}).get("scanner_versions", {})
                 if worker_available and isinstance(worker.metrics, dict)
                 else {}
+            ),
+            "scanner_availability": (
+                (worker.metrics or {}).get("scanner_availability", {})
+                if worker_available and isinstance(worker.metrics, dict)
+                else {}
+            ),
+            "worker_profile": (
+                (worker.metrics or {}).get("worker_profile", "standard")
+                if worker_available and isinstance(worker.metrics, dict)
+                else ""
             ),
             "runners": runner_fleet_summary(),
             "last_seen_at": worker.last_seen_at.isoformat() if worker else None,

@@ -103,3 +103,28 @@ Moving to another provider requires a Linux VM, network rules, database
 connectivity, secrets injection and the same worker code/configuration. Do not
 change Django/Python scanner logic or claim a cloud runner was verified until
 it has actually checked in and processed a controlled fixture job.
+
+## Optional 1 GB lightweight profile
+
+For Ubuntu 24.04 AMD64 with Python 3.12, the installer has an explicit opt-in
+mode:
+
+```sh
+sudo deploy/linux-worker/install.sh --source /path/to/gw-backend --lightweight
+```
+
+It installs `requirements-securewise-worker-lightweight.txt` into a separate
+`/opt/securewise/venv-lightweight` and selects
+`securewise-worker-lightweight.service.example`. The default installation
+continues to use the full requirements file, original virtualenv and original
+service template.
+
+The lightweight worker can claim repository-static scans (SAST, SCA, secrets,
+IaC and local OpenAPI analysis) only. Semgrep, Trivy, Gitleaks, ZAP, Docker,
+application runtime builds, browser tests, AutoPentest jobs and customer URL
+scans are disabled. Fallback checks remain labeled as fallback coverage and
+optional external scanner availability is recorded in the engine metadata.
+The database-only connectivity probe registers offline, updates its
+heartbeat, and exits without claiming jobs. See
+[`SECUREWISE_ORACLE_FREE_LIGHTWEIGHT_WORKER.md`](../../docs/SECUREWISE_ORACLE_FREE_LIGHTWEIGHT_WORKER.md)
+for exact commands and resource limitations.

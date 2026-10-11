@@ -3,6 +3,26 @@ set -Eeuo pipefail
 
 BACKEND_DIR="${SECUREWISE_BACKEND_DIR:-/opt/securewise/backend}"
 PYTHON="${SECUREWISE_PYTHON:-/opt/securewise/venv/bin/python}"
+LIGHTWEIGHT=0
+CHECK_CONNECTIVITY=0
+CHECK_URL_EGRESS=0
+for argument in "$@"; do
+  case "$argument" in
+    --lightweight)
+      LIGHTWEIGHT=1
+      export SECUREWISE_WORKER_PROFILE=lightweight
+      if [[ -z "${SECUREWISE_PYTHON:-}" ]]; then
+        PYTHON=/opt/securewise/venv-lightweight/bin/python
+      fi
+      ;;
+    --check-connectivity) CHECK_CONNECTIVITY=1 ;;
+    --check-url-egress) CHECK_URL_EGRESS=1 ;;
+    *)
+      echo "Usage: $0 [--lightweight] [--check-connectivity] [--check-url-egress]" >&2
+      exit 2
+      ;;
+  esac
+done
 
 [[ -f "$BACKEND_DIR/manage.py" ]] || { echo "Backend not found: $BACKEND_DIR" >&2; exit 1; }
 [[ -x "$PYTHON" ]] || { echo "Worker Python not found: $PYTHON" >&2; exit 1; }
@@ -14,31 +34,45 @@ printf 'Python: '
 printf 'Runner architecture: '
 python3 -c 'import platform; print(platform.machine())'
 
-for scanner in semgrep trivy gitleaks zap-baseline.py docker; do
-  if command -v "$scanner" >/dev/null 2>&1; then
-    printf '%s: available\n' "$scanner"
-  else
-    printf '%s: unavailable\n' "$scanner"
-  fi
-done
+if (( LIGHTWEIGHT )); then
+  echo "Scanner profile: lightweight (Semgrep, Trivy, Gitleaks, ZAP, Docker, browser and URL execution disabled)"
+else
+  for scanner in semgrep trivy gitleaks zap-baseline.py docker; do
+    if command -v "$scanner" >/dev/null 2>&1; then
+      printf '%s: available\n' "$scanner"
+    else
+      printf '%s: unavailable\n' "$scanner"
+    fi
+  done
 
-if command -v docker >/dev/null 2>&1; then
-  if docker info >/dev/null 2>&1; then
-    echo "Docker daemon: reachable for the current user"
-  else
-    echo "Docker CLI: present; daemon unavailable to the current user"
+  if command -v docker >/dev/null 2>&1; then
+    if docker info >/dev/null 2>&1; then
+      echo "Docker daemon: reachable for the current user"
+    else
+      echo "Docker CLI: present; daemon unavailable to the current user"
+    fi
   fi
 fi
 
-"$PYTHON" "$BACKEND_DIR/manage.py" check --database default
-"$PYTHON" "$BACKEND_DIR/manage.py" securewise_worker --help >/dev/null
+if (( LIGHTWEIGHT )); then
+  "$PYTHON" "$BACKEND_DIR/manage.py" securewise_worker --help --skip-checks >/dev/null
+  if (( CHECK_CONNECTIVITY )); then
+    "$PYTHON" "$BACKEND_DIR/manage.py" securewise_worker --check-connectivity --skip-checks
+  else
+    echo "Database check not run. Add --check-connectivity to perform an offline-only registration and heartbeat check."
+  fi
+else
+  "$PYTHON" "$BACKEND_DIR/manage.py" check --database default
+  "$PYTHON" "$BACKEND_DIR/manage.py" securewise_worker --help >/dev/null
+fi
+
 if systemctl is-active --quiet securewise-worker; then
   echo "Worker service: active"
 else
   echo "Worker service: inactive"
 fi
 
-if [[ "${1:-}" == "--check-url-egress" ]]; then
+if (( CHECK_URL_EGRESS )); then
   PROOF_FILE="${SECUREWISE_URL_EGRESS_PROOF_FILE:-/etc/securewise/url-egress-verification.json}"
   [[ $EUID -eq 0 ]] || { echo "Run egress verification as root." >&2; exit 1; }
   PROOF_DIR="$(dirname "$PROOF_FILE")"

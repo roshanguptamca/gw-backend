@@ -14,6 +14,11 @@ from django.db.models import Q
 from django.utils import timezone
 
 from apps.securewise.models import PentestSession, SecureWiseScan, SecureWiseWorkerRegistration
+from apps.securewise.services.worker_profile import (
+    LIGHTWEIGHT_CAPABILITIES,
+    LIGHTWEIGHT_SCAN_TYPES,
+    is_lightweight_worker,
+)
 
 WORKER_CAPABILITIES = (
     "sast",
@@ -45,7 +50,7 @@ _SCAN_ACTIVE_STATUSES = (
 )
 
 
-def register_worker(worker_id: str) -> SecureWiseWorkerRegistration:
+def register_worker(worker_id: str, *, status: str = "online") -> SecureWiseWorkerRegistration:
     from .runners import discover_runner_capabilities
     from .url_security import url_egress_enforced
 
@@ -54,17 +59,20 @@ def register_worker(worker_id: str) -> SecureWiseWorkerRegistration:
         runner_type = "linux_worker"
     discovered = discover_runner_capabilities(runner_type=runner_type)
     capabilities = list(discovered.capabilities)
-    if url_egress_enforced():
+    if is_lightweight_worker():
+        capabilities = list(LIGHTWEIGHT_CAPABILITIES)
+    if not is_lightweight_worker() and url_egress_enforced():
         capabilities.append("url_egress_restricted")
     metrics = worker_resource_metrics()
     metrics.update(discovered.as_dict())
     metrics["provider"] = os.environ.get("SECUREWISE_RUNNER_PROVIDER", "self_hosted")[:40]
+    metrics["worker_profile"] = "lightweight" if is_lightweight_worker() else "standard"
     registration, _ = SecureWiseWorkerRegistration.objects.update_or_create(
         worker_id=worker_id,
         defaults={
             "capabilities": capabilities,
             "metrics": metrics,
-            "status": "online",
+            "status": status,
             "last_seen_at": timezone.now(),
         },
     )
@@ -94,10 +102,11 @@ def worker_resource_metrics() -> dict:
     return metrics
 
 
-def heartbeat_worker(worker_id: str) -> None:
+def heartbeat_worker(worker_id: str, *, include_offline: bool = False) -> None:
+    statuses = ("online", "offline") if include_offline else ("online",)
     registration = SecureWiseWorkerRegistration.objects.filter(
         worker_id=worker_id,
-        status="online",
+        status__in=statuses,
     ).first()
     if registration is None:
         return
@@ -184,6 +193,8 @@ def claim_next_job(worker_id: str = "") -> tuple[str, str] | None:
 
     candidates = []
     for job_type, model in (("scan", SecureWiseScan), ("pentest", PentestSession)):
+        if is_lightweight_worker() and job_type == "pentest":
+            continue
         eligible = model.objects.filter(
             Q(status="queued")
             | (
@@ -193,6 +204,13 @@ def claim_next_job(worker_id: str = "") -> tuple[str, str] | None:
         )
         if job_type == "scan" and not _worker_can_run_url_scan(worker_id):
             eligible = eligible.filter(target_url="")
+        if is_lightweight_worker() and job_type == "scan":
+            eligible = eligible.filter(
+                scan_type__in=tuple(sorted(LIGHTWEIGHT_SCAN_TYPES)),
+                target_url="",
+                docker_image="",
+                api_spec_url="",
+            )
         for candidate in eligible.order_by("created_at").values_list("id", "status", "created_at")[:50]:
             if worker_id and job_type == "scan":
                 from apps.securewise.services.runners import worker_supports_scan

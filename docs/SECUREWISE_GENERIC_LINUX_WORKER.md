@@ -63,6 +63,14 @@ download a hardcoded x86 binary. If a tool is missing, its version/capability
 is absent and execution uses the scanner's documented fallback or skipped
 status.
 
+For constrained Ubuntu 24.04 AMD64 hosts, an opt-in Python 3.12 lightweight
+profile installs a separate minimal environment and runs repository-static
+fallback checks only. It is not a substitute for the standard 2 vCPU / 8 GB
+worker and cannot run AutoPentest, browser, Docker, ZAP, Trivy, Semgrep or
+customer URL scans. See
+[`SECUREWISE_ORACLE_FREE_LIGHTWEIGHT_WORKER.md`](SECUREWISE_ORACLE_FREE_LIGHTWEIGHT_WORKER.md)
+for requirements, verification and its 1 GB RAM limitations.
+
 ## Network, data and security
 
 Use outbound allowlists appropriate to the actual control plane: shared

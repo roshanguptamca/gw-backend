@@ -1,0 +1,16 @@
+# Python imports needed by Django startup, the existing SecureWise DB worker,
+# and its static fallback/API-spec scan path. Keep versions within the backend
+# requirements.txt compatibility ranges.
+Django>=5.0,<5.2
+djangorestframework>=3.15,<3.16
+django-cors-headers>=4.3,<4.5
+python-dotenv>=1.0,<2.0
+psycopg2-binary>=2.9,<3.0
+cryptography>=42.0,<44.0
+certifi>=2024.2.2
+requests>=2.31,<3.0
+dnspython>=2.6,<3.0
+PyYAML>=6.0,<7.0
+PyJWT[crypto]>=2.8,<3.0
+django-apscheduler>=0.7,<0.8
+drf-spectacular[sidecar]>=0.27,<0.28
