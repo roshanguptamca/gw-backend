@@ -102,24 +102,37 @@ and leaves the regular `/opt/securewise/venv` and default installation path
 unchanged. Neither template opens a port. The installer leaves
 `securewise-worker` stopped.
 
+Install the approved Aiven CA certificate at
+`/etc/securewise/certs/aiven-ca.pem`, readable by `securewise-worker` but
+writable only by root (for example, root-owned mode `0644` in a root-owned,
+non-writable directory). Obtain the CA through the approved trusted channel;
+do not substitute an unverified certificate.
+
 Create `/etc/securewise/worker.env` through the approved secret-injection
-process, owner `root:securewise-worker` and mode `0640`. Use the same deployed
-Django settings and PostgreSQL TLS/CA-verification configuration as the
-control plane; do not copy credentials into shell history or command-line
-arguments. At minimum, inject its required settings module, secret and
-database configuration. The names below are illustrative placeholders and
-must match the actual deployed settings:
+process, owner `root:securewise-worker` and mode `0640`. Inject the same
+PostgreSQL host, port, database, username and password values used by the
+control plane, plus the TLS verification settings shown below. Do not copy
+credentials into shell history or command-line arguments:
 
 ```text
 DJANGO_SETTINGS_MODULE=<existing deployment settings module>
 SECRET_KEY=<injected secret>
-DATABASE_URL=<TLS PostgreSQL URL from secret manager>
+DB_HOST=<PostgreSQL host from secret manager>
+DB_PORT=<PostgreSQL port from secret manager>
+DB_NAME=<database name from secret manager>
+DB_USER=<database username from secret manager>
+DB_PASSWORD=<database password from secret manager>
+DB_SSLMODE=verify-full
+DB_SSLROOTCERT=/etc/securewise/certs/aiven-ca.pem
 SECUREWISE_RUNNER_TYPE=linux_worker
 SECUREWISE_RUNNER_PROVIDER=oracle
 ```
 
-Do not weaken `sslmode`, certificate, CA or hostname verification to make a
-connection work. Never paste or print the environment file.
+`verify-full` validates both the server certificate chain and the database
+hostname. Do not downgrade the mode, omit the CA file, or disable certificate
+or hostname verification to make a connection work. Never paste or print the
+environment file. For the non-Oracle Render deployment, leave these optional
+TLS environment variables unset to preserve its existing PostgreSQL behavior.
 
 ## Safe verification
 
