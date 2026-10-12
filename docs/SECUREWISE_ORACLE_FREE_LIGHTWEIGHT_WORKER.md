@@ -28,7 +28,10 @@ availability is reported as unavailable. Existing fallback checks are labeled
 `completed_partial`. Docker/container, ZAP/DAST, application runtime builds,
 browser/Playwright, AutoPentest and customer URL scans are not executed or
 advertised as capabilities. Full scans explicitly record container and DAST
-as skipped. Jobs with URL, Docker image or external OpenAPI path inputs are
+as skipped. A separate, not-deployed profile for an isolated, fixture-only
+authenticated API AutoPentest worker is documented in
+[`SECUREWISE_AUTOPENTEST_API_WORKER.md`](SECUREWISE_AUTOPENTEST_API_WORKER.md);
+it is not supported by this lightweight 1-GB VM. Jobs with URL, Docker image or external OpenAPI path inputs are
 not eligible; the regular worker queue and lease protections are reused.
 
 The import trace also includes Django app startup outside SecureWise, notably

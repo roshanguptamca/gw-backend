@@ -144,11 +144,14 @@ class RuntimeEnvironmentManager:
 
         if not health["reachable"]:
             logs = redact_secrets(tail_lines(docker_runner.get_logs(container_name)))
+            oom_killed = docker_runner.container_oom_killed(container_name)
             self.stop()
             return RuntimeResult(
                 started=False,
                 skip_reason=(
-                    "Application could not be auto-started because it did not become reachable "
+                    "Application runtime was killed for exceeding its memory limit (out of memory)."
+                    if oom_killed
+                    else "Application could not be auto-started because it did not become reachable "
                     f"within {_HEALTH_WAIT_TIMEOUT_SECONDS} seconds."
                 ),
                 logs=logs,

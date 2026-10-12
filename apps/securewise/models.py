@@ -788,6 +788,8 @@ class PentestSession(models.Model):
     )
     authorization_confirmed = models.BooleanField(default=False)
     authorization_reference = models.CharField(max_length=500)
+    # Admin-confirmed opt-in to run on a worker below the recommended CPU/RAM (ACC fixture only).
+    experimental_low_resource = models.BooleanField(default=False)
     mode = models.CharField(
         max_length=30,
         choices=[

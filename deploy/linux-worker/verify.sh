@@ -6,6 +6,7 @@ PYTHON="${SECUREWISE_PYTHON:-/opt/securewise/venv/bin/python}"
 LIGHTWEIGHT=0
 CHECK_CONNECTIVITY=0
 CHECK_URL_EGRESS=0
+EGRESS_ONLY=0
 for argument in "$@"; do
   case "$argument" in
     --lightweight)
@@ -17,13 +18,15 @@ for argument in "$@"; do
       ;;
     --check-connectivity) CHECK_CONNECTIVITY=1 ;;
     --check-url-egress) CHECK_URL_EGRESS=1 ;;
+    --egress-only) CHECK_URL_EGRESS=1; EGRESS_ONLY=1 ;;
     *)
-      echo "Usage: $0 [--lightweight] [--check-connectivity] [--check-url-egress]" >&2
+      echo "Usage: $0 [--lightweight] [--check-connectivity] [--check-url-egress|--egress-only]" >&2
       exit 2
       ;;
   esac
 done
 
+if (( ! EGRESS_ONLY )); then
 [[ -f "$BACKEND_DIR/manage.py" ]] || { echo "Backend not found: $BACKEND_DIR" >&2; exit 1; }
 [[ -x "$PYTHON" ]] || { echo "Worker Python not found: $PYTHON" >&2; exit 1; }
 
@@ -71,6 +74,7 @@ if systemctl is-active --quiet securewise-worker; then
 else
   echo "Worker service: inactive"
 fi
+fi
 
 if (( CHECK_URL_EGRESS )); then
   PROOF_FILE="${SECUREWISE_URL_EGRESS_PROOF_FILE:-/etc/securewise/url-egress-verification.json}"
@@ -99,7 +103,10 @@ if (( CHECK_URL_EGRESS )); then
   for network in "0.0.0.0/8" "10.0.0.0/8" "100.64.0.0/10" "127.0.0.0/8" \
     "169.254.0.0/16" "172.16.0.0/12" "192.168.0.0/16" "224.0.0.0/4" \
     "::/128" "::1/128" "fc00::/7" "fe80::/10" "ff00::/8"; do
-    grep -Fq "$network" <<<"$TABLE" || {
+    # nft prints single IPv6 addresses (/128) without the prefix length.
+    single="${network%/128}"
+    grep -Fq "$network" <<<"$TABLE" ||
+      { [[ "$single" != "$network" ]] && grep -Eq "(^|[[:space:],{])${single}([[:space:],}]|\$)" <<<"$TABLE"; } || {
       echo "Egress policy verification failed: forbidden range $network missing." >&2
       exit 1
     }

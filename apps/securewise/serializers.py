@@ -577,7 +577,7 @@ class SecureWiseScanSerializer(serializers.ModelSerializer):
         return attrs
 
     def get_finding_counts(self, obj):
-        qs = obj.findings.values("severity").order_by()
+        qs = SecureWiseFinding.objects.filter(SecureWiseFinding.for_scan_q(obj.id)).values("severity").order_by()
         counts = {s: 0 for s in ("critical", "high", "medium", "low", "info")}
         for row in qs:
             counts[row["severity"]] = counts.get(row["severity"], 0) + 1
@@ -788,6 +788,7 @@ class PentestSessionSerializer(serializers.ModelSerializer):
             "retest_of",
             "authorization_confirmed",
             "authorization_reference",
+            "experimental_low_resource",
             "mode",
             "auth_config",
             "unified_scan",
@@ -857,6 +858,8 @@ class PentestSessionSerializer(serializers.ModelSerializer):
                 {"requests_per_minute": "Assessment rates must be between 1 and 60 requests per minute."}
             )
         mode = attrs.get("mode", "passive")
+        if attrs.get("experimental_low_resource"):
+            self._validate_experimental_low_resource(attrs, mode)
         if mode == "approved_tests":
             raise serializers.ValidationError(
                 {"mode": "Approved tests can only be queued through the proposal approval workflow."}
@@ -985,6 +988,34 @@ class PentestSessionSerializer(serializers.ModelSerializer):
                     {"scope": "Browser tests are restricted to approved loopback fixture runtimes."}
                 )
         return attrs
+
+    def _validate_experimental_low_resource(self, attrs, mode):
+        """Hard gates for the ACC-only low-resource opt-in; resource sizing is the only thing it relaxes."""
+        from .permissions import ADMIN_ROLES, _membership
+        from .services.worker_profile import (
+            EXPERIMENTAL_MAX_REQUESTS_PER_MINUTE,
+            EXPERIMENTAL_MAX_TIMEOUT_SECONDS,
+            autopentest_api_repository_id,
+            experimental_low_resource_allowed,
+        )
+
+        def reject(message):
+            raise serializers.ValidationError({"experimental_low_resource": message})
+
+        if not experimental_low_resource_allowed():
+            reject("Experimental low-resource mode is not enabled in this environment.")
+        if mode != "authenticated_api":
+            reject("Experimental low-resource mode only supports the authenticated API fixture assessment.")
+        if str(attrs["repository"].id) != autopentest_api_repository_id():
+            reject("Experimental low-resource mode is restricted to the approved fixture repository.")
+        request = self.context.get("request")
+        membership = _membership(request.user, attrs["project"].organization) if request else None
+        if membership is None or membership.role not in ADMIN_ROLES:
+            reject("Only organization administrators can run experimental low-resource assessments.")
+        if attrs.get("timeout_seconds", 900) > EXPERIMENTAL_MAX_TIMEOUT_SECONDS:
+            reject(f"Experimental timeouts are limited to {EXPERIMENTAL_MAX_TIMEOUT_SECONDS} seconds.")
+        if attrs.get("requests_per_minute", 30) > EXPERIMENTAL_MAX_REQUESTS_PER_MINUTE:
+            reject(f"Experimental request rates are limited to {EXPERIMENTAL_MAX_REQUESTS_PER_MINUTE} per minute.")
 
     def get_coverage(self, obj):
         coverage = dict((obj.security_inventory or {}).get("coverage", {}))

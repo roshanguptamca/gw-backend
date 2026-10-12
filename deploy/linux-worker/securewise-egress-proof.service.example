@@ -1,0 +1,7 @@
+[Unit]
+Description=Refresh SecureWise URL egress proof (structure check of nftables policy)
+
+[Service]
+Type=oneshot
+Environment=SECUREWISE_URL_EGRESS_PROOF_FILE=/etc/securewise/url-egress-verification.json
+ExecStart=/opt/securewise/website-backend/deploy/linux-worker/verify.sh --egress-only

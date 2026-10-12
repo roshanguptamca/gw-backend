@@ -74,12 +74,7 @@ def trusted_runtime_content(repository_id: str, root: str | Path) -> tuple[bool,
         actual_digest = repository_tree_sha256(root)
     except (OSError, ValueError) as exc:
         return False, str(exc)
-    configured = os.getenv("SECUREWISE_TRUSTED_RUNTIME_CONTENT", "")
-    trusted = {}
-    for entry in configured.split(","):
-        repository, separator, digest = entry.strip().partition("=")
-        if separator and repository and _SHA256_RE.fullmatch(digest):
-            trusted[repository] = digest
+    trusted = configured_trusted_runtime_content()
     if trusted.get(str(repository_id)) != actual_digest:
         return (
             False,
@@ -88,3 +83,13 @@ def trusted_runtime_content(repository_id: str, root: str | Path) -> tuple[bool,
             "in SECUREWISE_TRUSTED_RUNTIME_CONTENT.",
         )
     return True, actual_digest
+
+
+def configured_trusted_runtime_content() -> dict[str, str]:
+    """Parse reviewed repository digests without exposing their values."""
+    trusted = {}
+    for entry in os.getenv("SECUREWISE_TRUSTED_RUNTIME_CONTENT", "").split(","):
+        repository, separator, digest = entry.strip().partition("=")
+        if separator and repository and _SHA256_RE.fullmatch(digest):
+            trusted[repository] = digest
+    return trusted

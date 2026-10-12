@@ -96,6 +96,77 @@ from .services.repository import (
 logger = logging.getLogger(__name__)
 
 
+
+def _website_readiness(active_workers, organization_ids, now) -> dict:
+    """Exact, sanitized blockers for the public-website (authorized passive HTTPS) assessment.
+
+    This path is executed by the existing DAST engine's authorized passive HTTP mode. It needs a
+    non-restricted-profile worker that advertises ``dast`` and a freshly proven host egress policy
+    (``url_egress_restricted``), plus a verified target with an active passive_http authorization.
+    """
+    blockers: list[dict] = []
+
+    def block(code: str, message: str) -> None:
+        blockers.append({"code": code, "message": message})
+
+    capable = [
+        registration
+        for registration in active_workers
+        if {"dast", "url_egress_restricted"} <= set(registration.capabilities or ())
+    ]
+    if not active_workers:
+        block("no_worker", "No worker has checked in recently.")
+    elif not capable:
+        profiles = {
+            (registration.metrics or {}).get("worker_profile", "standard")
+            for registration in active_workers
+            if isinstance(registration.metrics, dict)
+        }
+        if profiles and profiles <= {"lightweight", "autopentest_api"}:
+            block(
+                "worker_profile",
+                "Online workers use a restricted profile that never runs website checks; "
+                "a separate standard-profile website worker is required.",
+            )
+        else:
+            has_dast = any("dast" in (registration.capabilities or ()) for registration in active_workers)
+            if not has_dast:
+                block("dast_missing", "No online worker advertises website (DAST) checks.")
+            block(
+                "egress_unproven",
+                "No online worker has a fresh, verified host egress policy "
+                "(SECUREWISE_URL_EGRESS_ENFORCED and a current root-owned proof file).",
+            )
+    # Passive website checks have no repository, token or stored credential, so nothing is
+    # decrypted and credential-key compatibility is intentionally not a website blocker.
+    # Credential-bearing flows keep their own encryption_key_compatibility checks.
+    verified_targets = SecureWiseApplicationTarget.objects.filter(
+        organization_id__in=organization_ids,
+        verified_at__isnull=False,
+        ownership_revoked_at__isnull=True,
+    )
+    if not verified_targets.exists():
+        block("no_verified_target", "No website address has verified ownership yet (DNS TXT or well-known file).")
+    elif not any(
+        "passive_http" in (authorization.approved_scan_methods or [])
+        for authorization in SecureWiseTestingAuthorization.objects.filter(
+            organization_id__in=organization_ids,
+            target__in=verified_targets,
+            revoked_at__isnull=True,
+            starts_at__lte=now,
+            expires_at__gt=now,
+        )
+    ):
+        block(
+            "no_active_authorization",
+            "No active testing authorization approves passive HTTP checks for a verified website.",
+        )
+    return {
+        "ready": not blockers,
+        "worker_ready": bool(capable),
+        "blockers": blockers,
+    }
+
 class SecureWiseDocumentationView(TemplateView):
     template_name = "securewise/docs/documentation.html"
 
@@ -1354,6 +1425,7 @@ class ScanViewSet(viewsets.ModelViewSet):
         )
         metrics = worker.metrics if worker and isinstance(worker.metrics, dict) else {}
         compatible_worker_capabilities = set()
+        compatible_resource_tiers = set()
         matched_worker_count = 0
         reported_key_count = 0
         unreported_key_count = 0
@@ -1383,6 +1455,8 @@ class ScanViewSet(viewsets.ModelViewSet):
                 ):
                     matched_worker_count += 1
                     compatible_worker_capabilities.update(registration.capabilities or ())
+                    if worker_metrics.get("resource_tier"):
+                        compatible_resource_tiers.add(worker_metrics["resource_tier"])
             except (TypeError, ValueError):
                 continue
         if not worker_available or not reported_key_count:
@@ -1396,20 +1470,42 @@ class ScanViewSet(viewsets.ModelViewSet):
         else:
             encryption_key_compatibility = "mismatch"
         from apps.securewise.services.runners import runner_fleet_summary
+        from apps.securewise.services.worker_profile import experimental_low_resource_allowed
 
         runner_fleet = runner_fleet_summary(now=now)
+        website_readiness = _website_readiness(
+            active_workers,
+            organization_ids,
+            now,
+        )
         return Response(
             {
                 "worker_available": worker_available,
                 "docker_ready": "docker_daemon" in capabilities,
                 "capabilities": sorted(capabilities),
                 "worker_profile": metrics.get("worker_profile", "") if worker_available else "",
+                "website_readiness": website_readiness,
                 "autopentest_readiness": {
                     "worker_available": worker_available,
                     "worker_supports_passive": "autopentest_openapi_contract" in capabilities,
                     "worker_supports_authenticated_api": (
                         "autopentest_authenticated_api" in compatible_worker_capabilities
                         and "docker_daemon" in compatible_worker_capabilities
+                    ),
+                    "worker_supports_experimental_api": (
+                        "autopentest_experimental_low_resource" in compatible_worker_capabilities
+                        and "docker_daemon" in compatible_worker_capabilities
+                        and experimental_low_resource_allowed()
+                    ),
+                    "experimental_low_resource_enabled": experimental_low_resource_allowed(),
+                    "resource_tier": (
+                        "recommended"
+                        if "recommended" in compatible_resource_tiers
+                        else "experimental"
+                        if "experimental" in compatible_resource_tiers
+                        else "insufficient"
+                        if "insufficient" in compatible_resource_tiers
+                        else ""
                     ),
                     "worker_supports_authenticated_browser": (
                         "playwright" in compatible_worker_capabilities
@@ -1619,7 +1715,7 @@ class ScanViewSet(viewsets.ModelViewSet):
             "completed_engines": sum(er.status == "completed" for er in results),
             "skipped_engines": sum(er.status == "skipped" for er in results),
             "failed_engines": sum(er.status == "failed" for er in results),
-            "total_findings": scan.findings.count(),
+            "total_findings": SecureWiseFinding.objects.filter(SecureWiseFinding.for_scan_q(scan.id)).count(),
         }
         worker = SecureWiseWorkerRegistration.objects.order_by("-last_seen_at").first()
         worker_available = bool(
@@ -1689,7 +1785,7 @@ class ScanViewSet(viewsets.ModelViewSet):
                 "status": scan.status,
                 "progress": scan.progress,
                 "elapsed_seconds": elapsed_seconds,
-                "findings_count": scan.findings.count(),
+                "findings_count": SecureWiseFinding.objects.filter(SecureWiseFinding.for_scan_q(scan.id)).count(),
                 "coverage": coverage,
                 "worker_readiness": worker_readiness,
                 "engines": engines,
@@ -2011,7 +2107,7 @@ class FindingViewSet(viewsets.ModelViewSet):
             qs = qs.filter(project_id=project_id)
         scan_id = self.request.query_params.get("scan")
         if scan_id:
-            qs = qs.filter(scan_id=scan_id)
+            qs = qs.filter(SecureWiseFinding.for_scan_q(scan_id))
         severity = self.request.query_params.get("severity")
         if severity:
             qs = qs.filter(severity=severity)

@@ -76,11 +76,28 @@ def test_runner_selection_never_falls_back_when_capability_is_missing(queued_sca
     assert "lacks required capabilities: sast" in selection.blocked_reason
 
 
-def test_url_selection_requires_verified_host_policy_even_if_runner_claims_capability(queued_scan, monkeypatch):
+def test_url_selection_requires_registered_egress_capability(queued_scan, monkeypatch):
     queued_scan.scan_type = "dast"
     queued_scan.target_url = "https://authorized.example/"
     SecureWiseWorkerRegistration.objects.create(
-        worker_id="declared-egress-only",
+        worker_id="no-egress-capability",
+        capabilities=["dast"],
+        metrics={"architecture": "amd64"},
+        status="online",
+        last_seen_at=timezone.now(),
+    )
+
+    selection = select_runner(queued_scan)
+
+    assert not selection.available
+    assert "url_egress_restricted" in selection.blocked_reason
+
+
+def test_control_plane_selection_trusts_registration_but_worker_claim_needs_local_proof(queued_scan, monkeypatch):
+    queued_scan.scan_type = "dast"
+    queued_scan.target_url = "https://authorized.example/"
+    registration = SecureWiseWorkerRegistration.objects.create(
+        worker_id="declared-egress",
         capabilities=["dast", "url_egress_restricted"],
         metrics={"architecture": "amd64"},
         status="online",
@@ -88,10 +105,10 @@ def test_url_selection_requires_verified_host_policy_even_if_runner_claims_capab
     )
     monkeypatch.setattr(url_security, "url_egress_enforced", lambda: False)
 
-    selection = select_runner(queued_scan)
-
-    assert not selection.available
-    assert "host egress verification is unavailable" in selection.blocked_reason
+    assert select_runner(queued_scan).available
+    supported, reason = worker_supports_scan(registration, queued_scan)
+    assert not supported
+    assert "host egress verification is unavailable" in reason
 
 
 def test_worker_slot_allows_only_one_active_job(queued_scan):

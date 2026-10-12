@@ -58,6 +58,9 @@ class FutureWiseConfig(AppConfig):
     def ready(self):
         global _scheduler_started
 
+        if os.environ.get("FUTUREWISE_DISABLE_SCHEDULER", "").lower() in ("1", "true", "yes"):
+            return
+
         # Enable WAL mode for every new SQLite connection (dev + test).
         from django.db.backends.signals import connection_created
 

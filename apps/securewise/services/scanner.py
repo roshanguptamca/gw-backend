@@ -44,11 +44,22 @@ class ScannerRunner:
         if scan.status == "cancelled":
             return
         scan._securewise_worker_id = worker_id
+        claimed_at = scan.worker_claimed_at
         scan.engine_results.all().delete()
         scan.status = "running"
         scan.started_at = timezone.now()
         scan.progress = 0
-        scan.save(update_fields=["status", "started_at", "progress"])
+        # worker_claimed_at is cleared on completion, so keep a durable, non-secret execution record.
+        scan.scanner_metadata = {
+            **(scan.scanner_metadata or {}),
+            "execution": {
+                "worker_id": worker_id[:120],
+                "claimed_at": claimed_at.isoformat() if claimed_at else None,
+                "started_at": scan.started_at.isoformat(),
+            },
+        }
+        scan.save(update_fields=["status", "started_at", "progress", "scanner_metadata"])
+        logger.info("Scan %s claimed by worker %s and started", scan.id, worker_id or "unknown")
 
         SecureWiseAuditLog.objects.create(
             organization=scan.organization,
@@ -56,7 +67,12 @@ class ScannerRunner:
             event="scan_started",
             target_type="SecureWiseScan",
             target_id=str(scan.id),
-            detail={"scan_type": scan.scan_type, "project": str(scan.project_id)},
+            detail={
+                "scan_type": scan.scan_type,
+                "project": str(scan.project_id),
+                "worker_id": worker_id[:120],
+                "claimed_at": claimed_at.isoformat() if claimed_at else None,
+            },
         )
 
         all_findings = []
@@ -158,6 +174,9 @@ class ScannerRunner:
         scan.completed_at = completed_at
         scan.duration_seconds = duration
         scan.worker_claimed_at = None
+        execution = dict((scan.scanner_metadata or {}).get("execution") or {})
+        execution["completed_at"] = completed_at.isoformat() if completed_at else None
+        scan.scanner_metadata = {**(scan.scanner_metadata or {}), "execution": execution}
         scan.error_message = error_msg
         scan.quality_gate_passed = quality_gate_passed
         scan.progress = 100 if final_status != "cancelled" else scan.progress
@@ -189,8 +208,10 @@ class ScannerRunner:
                 "quality_gate_passed": quality_gate_passed,
                 "duration_seconds": duration,
                 "status": final_status,
+                "worker_id": execution.get("worker_id", ""),
             },
         )
+        logger.info("Scan %s finished with status %s on worker %s", scan.id, final_status, execution.get("worker_id") or "unknown")
 
     # ------------------------------------------------------------------
     def _persist_findings(self, scan, findings: list) -> tuple[int, int, int, set]:

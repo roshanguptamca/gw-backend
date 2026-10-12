@@ -28,6 +28,16 @@ _BUILD_TIMEOUT = 240
 _RUN_STARTUP_TIMEOUT = 5
 _STOP_TIMEOUT = 15
 _HEALTH_PROBE_IMAGE = "python:3.11-slim"
+API_REQUEST_RUNNER_IMAGE = "python:3.11-slim"
+_ISOLATED_BUILD_MEMORY_LIMIT = "2g"
+_ISOLATED_BUILD_CPU_LIMIT = "2.0"
+# Experimental low-resource worker: smaller caps so one job cannot exhaust the host.
+_EXPERIMENTAL_BUILD_MEMORY_LIMIT = "512m"
+_EXPERIMENTAL_BUILD_CPU_LIMIT = "1.0"
+_EXPERIMENTAL_MEMORY_LIMIT = "256m"
+_EXPERIMENTAL_CPU_LIMIT = "0.5"
+_EXPERIMENTAL_PIDS_LIMIT = "64"
+_OOM_EXIT_CODES = (137, -9)
 _HEALTH_PROBE_SCRIPT = """import sys
 from urllib.error import HTTPError
 from urllib.request import urlopen
@@ -183,6 +193,30 @@ def is_docker_available() -> tuple[bool, str]:
     return is_docker_daemon_available()
 
 
+def is_docker_rootless() -> bool:
+    """Require an actively reachable rootless Docker daemon for the restricted API profile."""
+    available, _ = is_docker_daemon_available()
+    if not available:
+        return False
+    try:
+        result = subprocess.run(
+            ["docker", "info", "--format", "{{json .SecurityOptions}}"],
+            capture_output=True,
+            timeout=_DOCKER_AVAILABILITY_TIMEOUT,
+            text=True,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    if result.returncode != 0:
+        return False
+    try:
+        security_options = json.loads(result.stdout)
+    except (TypeError, ValueError):
+        return False
+    return isinstance(security_options, list) and any("rootless" in str(option).lower() for option in security_options)
+
+
 def is_docker_image_available(image_tag: str) -> bool:
     try:
         result = subprocess.run(
@@ -229,18 +263,25 @@ def generate_dockerfile_content(
 
 
 def build_image(context_path: Path, dockerfile_path: Path, tag: str) -> tuple[bool, str]:
+    command = ["docker", "build", "--quiet"]
+    from apps.securewise.services.worker_profile import experimental_limits_active, is_autopentest_api_worker
+
+    if is_autopentest_api_worker():
+        experimental = experimental_limits_active()
+        command.extend(
+            [
+                "--pull=false",
+                "--network=none",
+                "--memory",
+                _EXPERIMENTAL_BUILD_MEMORY_LIMIT if experimental else _ISOLATED_BUILD_MEMORY_LIMIT,
+                "--cpus",
+                _EXPERIMENTAL_BUILD_CPU_LIMIT if experimental else _ISOLATED_BUILD_CPU_LIMIT,
+            ]
+        )
+    command.extend(["-f", str(dockerfile_path), "-t", tag, str(context_path)])
     try:
         proc = subprocess.run(
-            [
-                "docker",
-                "build",
-                "--quiet",
-                "-f",
-                str(dockerfile_path),
-                "-t",
-                tag,
-                str(context_path),
-            ],
+            command,
             capture_output=True,
             timeout=_BUILD_TIMEOUT,
             text=True,
@@ -251,7 +292,10 @@ def build_image(context_path: Path, dockerfile_path: Path, tag: str) -> tuple[bo
         return False, f"docker build failed to start: {exc}"
 
     if proc.returncode != 0:
-        return False, (proc.stderr or proc.stdout or "docker build failed").strip()[-2000:]
+        output = (proc.stderr or proc.stdout or "docker build failed").strip()[-2000:]
+        if proc.returncode in _OOM_EXIT_CODES or "out of memory" in output.lower():
+            output = f"Docker build was killed, most likely out of memory (exit {proc.returncode}). {output}"[-2000:]
+        return False, output
     return True, ""
 
 
@@ -357,6 +401,9 @@ def run_container(
     Returns (success, container_id, error). Never uses --privileged, never
     mounts host paths, always sets memory/cpu limits and auto-remove.
     """
+    from apps.securewise.services.worker_profile import experimental_limits_active
+
+    experimental = experimental_limits_active()
     container_name = f"securewise-runtime-{uuid.uuid4().hex[:10]}"
     cmd = [
         "docker",
@@ -365,11 +412,11 @@ def run_container(
         "--name",
         container_name,
         "--memory",
-        _MEMORY_LIMIT,
+        _EXPERIMENTAL_MEMORY_LIMIT if experimental else _MEMORY_LIMIT,
         "--cpus",
-        _CPU_LIMIT,
+        _EXPERIMENTAL_CPU_LIMIT if experimental else _CPU_LIMIT,
         "--pids-limit",
-        "128",
+        _EXPERIMENTAL_PIDS_LIMIT if experimental else "128",
         "--cap-drop",
         "ALL",
         "--security-opt",
@@ -412,6 +459,20 @@ def get_logs(container_name: str) -> str:
         return (proc.stdout or "") + (proc.stderr or "")
     except (subprocess.TimeoutExpired, OSError):
         return ""
+
+
+def container_oom_killed(container_name: str) -> bool:
+    """Report whether Docker recorded an out-of-memory kill for the container."""
+    try:
+        proc = subprocess.run(
+            ["docker", "inspect", "--format", "{{.State.OOMKilled}}", container_name],
+            capture_output=True,
+            timeout=10,
+            text=True,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+    return proc.returncode == 0 and proc.stdout.strip().lower() == "true"
 
 
 def stop_and_remove(container_name: str) -> None:

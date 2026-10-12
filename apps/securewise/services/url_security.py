@@ -209,7 +209,10 @@ def url_egress_enforced() -> bool:
 
 
 def worker_has_url_egress(worker_id: str | None = None) -> bool:
-    if not url_egress_enforced():
+    # A worker process proves its own egress policy locally. The control-plane API runs
+    # elsewhere and has no proof file, so it relies on a fresh registration that only
+    # advertises url_egress_restricted after the worker verified its proof.
+    if worker_id and not url_egress_enforced():
         return False
     from apps.securewise.models import SecureWiseWorkerRegistration
 
