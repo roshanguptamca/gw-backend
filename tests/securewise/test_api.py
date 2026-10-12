@@ -33,6 +33,7 @@ from apps.securewise.models import (
     SecureWiseScanPolicy,
     SecureWiseScanPolicyTemplate,
     SecureWiseWorkerRegistration,
+    securewise_encryption_key_fingerprint,
 )
 from apps.securewise.services.scanner import ScannerRunner
 from apps.securewise.views import AIRecommendationThrottle
@@ -1045,6 +1046,7 @@ class TestReportAPI:
         assert owner_response.status_code == 200
         assert owner_response.json()["queue"]["queued_scans"] == 1
         assert owner_response.json()["worker_available"] is True
+        assert owner_response.json()["autopentest_readiness"]["encryption_key_compatibility"] == "not_reported"
         assert owner_response.json()["resources"] == {"vmrss_kb": 128}
         assert owner_response.json()["engine_executions_last_7_days"] == [
             {"engine": "sast", "status": "completed", "count": 1, "average_duration_seconds": None}
@@ -1054,6 +1056,35 @@ class TestReportAPI:
         assert auditor_response.status_code == 200
         assert auditor_response.json()["resources"] == {}
         assert stranger_response.status_code == 403
+
+    def test_worker_status_reports_encryption_key_match_without_exposing_fingerprint(
+        self, auth_client, org
+    ):
+        fingerprint = securewise_encryption_key_fingerprint()
+        worker = SecureWiseWorkerRegistration.objects.create(
+            worker_id="key-match-worker",
+            capabilities=["autopentest_openapi_contract", "autopentest_authenticated_api", "docker_daemon"],
+            metrics={"encryption_key_fingerprint": fingerprint, "worker_profile": "standard"},
+            status="online",
+            last_seen_at=timezone.now(),
+        )
+
+        response = auth_client.get("/api/securewise/scans/worker-status/")
+
+        assert response.status_code == 200
+        readiness = response.json()["autopentest_readiness"]
+        assert readiness["worker_available"] is True
+        assert readiness["worker_supports_passive"] is True
+        assert readiness["worker_supports_authenticated_api"] is True
+        assert readiness["worker_supports_authenticated_browser"] is False
+        assert readiness["encryption_key_compatibility"] == "matched"
+        assert "fingerprint" not in response.content.decode()
+        assert fingerprint not in response.content.decode()
+
+        worker.metrics = {"encryption_key_fingerprint": "different-key-fingerprint"}
+        worker.save(update_fields=["metrics"])
+        mismatch = auth_client.get("/api/securewise/scans/worker-status/")
+        assert mismatch.json()["autopentest_readiness"]["encryption_key_compatibility"] == "mismatch"
 
     def test_tenant_cannot_read_other_tenants_scan_report_finding_or_evidence(
         self, other_client, completed_scan, org, project, repository, owner

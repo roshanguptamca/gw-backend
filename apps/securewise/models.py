@@ -1,3 +1,5 @@
+import base64
+import hashlib
 import uuid
 
 from django.conf import settings
@@ -7,18 +9,25 @@ from django.db import models
 from cryptography.fernet import Fernet
 
 
-def _get_fernet():
+def _get_encryption_key():
     key = getattr(settings, "SECUREWISE_ENCRYPTION_KEY", None)
     if not key:
         # Fallback: derive from Django SECRET_KEY (dev only)
-        import base64
-        import hashlib
-
         raw = hashlib.sha256(settings.SECRET_KEY.encode()).digest()
         key = base64.urlsafe_b64encode(raw)
     if isinstance(key, str):
         key = key.encode()
-    return Fernet(key)
+    return key
+
+
+def _get_fernet():
+    return Fernet(_get_encryption_key())
+
+
+def securewise_encryption_key_fingerprint():
+    key = _get_encryption_key()
+    Fernet(key)
+    return hashlib.sha256(key).hexdigest()
 
 
 # ---------------------------------------------------------------------------

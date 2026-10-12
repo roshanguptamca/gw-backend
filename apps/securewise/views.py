@@ -1330,9 +1330,19 @@ class ScanViewSet(viewsets.ModelViewSet):
             active_scans.filter(worker_claimed_at__lt=stale_cutoff).count()
             + active_pentests.filter(worker_claimed_at__lt=stale_cutoff).count()
         )
-        worker = SecureWiseWorkerRegistration.objects.filter(status="online").order_by("-last_seen_at").first()
-        worker_available = bool(worker and worker.last_seen_at >= now - timedelta(seconds=45))
-        capabilities = set(worker.capabilities if worker_available else ())
+        active_workers = list(
+            SecureWiseWorkerRegistration.objects.filter(
+                status="online",
+                last_seen_at__gte=now - timedelta(seconds=45),
+            ).order_by("-last_seen_at")
+        )
+        worker = active_workers[0] if active_workers else None
+        worker_available = bool(active_workers)
+        capabilities = {
+            capability
+            for registration in active_workers
+            for capability in registration.capabilities or ()
+        }
         engine_metrics = list(
             SecureWiseScanEngineResult.objects.filter(
                 scan__organization_id__in=organization_ids,
@@ -1342,7 +1352,49 @@ class ScanViewSet(viewsets.ModelViewSet):
             .annotate(count=Count("id"), average_duration_seconds=Avg("duration_seconds"))
             .order_by("engine", "status")
         )
-        metrics = worker.metrics if worker_available and isinstance(worker.metrics, dict) else {}
+        metrics = worker.metrics if worker and isinstance(worker.metrics, dict) else {}
+        compatible_worker_capabilities = set()
+        matched_worker_count = 0
+        reported_key_count = 0
+        unreported_key_count = 0
+        api_key_invalid = False
+        current_key_fingerprint = None
+        for registration in active_workers:
+            worker_metrics = registration.metrics if isinstance(registration.metrics, dict) else {}
+            encryption_key_fingerprint = worker_metrics.get("encryption_key_fingerprint")
+            if not encryption_key_fingerprint:
+                unreported_key_count += 1
+                continue
+            reported_key_count += 1
+            if current_key_fingerprint is None and not api_key_invalid:
+                from .models import securewise_encryption_key_fingerprint
+
+                try:
+                    current_key_fingerprint = securewise_encryption_key_fingerprint()
+                except (TypeError, ValueError):
+                    api_key_invalid = True
+                    continue
+            if api_key_invalid:
+                continue
+            try:
+                if secrets.compare_digest(
+                    str(encryption_key_fingerprint),
+                    current_key_fingerprint,
+                ):
+                    matched_worker_count += 1
+                    compatible_worker_capabilities.update(registration.capabilities or ())
+            except (TypeError, ValueError):
+                continue
+        if not worker_available or not reported_key_count:
+            encryption_key_compatibility = "not_reported"
+        elif matched_worker_count:
+            encryption_key_compatibility = "matched"
+        elif api_key_invalid:
+            encryption_key_compatibility = "unavailable"
+        elif unreported_key_count:
+            encryption_key_compatibility = "not_reported"
+        else:
+            encryption_key_compatibility = "mismatch"
         from apps.securewise.services.runners import runner_fleet_summary
 
         runner_fleet = runner_fleet_summary(now=now)
@@ -1351,6 +1403,37 @@ class ScanViewSet(viewsets.ModelViewSet):
                 "worker_available": worker_available,
                 "docker_ready": "docker_daemon" in capabilities,
                 "capabilities": sorted(capabilities),
+                "worker_profile": metrics.get("worker_profile", "") if worker_available else "",
+                "autopentest_readiness": {
+                    "worker_available": worker_available,
+                    "worker_supports_passive": "autopentest_openapi_contract" in capabilities,
+                    "worker_supports_authenticated_api": (
+                        "autopentest_authenticated_api" in compatible_worker_capabilities
+                        and "docker_daemon" in compatible_worker_capabilities
+                    ),
+                    "worker_supports_authenticated_browser": (
+                        "playwright" in compatible_worker_capabilities
+                        and "docker_daemon" in compatible_worker_capabilities
+                    ),
+                    "encryption_key_compatibility": encryption_key_compatibility,
+                    "diagnostics": (
+                        ["No active SecureWise worker heartbeat is available."]
+                        if not worker_available
+                        else (
+                            ["Restart the worker to publish its encryption-key compatibility check."]
+                            if encryption_key_compatibility == "not_reported"
+                            else (
+                                ["API and worker credential-encryption keys do not match."]
+                                if encryption_key_compatibility == "mismatch"
+                                else (
+                                    ["The API credential-encryption key is invalid."]
+                                    if encryption_key_compatibility == "unavailable"
+                                    else []
+                                )
+                            )
+                        )
+                    ),
+                },
                 "runners": runner_fleet,
                 "heartbeat_age_seconds": (
                     max(0, int((now - worker.last_seen_at).total_seconds())) if worker_available else None
@@ -1669,6 +1752,72 @@ class PentestSessionViewSet(viewsets.ModelViewSet):
                 status__in=("queued", "worker_claimed", "running", "running_api"),
             ).update(status="cancelled", worker_claimed_at=None, completed_at=timezone.now())
         return Response({"detail": "AutoPentest session cancelled.", "status": session.status})
+
+    @action(detail=True, methods=["post"])
+    @transaction.atomic
+    def retry(self, request, pk=None):
+        session = self.get_object()
+        membership = _membership(request.user, session.organization)
+        if membership is None or membership.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to retry AutoPentest sessions.")
+        if session.status != "failed":
+            return Response(
+                {"detail": "Only failed AutoPentest sessions can be retried."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if (
+            not session.authorization_confirmed
+            or len(session.authorization_reference.strip()) < 8
+            or not session.scope.exists()
+            or session.repository.project_id != session.project_id
+            or session.repository.organization_id != session.organization_id
+        ):
+            return Response(
+                {"detail": "Retry blocked: authorization, scope, or repository association is no longer valid."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        if session.mode == "security_planning":
+            session.proposals.all().delete()
+            session.security_inventory = {}
+        elif session.mode == "approved_tests":
+            session.proposals.filter(approval_status="executed", executable=True).update(
+                approval_status="approved",
+                test_case=None,
+                updated_at=timezone.now(),
+            )
+        session.test_cases.all().delete()
+        session.status = "queued"
+        session.progress = 0
+        session.started_at = None
+        session.completed_at = None
+        session.worker_claimed_at = None
+        session.error_message = ""
+        session.save(
+            update_fields=[
+                "status",
+                "progress",
+                "started_at",
+                "completed_at",
+                "worker_claimed_at",
+                "error_message",
+                "security_inventory",
+                "updated_at",
+            ]
+        )
+        _audit(
+            request.user,
+            "pentest_session_retried",
+            org=session.organization,
+            target_type="PentestSession",
+            target_id=session.id,
+            detail={"mode": session.mode},
+            request=request,
+        )
+        session.refresh_from_db()
+        return Response(PentestSessionSerializer(session, context={"request": request}).data, status=202)
 
     @action(detail=True, methods=["post"], url_path="execute-approved")
     def execute_approved(self, request, pk=None):

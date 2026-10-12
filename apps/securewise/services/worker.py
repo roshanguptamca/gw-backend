@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 import shutil
 import socket
 import tempfile
@@ -13,7 +14,12 @@ from django.db import close_old_connections
 from django.db.models import Q
 from django.utils import timezone
 
-from apps.securewise.models import PentestSession, SecureWiseScan, SecureWiseWorkerRegistration
+from apps.securewise.models import (
+    PentestSession,
+    SecureWiseScan,
+    SecureWiseWorkerRegistration,
+    securewise_encryption_key_fingerprint,
+)
 from apps.securewise.services.worker_profile import (
     LIGHTWEIGHT_CAPABILITIES,
     LIGHTWEIGHT_SCAN_TYPES,
@@ -65,6 +71,7 @@ def register_worker(worker_id: str, *, status: str = "online") -> SecureWiseWork
         capabilities.append("url_egress_restricted")
     metrics = worker_resource_metrics()
     metrics.update(discovered.as_dict())
+    metrics["encryption_key_fingerprint"] = securewise_encryption_key_fingerprint()
     metrics["provider"] = os.environ.get("SECUREWISE_RUNNER_PROVIDER", "self_hosted")[:40]
     metrics["worker_profile"] = "lightweight" if is_lightweight_worker() else "standard"
     registration, _ = SecureWiseWorkerRegistration.objects.update_or_create(
@@ -171,6 +178,43 @@ def _worker_can_run_url_scan(worker_id: str) -> bool:
     return bool(registration and "url_egress_restricted" in (registration.capabilities or []))
 
 
+def _worker_supports_pentest(registration: SecureWiseWorkerRegistration, session: PentestSession) -> bool:
+    capabilities = set(registration.capabilities or ())
+    if session.mode != "passive":
+        metrics = registration.metrics if isinstance(registration.metrics, dict) else {}
+        reported_fingerprint = metrics.get("encryption_key_fingerprint")
+        if (
+            not isinstance(reported_fingerprint, str)
+            or len(reported_fingerprint) != 64
+            or not reported_fingerprint.isascii()
+            or not secrets.compare_digest(
+                reported_fingerprint,
+                securewise_encryption_key_fingerprint(),
+            )
+        ):
+            return False
+    if session.mode == "approved_tests":
+        config = session.get_auth_config()
+        if config.get("type") != "planner":
+            return False
+        execution_mode = config.get("execution_mode")
+        if execution_mode == "authenticated_api":
+            required = {"autopentest_authenticated_api", "docker_daemon"}
+        elif execution_mode == "authenticated_browser":
+            required = {"playwright", "docker_daemon"}
+        else:
+            return False
+    elif session.mode == "authenticated_api":
+        required = {"autopentest_authenticated_api", "docker_daemon"}
+    elif session.mode == "authenticated_browser":
+        required = {"playwright", "docker_daemon"}
+    elif session.mode in {"passive", "security_planning"}:
+        required = {"autopentest_openapi_contract"}
+    else:
+        return False
+    return required.issubset(capabilities)
+
+
 def claim_next_job(worker_id: str = "") -> tuple[str, str] | None:
     """Claim the oldest queued scan or AutoPentest session."""
     now = timezone.now()
@@ -218,6 +262,10 @@ def claim_next_job(worker_id: str = "") -> tuple[str, str] | None:
                 scan = SecureWiseScan.objects.get(id=candidate[0])
                 supported, _ = worker_supports_scan(registration, scan, now=now)
                 if not supported:
+                    continue
+            elif worker_id and job_type == "pentest":
+                session = PentestSession.objects.get(id=candidate[0])
+                if not _worker_supports_pentest(registration, session):
                     continue
             candidates.append((candidate[2], job_type, candidate[0], candidate[1]))
             break

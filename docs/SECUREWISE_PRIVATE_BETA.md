@@ -117,12 +117,34 @@ enable build execution if any of these controls is absent.
 
 ## Onboarding and operational limitations
 
-The existing UI makes authorization/scope review and scan mode explicit and
-shows worker readiness only from available backend progress data. It cannot
-verify production isolation, repository content approval, or browser capability
-before a job is linked to scan progress. Keep the beta restricted to
-operator-reviewed repositories and test accounts; tell users that discovery
-coverage is not assurance and unsupported/skipped tests were not executed.
+The AutoPentest UI lets an authorized organization member select a
+project-associated repository, choose a supported assessment mode, review
+exact scope, set bounded timeout/request-rate limits, supply synthetic
+credentials where needed, confirm authorization, and poll session status and
+results. It displays test outcomes, severity/confidence, CWE/OWASP mapping,
+sanitized evidence, recommendations, retest comparisons, and the session JSON
+report.
+
+The authenticated `/api/securewise/scans/worker-status/` response backs the
+standalone readiness panel. It reports a fresh worker heartbeat, supported
+AutoPentest modes, queue counters, and whether the API encryption key matches
+the latest online worker. Worker registration stores only a SHA-256 key
+fingerprint in internal worker metrics; the API compares it without returning
+either fingerprint or key. Workers registered before this check was added
+report `not_reported` until restarted. The status is operational telemetry,
+not proof of repository runtime approval, host egress enforcement, or
+production readiness.
+
+Failed sessions can be retried only by an organization member with write
+permission. The retry action retains the original authorization, exact scope,
+repository and encrypted test credentials, and queues the same session; it
+does not grant new repository trust. The worker repeats its existing
+repository/runtime checks before executing any test.
+
+Keep the beta restricted to operator-reviewed repositories and synthetic
+test accounts; discovery coverage is not assurance and unsupported/skipped
+tests were not executed. The frontend Playwright workflow uses mocked API
+responses and is not evidence of a live frontend-to-worker assessment.
 
 The current queue has no separate dead-letter queue, automatic queue-age alert
 delivery, tenant rate/quota enforcement, or cleanup-reaper process. Resource
