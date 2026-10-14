@@ -271,6 +271,33 @@ class MarketplaceAPITests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(response.data["settings"]["accepting_orders"])
 
+    def test_seller_settings_get_creates_missing_settings_with_accepting_orders_enabled(self):
+        ShopSettings.objects.filter(shop=self.shop).delete()
+        self.client.force_authenticate(User.objects.get(pk=self.seller_user.pk))
+
+        response = self.client.get("/api/seller/settings/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["accepting_orders"])
+        self.assertTrue(ShopSettings.objects.get(shop=self.shop).accepting_orders)
+
+    def test_seller_settings_patch_creates_missing_settings(self):
+        ShopSettings.objects.filter(shop=self.shop).delete()
+        self.client.force_authenticate(User.objects.get(pk=self.seller_user.pk))
+
+        response = self.client.patch(
+            "/api/seller/settings/",
+            {"accepting_orders": False, "pickup_available": False},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data["accepting_orders"])
+        self.assertFalse(response.data["pickup_available"])
+        self.assertFalse(ShopSettings.objects.get(shop=self.shop).accepting_orders)
+        self.shop.refresh_from_db()
+        self.assertFalse(self.shop.pickup_available)
+
     def test_order_submission_rejects_a_shop_not_accepting_orders(self):
         self.shop.settings.accepting_orders = False
         self.shop.settings.save(update_fields=["accepting_orders"])
