@@ -168,6 +168,158 @@ class MarketplaceAPITests(TestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_seller_categories_and_category_assignments_are_shop_scoped(self):
+        global_category = Category.objects.create(
+            shop=None,
+            name="General marketplace",
+            slug="general-marketplace",
+            is_global=True,
+        )
+        self.client.force_authenticate(self.seller_user)
+
+        response = self.client.get("/api/seller/categories/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        category_ids = {category["id"] for category in response.data}
+        self.assertIn(self.snacks_category.id, category_ids)
+        self.assertNotIn(self.other_category.id, category_ids)
+        self.assertNotIn(global_category.id, category_ids)
+
+        for category in (self.other_category, global_category):
+            response = self.client.patch(
+                f"/api/seller/categories/{category.id}/",
+                {"name": "Changed"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+            category.refresh_from_db()
+            self.assertNotEqual(category.name, "Changed")
+
+        response = self.client.patch(
+            f"/api/seller/products/{self.product.id}/",
+            {"category": self.other_category.id},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("category", response.data)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.category_id, self.snacks_category.id)
+
+        response = self.client.patch(
+            f"/api/seller/products/{self.product.id}/",
+            {"category": global_category.id},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_new_products_are_approved_independently_of_active_status(self):
+        self.client.force_authenticate(self.seller_user)
+        response = self.client.post(
+            "/api/seller/products/",
+            {
+                "name": "Automatically approved",
+                "price": "2.50",
+                "category": self.snacks_category.id,
+                "is_active": False,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertTrue(response.data["is_approved"])
+        self.assertFalse(response.data["is_active"])
+        product = Product.objects.get(pk=response.data["id"])
+
+        response = self.client.patch(
+            f"/api/seller/products/{product.id}/",
+            {"name": "Renamed automatically approved product"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["is_approved"])
+
+    def test_seller_can_change_only_own_product_active_status(self):
+        self.client.force_authenticate(self.seller_user)
+        response = self.client.patch(
+            f"/api/seller/products/{self.product.id}/",
+            {"is_active": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.product.refresh_from_db()
+        self.assertFalse(self.product.is_active)
+
+        response = self.client.patch(
+            f"/api/seller/products/{self.other_product.id}/",
+            {"is_active": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.other_product.refresh_from_db()
+        self.assertTrue(self.other_product.is_active)
+
+    def test_seller_can_pause_orders_and_buyers_see_setting(self):
+        self.client.force_authenticate(self.seller_user)
+        response = self.client.patch(
+            "/api/seller/settings/",
+            {"accepting_orders": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data["accepting_orders"])
+
+        self.client.force_authenticate(None)
+        response = self.client.get(f"/api/marketplace/shops/{self.shop.slug}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data["settings"]["accepting_orders"])
+
+    def test_order_submission_rejects_a_shop_not_accepting_orders(self):
+        self.shop.settings.accepting_orders = False
+        self.shop.settings.save(update_fields=["accepting_orders"])
+        response = self.client.post(
+            "/api/marketplace/orders/",
+            {
+                "shop_id": self.shop.id,
+                "customer_name": "Buyer",
+                "customer_email": "buyer@example.com",
+                "customer_phone": "+31600000000",
+                "order_type": "pickup",
+                "items": [{"product_id": self.product.id, "quantity": 1}],
+                "terms_accepted": True,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["code"], "SHOP_NOT_ACCEPTING_ORDERS")
+        self.assertIn("This seller is not accepting orders at the moment.", response.data["detail"])
+        self.assertFalse(Order.objects.exists())
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock_quantity, 10)
+
+    def test_order_submission_rejects_products_deactivated_after_adding_to_cart(self):
+        session = self.client.session
+        session["marketplace_cart"] = {str(self.product.id): 1}
+        session.save()
+        self.product.is_active = False
+        self.product.save(update_fields=["is_active", "updated_at"])
+
+        response = self.client.post(
+            "/api/marketplace/orders/",
+            {
+                "shop_id": self.shop.id,
+                "customer_name": "Buyer",
+                "customer_email": "buyer@example.com",
+                "customer_phone": "+31600000000",
+                "order_type": "pickup",
+                "items": [{"product_id": self.product.id, "quantity": 1}],
+                "terms_accepted": True,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["code"], "PRODUCT_UNAVAILABLE")
+        self.assertFalse(Order.objects.exists())
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock_quantity, 10)
+
     def test_order_creation_calculates_totals_and_reduces_stock(self):
         Coupon.objects.create(
             shop=self.shop,

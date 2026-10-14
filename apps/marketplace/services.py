@@ -188,6 +188,14 @@ def _create_order_atomic(payload, user=None):
     Email sending deliberately lives OUTSIDE this function so that a slow or
     failing SMTP connection never holds the transaction open."""
     shop = Shop.objects.select_for_update().get(id=payload["shop_id"], is_active=True, is_approved=True)
+    settings = getattr(shop, "settings", None)
+    if settings and not settings.accepting_orders:
+        raise serializers.ValidationError(
+            {
+                "detail": "This seller is not accepting orders at the moment. Please try again later.",
+                "code": "SHOP_NOT_ACCEPTING_ORDERS",
+            }
+        )
     items = payload.get("items") or []
     if not items:
         raise serializers.ValidationError({"items": "At least one item is required."})
@@ -207,7 +215,12 @@ def _create_order_atomic(payload, user=None):
     for item in items:
         product = products.get(item.get("product_id"))
         if not product:
-            raise serializers.ValidationError({"items": "One or more products are unavailable for this shop."})
+            raise serializers.ValidationError(
+                {
+                    "items": "One or more products are inactive or otherwise unavailable for this shop.",
+                    "code": "PRODUCT_UNAVAILABLE",
+                }
+            )
         quantity = int(item.get("quantity") or 0)
         if quantity <= 0:
             raise serializers.ValidationError({"items": "Quantity must be greater than zero."})
@@ -225,7 +238,6 @@ def _create_order_atomic(payload, user=None):
     if rule_errors:
         raise ordering.OrderRuleViolation(rule_errors)
 
-    settings = getattr(shop, "settings", None)
     language = payload.get("language", "en")
     if settings and subtotal < settings.min_order_amount:
         raise ShopMinimumOrderNotMet(shop, subtotal, settings.min_order_amount)

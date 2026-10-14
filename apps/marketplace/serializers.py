@@ -120,6 +120,7 @@ class ShopSettingsSerializer(serializers.ModelSerializer):
             "pickup_city",
             "pickup_country",
             "order_acceptance_mode",
+            "accepting_orders",
             "whatsapp_number",
             "whatsapp_url",
             "whatsapp_group_url",
@@ -445,7 +446,7 @@ class ProductSerializer(serializers.ModelSerializer):
             return category
         request = self.context.get("request")
         seller_shop = getattr(getattr(request.user, "seller_profile", None), "shop", None) if request else None
-        if seller_shop and category.shop_id not in {None, seller_shop.id}:
+        if seller_shop and category.shop_id != seller_shop.id:
             raise serializers.ValidationError("Category does not belong to your shop.")
         return category
 
@@ -455,7 +456,6 @@ class ProductSerializer(serializers.ModelSerializer):
         shop = self.context["request"].user.seller_profile.shop
         validated_data["shop"] = shop
         validated_data["slug"] = generate_unique_slug(Product, validated_data["name"], shop=shop)
-        validated_data["is_approved"] = False
         product = super().create(validated_data)
         if image_file:
             try:
@@ -469,7 +469,6 @@ class ProductSerializer(serializers.ModelSerializer):
         image_file = validated_data.pop("image", None)
         if "name" in validated_data and validated_data["name"] != instance.name:
             validated_data["slug"] = generate_unique_slug(Product, validated_data["name"], shop=instance.shop)
-            validated_data["is_approved"] = False
         product = super().update(instance, validated_data)
         if image_file:
             try:
@@ -874,6 +873,7 @@ class PublicShopSettingsSerializer(serializers.ModelSerializer):
         fields = [
             "currency",
             "default_vat_rate",
+            "accepting_orders",
             "min_order_amount",
             "delivery_fee",
             "local_delivery_fee",

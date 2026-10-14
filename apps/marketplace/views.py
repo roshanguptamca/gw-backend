@@ -779,7 +779,7 @@ class SellerCategoryViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         shop = self.request.user.seller_profile.shop
-        return Category.objects.filter(shop__in=[shop, None], is_active=True).order_by("name")
+        return Category.objects.filter(shop=shop).order_by("name")
 
     def perform_create(self, serializer):
         name = serializer.validated_data["name"]

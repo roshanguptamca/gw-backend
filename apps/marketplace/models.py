@@ -110,6 +110,7 @@ class ShopSettings(models.Model):
         choices=ORDER_ACCEPTANCE_CHOICES,
         default=ORDER_ACCEPTANCE_MANUAL,
     )
+    accepting_orders = models.BooleanField(default=True)
     local_delivery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("5.00"))
     international_delivery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("10.00"))
     delivery_notes = models.TextField(blank=True)
@@ -218,7 +219,7 @@ class Product(models.Model):
         help_text="Fallback image URL (e.g. Unsplash CDN) used when no uploaded image is present.",
     )
     is_active = models.BooleanField(default=True)
-    is_approved = models.BooleanField(default=False)
+    is_approved = models.BooleanField(default=True)
     is_featured = models.BooleanField(default=False)
     # Canonical order lead time (advance notice). Exposed as hours in the API.
     preparation_time_minutes = models.PositiveIntegerField(default=0)
