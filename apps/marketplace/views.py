@@ -23,6 +23,7 @@ from .models import (
     ProductImage,
     SellerProfile,
     Shop,
+    ShopSettings,
 )
 from .permissions import IsSeller, IsShopOwner, IsSuperAdmin
 from .serializers import (
@@ -635,19 +636,21 @@ class SellerSettingsView(APIView):
 
     def get(self, request):
         shop = request.user.seller_profile.shop
-        data = ShopSettingsSerializer(shop.settings).data
+        settings, _ = ShopSettings.objects.get_or_create(shop=shop)
+        data = ShopSettingsSerializer(settings).data
         data["pickup_available"] = shop.pickup_available
         data["delivery_available"] = shop.delivery_available
         return Response(data)
 
     def patch(self, request):
         shop = request.user.seller_profile.shop
+        settings, _ = ShopSettings.objects.get_or_create(shop=shop)
         shop_fields = {}
         data = request.data.copy() if hasattr(request.data, "copy") else dict(request.data)
         for field in ("pickup_available", "delivery_available"):
             if field in data:
                 shop_fields[field] = data.pop(field)
-        serializer = ShopSettingsSerializer(shop.settings, data=data, partial=True)
+        serializer = ShopSettingsSerializer(settings, data=data, partial=True)
         serializer.is_valid(raise_exception=True)
         boolean_field = serializers.BooleanField()
         shop_fields = {field: boolean_field.run_validation(value) for field, value in shop_fields.items()}
@@ -779,7 +782,7 @@ class SellerCategoryViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         shop = self.request.user.seller_profile.shop
-        return Category.objects.filter(shop__in=[shop, None], is_active=True).order_by("name")
+        return Category.objects.filter(shop=shop).order_by("name")
 
     def perform_create(self, serializer):
         name = serializer.validated_data["name"]
