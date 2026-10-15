@@ -2,8 +2,8 @@ from django.urls import include, path
 
 from rest_framework.routers import DefaultRouter
 
-from .billing.views import InvoiceViewSet, OrderInvoiceListView
 from .ai_order_agent import AgentMenuView, AgentQuoteView
+from .billing.views import InvoiceViewSet, OrderInvoiceListView
 from .views import (
     AddressLookupView,
     AdminProductViewSet,
