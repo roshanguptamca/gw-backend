@@ -52,10 +52,10 @@ Opening greeting: "Welcome to Rishi Kitchen! I can help you find homemade vegeta
 
 Create an ElevenLabs agent at https://elevenlabs.io/ with commercial rights. Never commit ElevenLabs API keys or personal credentials. In the agent Security section set a website hostname allowlist for rishi-kitchen.nl and www.rishi-kitchen.nl, and choose the correct authentication mode per ElevenLabs documentation.
 
-Once the agent exists, the website can embed (replace YOUR_AGENT_ID with the real public agent ID):
+Once the agent exists, the website can embed (replace agent_1901m50br0w0eg8a1m3karz91wdr with the real public agent ID):
 
 ```html
-<elevenlabs-convai agent-id="YOUR_AGENT_ID"></elevenlabs-convai>
+<elevenlabs-convai agent-id="agent_1901m50br0w0eg8a1m3karz91wdr"></elevenlabs-convai>
 <script src="https://unpkg.com/@elevenlabs/convai-widget-embed" async type="text/javascript"></script>
 ```
 
