@@ -34,7 +34,8 @@
                 "description": "Exact numeric product_id from get_menu.",
                 "dynamic_variable": "",
                 "value_type": "llm_prompt",
-                "required": true
+                "required": true,
+                "constant_value": ""
               },
               {
                 "id": "quantity",
@@ -42,7 +43,8 @@
                 "description": "Confirmed positive integer quantity, maximum 1000.",
                 "dynamic_variable": "",
                 "value_type": "llm_prompt",
-                "required": true
+                "required": true,
+                "constant_value": ""
               }
             ]
           }
@@ -53,7 +55,8 @@
           "description": "Guest name for order fulfilment.",
           "dynamic_variable": "",
           "value_type": "llm_prompt",
-          "required": true
+          "required": true,
+          "constant_value": ""
         },
         {
           "id": "customer_phone",
@@ -61,15 +64,17 @@
           "description": "Valid contact phone number, 7 to 15 digits, optional leading +.",
           "dynamic_variable": "",
           "value_type": "llm_prompt",
-          "required": true
+          "required": true,
+          "constant_value": ""
         },
         {
           "id": "customer_email",
           "type": "string",
-          "description": "Optional email address for order confirmation.",
+          "description": "Required valid buyer email for order confirmation and invoice. Ask the buyer to confirm spelling; never invent or use a placeholder.",
           "dynamic_variable": "",
           "value_type": "llm_prompt",
-          "required": false
+          "required": true,
+          "constant_value": ""
         },
         {
           "id": "pickup_slot_start",
@@ -77,7 +82,8 @@
           "description": "Exact ISO 8601 pickup start from quote_order options; required when scheduling is enabled, otherwise omit.",
           "dynamic_variable": "",
           "value_type": "llm_prompt",
-          "required": false
+          "required": false,
+          "constant_value": ""
         },
         {
           "id": "customer_note",
@@ -85,7 +91,8 @@
           "description": "Optional customer note, maximum 2000 characters.",
           "dynamic_variable": "",
           "value_type": "llm_prompt",
-          "required": false
+          "required": false,
+          "constant_value": ""
         },
         {
           "id": "language",
@@ -93,7 +100,8 @@
           "description": "en, nl or hi; Hindi conversations receive English receipts.",
           "dynamic_variable": "",
           "value_type": "llm_prompt",
-          "required": false
+          "required": false,
+          "constant_value": ""
         }
       ]
     },
