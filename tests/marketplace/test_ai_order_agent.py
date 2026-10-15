@@ -89,9 +89,12 @@ class AgentToolTests(TestCase):
     def test_quote_rejects_duplicate_lines(self):
         response = self.client.post(
             self.quote_url,
-            {"items": [
-                {"product_id": self.product.id, "quantity": 1},
-                {"product_id": self.product.id, "quantity": 2},
-            ]}, format="json",
+            {
+                "items": [
+                    {"product_id": self.product.id, "quantity": 1},
+                    {"product_id": self.product.id, "quantity": 2},
+                ]
+            },
+            format="json",
         )
         self.assertEqual(response.status_code, 400)
