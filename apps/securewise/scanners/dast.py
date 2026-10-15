@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 _TIMEOUT = 8
 _ZAP_TIMEOUT = 180
 _ZAP_MAX_MINUTES = "1"
-_ZAP_DOCKER_IMAGE = "ghcr.io/zaproxy/zaproxy:stable"
+_ZAP_DOCKER_IMAGE = "ghcr.io/zaproxy/zaproxy@sha256:7aaa659b0d43078febd82e29bad112285c370727e86ab8340444220e17d9f0d2"
 _ZAP_REPORT_NAME = "zap-report.json"
 
 
@@ -62,25 +62,140 @@ class DastScanner(BaseScanner):
                 },
             )
 
+        authorization_id = metadata.get("testing_authorization_id")
+        if authorization_id:
+            return self._authorized_passive_scan(
+                target_url,
+                authorization_id,
+                str(metadata.get("worker_id") or ""),
+            )
+
+        if not metadata.get("dast_docker_network") or not metadata.get("dast_docker_target_url"):
+            reason = (
+                "External and user-supplied DAST targets are disabled for the private beta. "
+                "DAST runs only against a worker-generated isolated runtime in the approved scan network."
+            )
+            return ScannerResult(
+                success=True,
+                findings=[],
+                status="skipped",
+                skipped_reason=reason,
+                metadata={
+                    "raw_tool": "none",
+                    "execution_mode": "private_beta_scope_blocked",
+                    "dast_skip_reason": reason,
+                },
+            )
+
         logger.warning(
             "DAST scan starting against %s — only authorized targets should ever be scanned; "
             "no destructive payloads are sent.",
             target_url,
         )
 
+        zap_failures: list[str] = []
         if shutil.which("zap-baseline.py"):
             result = self._zap_cli_scan(target_url)
             if result is not None:
                 return result
+            zap_failures.append("ZAP CLI did not produce a readable baseline report")
 
-        if shutil.which("docker"):
-            result = self._zap_docker_scan(target_url)
+        docker_cli_available, docker_cli_reason = shutil.which("docker") is not None, ""
+        if not docker_cli_available:
+            docker_cli_reason = "Docker CLI is not installed"
+        else:
+            from ..runtime.docker_runner import is_docker_available
+
+            docker_cli_available, docker_cli_reason = is_docker_available()
+        if docker_cli_available:
+            result = self._zap_docker_scan(
+                target_url,
+                network_name=metadata.get("dast_docker_network", ""),
+                docker_target_url=metadata.get("dast_docker_target_url", ""),
+            )
             if result is not None:
                 return result
+            zap_failures.append("ZAP Docker baseline did not produce a readable report")
+        elif shutil.which("zap-baseline.py") is None:
+            zap_failures.append(docker_cli_reason)
 
         logger.info("OWASP ZAP is unavailable or failed to produce a report; passive requests-based scan used.")
+        result = self._passive_scan(target_url)
+        result.metadata["execution_mode"] = "requests_passive_fallback"
+        if zap_failures:
+            result.metadata["zap_fallback_reason"] = "; ".join(zap_failures)
+        return result
 
-        return self._passive_scan(target_url)
+    def _authorized_passive_scan(self, target_url: str, authorization_id: str, worker_id: str) -> ScannerResult:
+        from types import SimpleNamespace
+        from uuid import UUID
+
+        from ..models import SecureWiseTestingAuthorization
+        from ..services.url_security import URLSecurityError, authorize_request
+
+        try:
+            authorization_id = str(UUID(str(authorization_id)))
+        except (TypeError, ValueError):
+            return ScannerResult(
+                success=True,
+                findings=[],
+                status="skipped",
+                skipped_reason="Approved URL testing authorization ID is invalid.",
+                metadata={"raw_tool": "none", "execution_mode": "authorization_blocked"},
+            )
+        try:
+            authorization = SecureWiseTestingAuthorization.objects.select_related("target").get(
+                id=authorization_id
+            )
+            status_code, response_headers, _, final_url = authorize_request(
+                authorization,
+                target_url,
+                worker_id=worker_id,
+            )
+        except SecureWiseTestingAuthorization.DoesNotExist:
+            return ScannerResult(
+                success=True,
+                findings=[],
+                status="skipped",
+                skipped_reason="Approved URL testing authorization no longer exists.",
+                metadata={"raw_tool": "none", "execution_mode": "authorization_blocked"},
+            )
+        except URLSecurityError as exc:
+            return ScannerResult(
+                success=True,
+                findings=[],
+                status="skipped",
+                skipped_reason=str(exc),
+                metadata={"raw_tool": "none", "execution_mode": "authorization_blocked"},
+            )
+
+        class HeaderCollection:
+            def getlist(self, name):
+                value = response_headers.get(name.lower())
+                return [value] if value is not None else []
+
+        response = SimpleNamespace(
+            headers=response_headers,
+            status_code=status_code,
+            raw=SimpleNamespace(headers=HeaderCollection()),
+        )
+        findings = []
+        findings.extend(self._check_security_headers(response_headers, final_url))
+        findings.extend(self._check_cookies(response, final_url))
+        findings.extend(self._check_cors(response_headers, final_url))
+        findings.extend(self._check_verbose_headers(response_headers, final_url))
+        return ScannerResult(
+            success=True,
+            findings=findings,
+            metadata={
+                "raw_tool": "requests-passive-dast",
+                "execution_mode": "authorized_passive_http",
+                "target_url": final_url,
+                "status_code": status_code,
+                "testing_authorization_id": authorization_id,
+                "active_tests": False,
+            },
+        )
 
     def _zap_cli_scan(self, target_url: str) -> ScannerResult | None:
         with tempfile.TemporaryDirectory(prefix="securewise-zap-") as tmp:
@@ -88,23 +203,40 @@ class DastScanner(BaseScanner):
             command = self._zap_command(target_url)
             return self._run_zap_command(command, tmp_path, target_url, runner="zap-baseline.py")
 
-    def _zap_docker_scan(self, target_url: str) -> ScannerResult | None:
+    def _zap_docker_scan(
+        self,
+        target_url: str,
+        *,
+        network_name: str = "",
+        docker_target_url: str = "",
+    ) -> ScannerResult | None:
         with tempfile.TemporaryDirectory(prefix="securewise-zap-") as tmp:
             tmp_path = Path(tmp)
-            docker_target_url = _docker_reachable_url(target_url)
+            zap_target_url = docker_target_url or _docker_reachable_url(target_url)
             command = [
                 "docker",
                 "run",
                 "--rm",
-                "--add-host",
-                "host.docker.internal:host-gateway",
+                "--memory",
+                "1g",
+                "--cpus",
+                "1.0",
+                "--pids-limit",
+                "256",
+                "--cap-drop",
+                "ALL",
+                "--security-opt",
+                "no-new-privileges",
                 "-w",
                 "/zap/wrk",
                 "-v",
                 f"{tmp_path}:/zap/wrk:rw",
-                _ZAP_DOCKER_IMAGE,
-                *self._zap_command(docker_target_url),
             ]
+            if network_name:
+                command.extend(["--network", network_name])
+            else:
+                command.extend(["--add-host", "host.docker.internal:host-gateway"])
+            command.extend([_ZAP_DOCKER_IMAGE, *self._zap_command(zap_target_url)])
             return self._run_zap_command(command, tmp_path, target_url, runner="docker-zap-baseline")
 
     def _zap_command(self, target_url: str) -> list[str]:
@@ -161,6 +293,7 @@ class DastScanner(BaseScanner):
             findings=findings,
             metadata={
                 "raw_tool": "zap",
+                "execution_mode": "zap_baseline",
                 "runner": runner,
                 "target_url": target_url,
                 "returncode": proc.returncode,
@@ -178,7 +311,11 @@ class DastScanner(BaseScanner):
                 success=False,
                 error=str(exc),
                 status="failed",
-                metadata={"raw_tool": "requests-passive-dast", "target_url": target_url},
+                metadata={
+                    "raw_tool": "requests-passive-dast",
+                    "execution_mode": "requests_passive_fallback",
+                    "target_url": target_url,
+                },
             )
 
         headers = {k.lower(): v for k, v in resp.headers.items()}
@@ -191,7 +328,12 @@ class DastScanner(BaseScanner):
         return ScannerResult(
             success=True,
             findings=findings,
-            metadata={"raw_tool": "requests-passive-dast", "target_url": target_url, "status_code": resp.status_code},
+            metadata={
+                "raw_tool": "requests-passive-dast",
+                "execution_mode": "requests_passive_fallback",
+                "target_url": target_url,
+                "status_code": resp.status_code,
+            },
         )
 
     def _check_security_headers(self, headers: dict, target_url: str) -> list[ScannerFinding]:

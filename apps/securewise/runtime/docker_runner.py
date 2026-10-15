@@ -12,10 +12,14 @@ Design constraints (see docs/SMART_REPO_SCAN.md):
 from __future__ import annotations
 
 import logging
+import json
+import re
 import shutil
 import subprocess
 import uuid
 from pathlib import Path
+
+from ..discovery.health import candidate_health_endpoints
 
 logger = logging.getLogger(__name__)
 
@@ -23,56 +27,149 @@ _DOCKER_AVAILABILITY_TIMEOUT = 5
 _BUILD_TIMEOUT = 240
 _RUN_STARTUP_TIMEOUT = 5
 _STOP_TIMEOUT = 15
+_HEALTH_PROBE_IMAGE = "python:3.11-slim"
+API_REQUEST_RUNNER_IMAGE = "python:3.11-slim"
+_ISOLATED_BUILD_MEMORY_LIMIT = "2g"
+_ISOLATED_BUILD_CPU_LIMIT = "2.0"
+# Experimental low-resource worker: smaller caps so one job cannot exhaust the host.
+_EXPERIMENTAL_BUILD_MEMORY_LIMIT = "512m"
+_EXPERIMENTAL_BUILD_CPU_LIMIT = "1.0"
+_EXPERIMENTAL_MEMORY_LIMIT = "256m"
+_EXPERIMENTAL_CPU_LIMIT = "0.5"
+_EXPERIMENTAL_PIDS_LIMIT = "64"
+_OOM_EXIT_CODES = (137, -9)
+_HEALTH_PROBE_SCRIPT = """import sys
+from urllib.error import HTTPError
+from urllib.request import urlopen
+try:
+    response = urlopen(sys.argv[1], timeout=2)
+    status = response.status
+except HTTPError as error:
+    status = error.code
+print(status)
+"""
 
 # Conservative resource limits for auto-started scan targets.
 _MEMORY_LIMIT = "512m"
 _CPU_LIMIT = "1.0"
 
-# Minimal, well-known runtime base images used only when we must generate a
-# temporary Dockerfile for a repo that doesn't ship one.
-GENERATED_DOCKERFILE_TEMPLATES = {
-    "python": (
-        "FROM python:3.11-slim\n"
-        "WORKDIR /app\n"
-        "COPY . /app\n"
-        "RUN pip install --no-cache-dir -r requirements.txt || true\n"
-        "EXPOSE {port}\n"
-        "CMD {start_command}\n"
-    ),
-    "node": (
-        "FROM node:20-slim\n"
-        "WORKDIR /app\n"
-        "COPY . /app\n"
-        "RUN npm install --omit=dev || npm install || true\n"
-        "EXPOSE {port}\n"
-        "CMD {start_command}\n"
-    ),
-    "go": (
-        "FROM golang:1.22\n"
-        "WORKDIR /app\n"
-        "COPY . /app\n"
-        "RUN go build -o /app/bin/service . || true\n"
-        "EXPOSE {port}\n"
-        'CMD ["/app/bin/service"]\n'
-    ),
-    "php": (
-        "FROM php:8.2-cli\n" "WORKDIR /app\n" "COPY . /app\n" "RUN true\n" "EXPOSE {port}\n" "CMD {start_command}\n"
-    ),
-    "ruby": (
-        "FROM ruby:3.3-slim\n"
-        "WORKDIR /app\n"
-        "COPY . /app\n"
-        "RUN bundle install || true\n"
-        "EXPOSE {port}\n"
-        "CMD {start_command}\n"
-    ),
+_DEFAULT_RUNTIME_TAGS = {
+    "python": "3-slim",
+    "node": "lts-slim",
+    "go": "latest",
+    "php": "cli",
+    "ruby": "slim",
 }
 
 
-def is_docker_available() -> tuple[bool, str]:
-    """Check whether Docker is installed *and* the daemon is reachable."""
+def _version_from_repo(repo_path: Path, language: str) -> str:
+    """Read a runtime version from standard project metadata without executing it."""
+    candidates = {
+        "python": (".python-version", "runtime.txt"),
+        "node": (".nvmrc", ".node-version"),
+        "php": (".php-version",),
+        "ruby": (".ruby-version",),
+    }.get(language, ())
+    for name in candidates:
+        try:
+            text = (repo_path / name).read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        match = re.search(r"\d+(?:\.\d+){0,2}", text)
+        if match:
+            return match.group(0)
+
+    if language == "python":
+        try:
+            pyproject = (repo_path / "pyproject.toml").read_text(encoding="utf-8")
+        except OSError:
+            pyproject = ""
+        match = re.search(r"requires-python\s*=\s*[\"']([^\"']+)", pyproject)
+        if match:
+            version = re.search(r"\d+\.\d+", match.group(1))
+            if version:
+                return version.group(0)
+    elif language == "node":
+        try:
+            package = json.loads((repo_path / "package.json").read_text(encoding="utf-8"))
+            version = package.get("engines", {}).get("node", "")
+        except (OSError, ValueError, AttributeError):
+            version = ""
+        match = re.search(r"\d+(?:\.\d+){0,2}", str(version))
+        if match:
+            return match.group(0)
+    elif language == "go":
+        try:
+            go_mod = (repo_path / "go.mod").read_text(encoding="utf-8")
+        except OSError:
+            go_mod = ""
+        match = re.search(r"(?m)^go\s+(\d+\.\d+(?:\.\d+)?)", go_mod)
+        if match:
+            return match.group(1)
+    elif language == "ruby":
+        try:
+            gemfile_lock = (repo_path / "Gemfile.lock").read_text(encoding="utf-8")
+        except OSError:
+            gemfile_lock = ""
+        match = re.search(r"(?m)^   ruby ([\d.]+)", gemfile_lock)
+        if match:
+            return match.group(1)
+    elif language == "php":
+        try:
+            composer = json.loads((repo_path / "composer.json").read_text(encoding="utf-8"))
+            version = composer.get("require", {}).get("php", "")
+        except (OSError, ValueError, AttributeError):
+            version = ""
+        match = re.search(r"\d+\.\d+(?:\.\d+)?", str(version))
+        if match:
+            return match.group(0)
+    return ""
+
+
+def _package_install_command(repo_path: Path, language: str, package_managers: tuple[str, ...]) -> str:
+    managers = set(package_managers)
+    if language == "python":
+        if "poetry" in managers:
+            return "RUN pip install --no-cache-dir poetry && poetry config virtualenvs.create false && poetry install --only main --no-interaction"
+        if "pipenv" in managers:
+            return "RUN pip install --no-cache-dir pipenv && pipenv install --system --deploy"
+        if (repo_path / "requirements.txt").is_file():
+            return "RUN pip install --no-cache-dir -r requirements.txt"
+        if (repo_path / "pyproject.toml").is_file() or (repo_path / "setup.py").is_file():
+            return "RUN pip install --no-cache-dir ."
+    elif language == "node":
+        if (repo_path / "pnpm-lock.yaml").is_file():
+            return "RUN corepack enable && pnpm install --frozen-lockfile"
+        if (repo_path / "yarn.lock").is_file():
+            return "RUN corepack enable && yarn install --frozen-lockfile"
+        if (repo_path / "package-lock.json").is_file() or (repo_path / "npm-shrinkwrap.json").is_file():
+            return "RUN npm ci"
+        if (repo_path / "package.json").is_file():
+            return "RUN npm install"
+    elif language == "go" and (repo_path / "go.mod").is_file():
+        return "RUN go mod download"
+    elif language == "php" and (repo_path / "composer.json").is_file():
+        return (
+            "COPY --from=composer:2 /usr/bin/composer /usr/bin/composer\n"
+            "RUN composer install --no-dev --no-interaction --prefer-dist"
+        )
+    elif language == "ruby" and (repo_path / "Gemfile").is_file():
+        return "RUN bundle install"
+    return ""
+
+
+def is_docker_cli_available() -> tuple[bool, str]:
+    """Check whether the Docker CLI exists, without implying a daemon is running."""
     if not shutil.which("docker"):
         return False, "Docker CLI is not installed in this environment"
+    return True, ""
+
+
+def is_docker_daemon_available() -> tuple[bool, str]:
+    """Check daemon reachability separately from Docker CLI availability."""
+    cli_available, reason = is_docker_cli_available()
+    if not cli_available:
+        return False, reason
 
     try:
         proc = subprocess.run(
@@ -91,31 +188,100 @@ def is_docker_available() -> tuple[bool, str]:
     return True, ""
 
 
+def is_docker_available() -> tuple[bool, str]:
+    """Compatibility helper returning true only when both CLI and daemon work."""
+    return is_docker_daemon_available()
+
+
+def is_docker_rootless() -> bool:
+    """Require an actively reachable rootless Docker daemon for the restricted API profile."""
+    available, _ = is_docker_daemon_available()
+    if not available:
+        return False
+    try:
+        result = subprocess.run(
+            ["docker", "info", "--format", "{{json .SecurityOptions}}"],
+            capture_output=True,
+            timeout=_DOCKER_AVAILABILITY_TIMEOUT,
+            text=True,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    if result.returncode != 0:
+        return False
+    try:
+        security_options = json.loads(result.stdout)
+    except (TypeError, ValueError):
+        return False
+    return isinstance(security_options, list) and any("rootless" in str(option).lower() for option in security_options)
+
+
+def is_docker_image_available(image_tag: str) -> bool:
+    try:
+        result = subprocess.run(
+            ["docker", "image", "inspect", image_tag],
+            capture_output=True,
+            timeout=_DOCKER_AVAILABILITY_TIMEOUT,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+    return result.returncode == 0
+
+
 def build_dockerfile_command(dockerfile_shell_command: str) -> list[str]:
     """Split a plain-text start command into a Docker CMD-friendly shell form."""
     return ["sh", "-c", dockerfile_shell_command]
 
 
-def generate_dockerfile_content(language: str, start_command: str, port: int) -> str | None:
-    template = GENERATED_DOCKERFILE_TEMPLATES.get(language)
-    if not template:
+def generate_dockerfile_content(
+    language: str,
+    start_command: str,
+    port: int,
+    repo_path: Path | None = None,
+    package_managers: tuple[str, ...] = (),
+) -> str | None:
+    if language not in _DEFAULT_RUNTIME_TAGS:
         return None
-    return template.format(port=port, start_command=start_command)
+    repo_path = repo_path or Path(".")
+    version = _version_from_repo(repo_path, language)
+    runtime_tag = version or _DEFAULT_RUNTIME_TAGS[language]
+    base_image = {
+        "python": f"python:{runtime_tag}-slim",
+        "node": f"node:{runtime_tag}" if runtime_tag.endswith("-slim") else f"node:{runtime_tag}-slim",
+        "go": f"golang:{runtime_tag}",
+        "php": f"php:{runtime_tag}",
+        "ruby": f"ruby:{runtime_tag}-slim",
+    }[language]
+    install_command = _package_install_command(repo_path, language, package_managers)
+    command = f'CMD {json.dumps(["sh", "-c", start_command])}' if start_command else ""
+    lines = [f"FROM {base_image}", "WORKDIR /app", "COPY . /app"]
+    if install_command:
+        lines.extend(install_command.splitlines())
+    lines.extend((f"EXPOSE {port}", command))
+    return "\n".join(line for line in lines if line) + "\n"
 
 
 def build_image(context_path: Path, dockerfile_path: Path, tag: str) -> tuple[bool, str]:
+    command = ["docker", "build", "--quiet"]
+    from apps.securewise.services.worker_profile import experimental_limits_active, is_autopentest_api_worker
+
+    if is_autopentest_api_worker():
+        experimental = experimental_limits_active()
+        command.extend(
+            [
+                "--pull=false",
+                "--network=none",
+                "--memory",
+                _EXPERIMENTAL_BUILD_MEMORY_LIMIT if experimental else _ISOLATED_BUILD_MEMORY_LIMIT,
+                "--cpus",
+                _EXPERIMENTAL_BUILD_CPU_LIMIT if experimental else _ISOLATED_BUILD_CPU_LIMIT,
+            ]
+        )
+    command.extend(["-f", str(dockerfile_path), "-t", tag, str(context_path)])
     try:
         proc = subprocess.run(
-            [
-                "docker",
-                "build",
-                "--quiet",
-                "-f",
-                str(dockerfile_path),
-                "-t",
-                tag,
-                str(context_path),
-            ],
+            command,
             capture_output=True,
             timeout=_BUILD_TIMEOUT,
             text=True,
@@ -126,12 +292,108 @@ def build_image(context_path: Path, dockerfile_path: Path, tag: str) -> tuple[bo
         return False, f"docker build failed to start: {exc}"
 
     if proc.returncode != 0:
-        return False, (proc.stderr or proc.stdout or "docker build failed").strip()[-2000:]
+        output = (proc.stderr or proc.stdout or "docker build failed").strip()[-2000:]
+        if proc.returncode in _OOM_EXIT_CODES or "out of memory" in output.lower():
+            output = f"Docker build was killed, most likely out of memory (exit {proc.returncode}). {output}"[-2000:]
+        return False, output
     return True, ""
 
 
+def create_isolated_network(network_name: str) -> tuple[bool, str]:
+    try:
+        proc = subprocess.run(
+            ["docker", "network", "create", "--internal", network_name],
+            capture_output=True,
+            timeout=_DOCKER_AVAILABILITY_TIMEOUT,
+            text=True,
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return False, f"Docker network creation failed: {exc}"
+    if proc.returncode != 0:
+        return False, (proc.stderr or proc.stdout or "Docker network creation failed").strip()[-2000:]
+    return True, ""
+
+
+def probe_network_url(network_name: str, url: str) -> int | None:
+    """Probe an isolated runtime from its Docker network, not from the host."""
+    try:
+        proc = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--memory",
+                "64m",
+                "--cpus",
+                "0.25",
+                "--pids-limit",
+                "16",
+                "--cap-drop",
+                "ALL",
+                "--security-opt",
+                "no-new-privileges",
+                "--network",
+                network_name,
+                "--entrypoint",
+                "python",
+                _HEALTH_PROBE_IMAGE,
+                "-c",
+                _HEALTH_PROBE_SCRIPT,
+                url,
+            ],
+            capture_output=True,
+            timeout=10,
+            text=True,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+
+    if proc.returncode != 0:
+        return None
+    try:
+        return int(proc.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return None
+
+
+def probe_health(network_name: str, base_url: str, preferred_endpoint: str = "") -> dict:
+    """Check discovered health endpoints from a temporary container on the isolated network."""
+    base = base_url.rstrip("/")
+    root_status = None
+    for path in candidate_health_endpoints(preferred_endpoint):
+        url = base + path if path != "/" else base + "/"
+        status = probe_network_url(network_name, url)
+        if path == "/":
+            root_status = status
+        elif status in (200, 204):
+            return {
+                "reachable": True,
+                "selected_endpoint": path,
+                "has_dedicated_health_endpoint": True,
+                "status_code": status,
+            }
+
+    if root_status is not None and (200 <= root_status < 400 or root_status in (401, 403)):
+        return {
+            "reachable": True,
+            "selected_endpoint": "/",
+            "has_dedicated_health_endpoint": False,
+            "status_code": root_status,
+        }
+    return {
+        "reachable": False,
+        "selected_endpoint": "",
+        "has_dedicated_health_endpoint": False,
+        "status_code": root_status,
+    }
+
+
 def run_container(
-    image: str, host_port: int, container_port: int, env_vars: dict[str, str] | None = None
+    image: str,
+    host_port: int,
+    container_port: int,
+    env_vars: dict[str, str] | None = None,
+    network_name: str = "",
 ) -> tuple[bool, str, str]:
     """
     Start a container in the background.
@@ -139,6 +401,9 @@ def run_container(
     Returns (success, container_id, error). Never uses --privileged, never
     mounts host paths, always sets memory/cpu limits and auto-remove.
     """
+    from apps.securewise.services.worker_profile import experimental_limits_active
+
+    experimental = experimental_limits_active()
     container_name = f"securewise-runtime-{uuid.uuid4().hex[:10]}"
     cmd = [
         "docker",
@@ -147,14 +412,25 @@ def run_container(
         "--name",
         container_name,
         "--memory",
-        _MEMORY_LIMIT,
+        _EXPERIMENTAL_MEMORY_LIMIT if experimental else _MEMORY_LIMIT,
         "--cpus",
-        _CPU_LIMIT,
-        "--network",
-        "bridge",
+        _EXPERIMENTAL_CPU_LIMIT if experimental else _CPU_LIMIT,
+        "--pids-limit",
+        _EXPERIMENTAL_PIDS_LIMIT if experimental else "128",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--read-only",
+        "--tmpfs",
+        "/tmp:rw,noexec,nosuid,size=64m",
         "-p",
-        f"{host_port}:{container_port}",
+        f"127.0.0.1:{host_port}:{container_port}",
     ]
+    if network_name:
+        cmd.extend(["--network", network_name, "--network-alias", container_name])
+    else:
+        cmd.extend(["--network", "bridge"])
     for key, value in (env_vars or {}).items():
         cmd += ["-e", f"{key}={value}"]
     cmd.append(image)
@@ -185,12 +461,33 @@ def get_logs(container_name: str) -> str:
         return ""
 
 
+def container_oom_killed(container_name: str) -> bool:
+    """Report whether Docker recorded an out-of-memory kill for the container."""
+    try:
+        proc = subprocess.run(
+            ["docker", "inspect", "--format", "{{.State.OOMKilled}}", container_name],
+            capture_output=True,
+            timeout=10,
+            text=True,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+    return proc.returncode == 0 and proc.stdout.strip().lower() == "true"
+
+
 def stop_and_remove(container_name: str) -> None:
     for args in (["docker", "stop", "-t", "5", container_name], ["docker", "rm", "-f", container_name]):
         try:
             subprocess.run(args, capture_output=True, timeout=_STOP_TIMEOUT)
         except (subprocess.TimeoutExpired, OSError):  # pragma: no cover - best-effort cleanup
             logger.warning("Failed to run cleanup command: %s", " ".join(args))
+
+
+def remove_network(network_name: str) -> None:
+    try:
+        subprocess.run(["docker", "network", "rm", network_name], capture_output=True, timeout=_STOP_TIMEOUT)
+    except (subprocess.TimeoutExpired, OSError):  # pragma: no cover - best-effort cleanup
+        logger.warning("Failed to remove temporary Docker network: %s", network_name)
 
 
 def remove_image(image_tag: str) -> None:

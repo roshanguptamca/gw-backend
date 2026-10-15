@@ -9,37 +9,61 @@ from __future__ import annotations
 
 import json
 import logging
-import threading
+import os
+import re
+import secrets
+import hashlib
+import ipaddress
+from datetime import timedelta
+from uuid import UUID
+from urllib.parse import urlsplit
 
-from django.db.models import Q
+from django.db import IntegrityError, transaction
+from django.db.models import Avg, Count, Q
 from django.http import HttpResponse
+from django.utils.decorators import method_decorator
 from django.utils import timezone
 from django.utils.text import slugify
 from django.views.generic import TemplateView
+from django.views.decorators.csrf import csrf_exempt
 
-from rest_framework import permissions, status, viewsets
+from rest_framework import mixins, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 from rest_framework.views import APIView
 
 from .models import (
+    PentestSession,
+    PentestTestProposal,
     SecureWiseAuditLog,
+    SecureWiseApplicationTarget,
     SecureWiseFinding,
     SecureWiseGitIntegration,
+    SecureWiseGitHubAppInstallation,
+    SecureWiseGitHubAppState,
+    SecureWiseGitHubWebhookDelivery,
     SecureWiseIntegration,
     SecureWiseMembership,
     SecureWiseOrganization,
+    SecureWiseOwnershipChallenge,
     SecureWiseProject,
     SecureWiseReport,
     SecureWiseRepository,
     SecureWiseScan,
+    SecureWiseScanEngineResult,
     SecureWiseScanPolicy,
     SecureWiseScanPolicyTemplate,
+    SecureWiseTestingAuthorization,
+    SecureWiseWorkerRegistration,
 )
 from .permissions import ADMIN_ROLES, WRITE_ROLES, _membership
+from .runtime.logs import redact_secrets, tail_lines
+from .scanners.cwe_mapping import SECURITY_TAXONOMY, taxonomy_metadata
 from .scanners.repository import validate_local_repository_path
 from .serializers import (
+    PentestSessionSerializer,
+    PentestTestProposalSerializer,
     ScanEngineResultSerializer,
     SecureWiseAuditLogSerializer,
     SecureWiseFindingSerializer,
@@ -55,9 +79,12 @@ from .serializers import (
     SecureWiseScanSerializer,
 )
 from .services.ai_recommendation import generate_ai_fix_suggestion
+from .services import github_app
+from .services import url_security
 from .services.github_actions import GitHubActionError, create_github_issue, create_github_pr
 from .services.report import generate_report
 from .services.report_render import render_report_html, render_report_pdf
+from .services.worker import _SCAN_ACTIVE_STATUSES
 from .services.repository import (
     check_private_access,
     check_public_access,
@@ -65,10 +92,80 @@ from .services.repository import (
     normalize_url,
     validate_url_format,
 )
-from .services.scanner import ScannerRunner
 
 logger = logging.getLogger(__name__)
 
+
+
+def _website_readiness(active_workers, organization_ids, now) -> dict:
+    """Exact, sanitized blockers for the public-website (authorized passive HTTPS) assessment.
+
+    This path is executed by the existing DAST engine's authorized passive HTTP mode. It needs a
+    non-restricted-profile worker that advertises ``dast`` and a freshly proven host egress policy
+    (``url_egress_restricted``), plus a verified target with an active passive_http authorization.
+    """
+    blockers: list[dict] = []
+
+    def block(code: str, message: str) -> None:
+        blockers.append({"code": code, "message": message})
+
+    capable = [
+        registration
+        for registration in active_workers
+        if {"dast", "url_egress_restricted"} <= set(registration.capabilities or ())
+    ]
+    if not active_workers:
+        block("no_worker", "No worker has checked in recently.")
+    elif not capable:
+        profiles = {
+            (registration.metrics or {}).get("worker_profile", "standard")
+            for registration in active_workers
+            if isinstance(registration.metrics, dict)
+        }
+        if profiles and profiles <= {"lightweight", "autopentest_api"}:
+            block(
+                "worker_profile",
+                "Online workers use a restricted profile that never runs website checks; "
+                "a separate standard-profile website worker is required.",
+            )
+        else:
+            has_dast = any("dast" in (registration.capabilities or ()) for registration in active_workers)
+            if not has_dast:
+                block("dast_missing", "No online worker advertises website (DAST) checks.")
+            block(
+                "egress_unproven",
+                "No online worker has a fresh, verified host egress policy "
+                "(SECUREWISE_URL_EGRESS_ENFORCED and a current root-owned proof file).",
+            )
+    # Passive website checks have no repository, token or stored credential, so nothing is
+    # decrypted and credential-key compatibility is intentionally not a website blocker.
+    # Credential-bearing flows keep their own encryption_key_compatibility checks.
+    verified_targets = SecureWiseApplicationTarget.objects.filter(
+        organization_id__in=organization_ids,
+        verified_at__isnull=False,
+        ownership_revoked_at__isnull=True,
+    )
+    if not verified_targets.exists():
+        block("no_verified_target", "No website address has verified ownership yet (DNS TXT or well-known file).")
+    elif not any(
+        "passive_http" in (authorization.approved_scan_methods or [])
+        for authorization in SecureWiseTestingAuthorization.objects.filter(
+            organization_id__in=organization_ids,
+            target__in=verified_targets,
+            revoked_at__isnull=True,
+            starts_at__lte=now,
+            expires_at__gt=now,
+        )
+    ):
+        block(
+            "no_active_authorization",
+            "No active testing authorization approves passive HTTP checks for a verified website.",
+        )
+    return {
+        "ready": not blockers,
+        "worker_ready": bool(capable),
+        "blockers": blockers,
+    }
 
 class SecureWiseDocumentationView(TemplateView):
     template_name = "securewise/docs/documentation.html"
@@ -81,6 +178,13 @@ class SecureWiseUserManualView(TemplateView):
 def _get_user_org_ids(user):
     """Return queryset of org IDs where the user is a member."""
     return SecureWiseMembership.objects.filter(user=user).values_list("organization_id", flat=True)
+
+
+def _parse_uuid(value):
+    try:
+        return UUID(str(value))
+    except (AttributeError, TypeError, ValueError):
+        return None
 
 
 def _audit(user, event, org=None, target_type="", target_id="", detail=None, request=None):
@@ -97,6 +201,407 @@ def _audit(user, event, org=None, target_type="", target_id="", detail=None, req
         detail=detail or {},
         ip_address=ip,
     )
+
+
+class GitHubAppConnectView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        organization_id = _parse_uuid(request.data.get("organization"))
+        if organization_id is None:
+            return Response({"detail": "A valid organization ID is required."}, status=400)
+        membership = (
+            SecureWiseMembership.objects.filter(
+                organization_id=organization_id,
+                user=request.user,
+                role__in=ADMIN_ROLES,
+            )
+            .select_related("organization")
+            .first()
+        )
+        if membership is None:
+            return Response({"detail": "Organization admin access is required."}, status=403)
+        if not github_app.app_configured():
+            return Response({"detail": "GitHub App credentials are not configured."}, status=503)
+        try:
+            slug = github_app.app_slug()
+        except github_app.GitHubAppError as exc:
+            return Response({"detail": str(exc)}, status=503)
+        now = timezone.now()
+        SecureWiseGitHubAppState.objects.filter(
+            Q(expires_at__lt=now) | Q(consumed_at__lt=now - timedelta(hours=1))
+        ).delete()
+        raw_state = secrets.token_urlsafe(32)
+        SecureWiseGitHubAppState.objects.create(
+            state_digest=github_app.state_digest(raw_state),
+            organization=membership.organization,
+            user=request.user,
+            expires_at=now + timedelta(minutes=10),
+        )
+        return Response(
+            {
+                "installation_url": f"https://github.com/apps/{slug}/installations/new?state={raw_state}",
+                "expires_in_seconds": 600,
+            }
+        )
+
+
+class GitHubAppCallbackView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        state = request.query_params.get("state", "")
+        installation_id = request.query_params.get("installation_id", "")
+        setup_action = request.query_params.get("setup_action", "")
+        if (
+            not state
+            or len(state) > 256
+            or setup_action not in ("install", "update")
+            or not installation_id.isdecimal()
+            or len(installation_id) > 20
+            or int(installation_id) <= 0
+            or int(installation_id) > 2**63 - 1
+        ):
+            return Response({"detail": "Invalid GitHub App callback."}, status=400)
+        if not github_app.app_configured():
+            return Response({"detail": "GitHub App credentials are not configured."}, status=503)
+
+        with transaction.atomic():
+            state_row = (
+                SecureWiseGitHubAppState.objects.select_for_update()
+                .filter(state_digest=github_app.state_digest(state), user=request.user)
+                .select_related("organization")
+                .first()
+            )
+            if (
+                state_row is None
+                or state_row.consumed_at is not None
+                or state_row.expires_at <= timezone.now()
+                or not SecureWiseMembership.objects.filter(
+                    organization=state_row.organization, user=request.user, role__in=ADMIN_ROLES
+                ).exists()
+            ):
+                return Response({"detail": "GitHub App state is invalid, expired, or already used."}, status=400)
+            state_row.consumed_at = timezone.now()
+            state_row.save(update_fields=["consumed_at"])
+
+        try:
+            details = github_app.get_installation(int(installation_id))
+        except github_app.GitHubAppError as exc:
+            return Response({"detail": str(exc)}, status=502)
+        account = details.get("account") or {}
+        if (
+            details.get("id") != int(installation_id)
+            or not isinstance(account, dict)
+            or not isinstance(account.get("login"), str)
+            or not account["login"]
+            or not isinstance(account.get("id"), int)
+            or isinstance(account.get("id"), bool)
+            or account["id"] <= 0
+            or account["id"] > 2**63 - 1
+            or int(installation_id) > 2**63 - 1
+        ):
+            return Response({"detail": "GitHub returned invalid installation details."}, status=502)
+        existing_installation = SecureWiseGitHubAppInstallation.objects.filter(
+            installation_id=int(installation_id)
+        ).first()
+        if existing_installation and existing_installation.organization_id != state_row.organization_id:
+            return Response({"detail": "This installation is already connected to another organization."}, status=409)
+        if existing_installation is None:
+            from django.utils.dateparse import parse_datetime
+
+            created_at = details.get("created_at")
+            installed_at = parse_datetime(created_at) if isinstance(created_at, str) else None
+            if (
+                setup_action != "install"
+                or installed_at is None
+                or not timezone.is_aware(installed_at)
+                or installed_at < state_row.created_at - timedelta(minutes=2)
+                or installed_at > timezone.now() + timedelta(minutes=2)
+            ):
+                return Response(
+                    {"detail": "A new GitHub installation must be created from this authorization flow."},
+                    status=400,
+                )
+        installed_permissions = details.get("permissions") or {}
+        if (
+            not isinstance(installed_permissions, dict)
+            or installed_permissions.get("contents") != "read"
+            or any(permission != "read" for permission in installed_permissions.values())
+        ):
+            return Response(
+                {"detail": "The GitHub App must have read-only contents access and no write permissions."},
+                status=403,
+            )
+        try:
+            installation, created = SecureWiseGitHubAppInstallation.objects.update_or_create(
+                installation_id=int(installation_id),
+                defaults={
+                    "organization": state_row.organization,
+                    "account_id": int(account["id"]),
+                    "account_login": str(account["login"])[:200],
+                    "account_type": str(account.get("type", ""))[:30],
+                    "permissions": details.get("permissions") or {},
+                    "suspended_at": (
+                        timezone.now() if details.get("suspended_at") or details.get("suspended_by") else None
+                    ),
+                    "removed_at": None,
+                    "created_by": request.user,
+                },
+            )
+        except IntegrityError:
+            return Response(
+                {"detail": "This GitHub account is already connected to the organization."},
+                status=409,
+            )
+        _audit(
+            request.user,
+            "github_app_installation_created",
+            org=state_row.organization,
+            target_type="SecureWiseGitHubAppInstallation",
+            target_id=installation.id,
+            detail={"account": installation.account_login, "installation_id": installation.installation_id},
+            request=request,
+        )
+        frontend_url = os.environ.get("SECUREWISE_FRONTEND_URL", "").rstrip("/")
+        if frontend_url.startswith("https://") or frontend_url.startswith("http://localhost"):
+            from django.http import HttpResponseRedirect
+
+            return HttpResponseRedirect(f"{frontend_url}/repositories?github_app=connected")
+        return Response(
+            {
+                "detail": "GitHub App installation connected.",
+                "installation": str(installation.id),
+                "created": created,
+            }
+        )
+
+
+class GitHubAppInstallationView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        installations = SecureWiseGitHubAppInstallation.objects.filter(
+            organization_id__in=_get_user_org_ids(request.user)
+        ).order_by("account_login")
+        return Response(
+            [
+                {
+                    "id": str(item.id),
+                    "organization": str(item.organization_id),
+                    "installation_id": item.installation_id,
+                    "account_login": item.account_login,
+                    "account_type": item.account_type,
+                    "permissions": item.permissions,
+                    "suspended": item.suspended_at is not None,
+                    "removed": item.removed_at is not None,
+                    "available": github_app.installation_is_active(item),
+                }
+                for item in installations
+            ]
+        )
+
+    def post(self, request):
+        installation_id = request.data.get("installation")
+        if not installation_id:
+            return Response({"detail": "Installation is required."}, status=400)
+        installation_uuid = _parse_uuid(installation_id)
+        if installation_uuid is None:
+            return Response({"detail": "A valid installation ID is required."}, status=400)
+        installation = SecureWiseGitHubAppInstallation.objects.filter(
+            id=installation_uuid,
+            organization_id__in=_get_user_org_ids(request.user),
+            removed_at__isnull=True,
+            suspended_at__isnull=True,
+        ).first()
+        if installation is None or not github_app.installation_is_active(installation):
+            return Response({"detail": "Installation not found or unavailable."}, status=404)
+        try:
+            repositories = github_app.list_installation_repositories(installation.installation_id)
+        except github_app.GitHubAppError as exc:
+            return Response({"detail": str(exc)}, status=502)
+        return Response(
+            [
+                {
+                    "id": item.get("id"),
+                    "full_name": item.get("full_name"),
+                    "private": bool(item.get("private")),
+                    "default_branch": item.get("default_branch", "main"),
+                    "html_url": f"https://github.com/{item.get('full_name', '')}",
+                }
+                for item in repositories
+                if isinstance(item.get("id"), int)
+                and not isinstance(item.get("id"), bool)
+                and isinstance(item.get("full_name"), str)
+                and re.fullmatch(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}", item["full_name"])
+            ]
+        )
+
+
+class GitHubAppRepositorySelectionView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        installation_uuid = _parse_uuid(request.data.get("installation"))
+        if installation_uuid is None:
+            return Response({"detail": "A valid installation ID is required."}, status=400)
+        installation = (
+            SecureWiseGitHubAppInstallation.objects.filter(
+                id=installation_uuid,
+                organization_id__in=_get_user_org_ids(request.user),
+                removed_at__isnull=True,
+                suspended_at__isnull=True,
+            )
+            .select_related("organization")
+            .first()
+        )
+        if installation is None or not github_app.installation_is_active(installation):
+            return Response({"detail": "Installation not found or unavailable."}, status=404)
+        if not SecureWiseMembership.objects.filter(
+            organization=installation.organization, user=request.user, role__in=ADMIN_ROLES
+        ).exists():
+            return Response({"detail": "Organization admin access is required."}, status=403)
+        repository_ids = request.data.get("repository_ids")
+        if (
+            not isinstance(repository_ids, list)
+            or not repository_ids
+            or len(repository_ids) > 100
+            or any(not isinstance(value, int) or isinstance(value, bool) or value <= 0 for value in repository_ids)
+        ):
+            return Response({"detail": "Select between 1 and 100 repository IDs."}, status=400)
+        project_id = request.data.get("project")
+        project = None
+        if project_id:
+            project_uuid = _parse_uuid(project_id)
+            if project_uuid is None:
+                return Response({"detail": "A valid project ID is required."}, status=400)
+            project = SecureWiseProject.objects.filter(id=project_uuid, organization=installation.organization).first()
+            if project is None:
+                return Response({"detail": "Project not found in this organization."}, status=400)
+        try:
+            available = github_app.list_installation_repositories(installation.installation_id)
+        except github_app.GitHubAppError as exc:
+            return Response({"detail": str(exc)}, status=502)
+        by_id = {
+            item.get("id"): item
+            for item in available
+            if isinstance(item.get("id"), int) and not isinstance(item.get("id"), bool) and 0 < item["id"] <= 2**63 - 1
+        }
+        if len(set(repository_ids)) != len(repository_ids) or any(repo_id not in by_id for repo_id in repository_ids):
+            return Response({"detail": "A selected repository is not available to this installation."}, status=400)
+
+        synced = []
+        for repo_id in repository_ids:
+            details = by_id[repo_id]
+            full_name = details.get("full_name", "")
+            if not isinstance(full_name, str) or not re.fullmatch(
+                r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}", full_name
+            ):
+                return Response({"detail": "GitHub returned an invalid repository identifier."}, status=502)
+            defaults = {
+                "github_app_installation": installation,
+                "project": project,
+                "name": full_name,
+                "provider": "github",
+                "repository_url": f"https://github.com/{full_name}",
+                "clone_url": "",
+                "default_branch": str(details.get("default_branch") or "main")[:100],
+                "visibility": "private" if details.get("private") else "public",
+                "access_mode": "github_app",
+                "created_by": request.user,
+            }
+            repository, created = SecureWiseRepository.objects.get_or_create(
+                organization=installation.organization,
+                provider_repository_id=repo_id,
+                defaults=defaults,
+            )
+            if not created and repository.github_app_installation_id != installation.id:
+                return Response({"detail": "Repository is linked to another installation."}, status=409)
+            if not created:
+                changed = []
+                for field, value in defaults.items():
+                    if field == "project" and value is None:
+                        continue
+                    current = (
+                        repository.github_app_installation_id
+                        if field == "github_app_installation"
+                        else getattr(repository, field)
+                    )
+                    expected = value.id if field == "github_app_installation" else value
+                    if current != expected:
+                        setattr(repository, field, value)
+                        changed.append(field)
+                if changed:
+                    repository.save(update_fields=changed + ["updated_at"])
+            _audit(
+                request.user,
+                "github_app_repository_synced",
+                org=installation.organization,
+                target_type="SecureWiseRepository",
+                target_id=repository.id,
+                detail={"repository": full_name, "created": created},
+                request=request,
+            )
+            synced.append(repository)
+        return Response(SecureWiseRepositorySerializer(synced, many=True).data, status=200)
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class GitHubAppWebhookView(APIView):
+    authentication_classes = []
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        content_length = request.headers.get("Content-Length", "")
+        if content_length.isdecimal() and int(content_length) > 1024 * 1024:
+            return Response({"detail": "Webhook payload exceeds the size limit."}, status=413)
+        body = request.body
+        if len(body) > 1024 * 1024:
+            return Response({"detail": "Webhook payload exceeds the size limit."}, status=413)
+        signature = request.headers.get("X-Hub-Signature-256", "")
+        secret = os.environ.get("SECUREWISE_GITHUB_APP_WEBHOOK_SECRET", "")
+        if not github_app.verify_webhook_signature(secret, body, signature):
+            return Response({"detail": "Invalid webhook signature."}, status=401)
+        delivery_id = request.headers.get("X-GitHub-Delivery", "")
+        event_type = request.headers.get("X-GitHub-Event", "")
+        if not delivery_id or len(delivery_id) > 200 or not event_type or len(event_type) > 100:
+            return Response({"detail": "Missing or invalid webhook headers."}, status=400)
+        try:
+            payload = json.loads(body)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return Response({"detail": "Invalid webhook payload."}, status=400)
+        if not isinstance(payload, dict):
+            return Response({"detail": "Invalid webhook payload."}, status=400)
+        payload_hash = hashlib.sha256(body).hexdigest()
+        try:
+            with transaction.atomic():
+                SecureWiseGitHubWebhookDelivery.objects.create(
+                    delivery_id=delivery_id,
+                    event_type=event_type,
+                    payload_sha256=payload_hash,
+                )
+                installation_data = payload.get("installation") or {}
+                installation_id = installation_data.get("id")
+                if isinstance(installation_id, int):
+                    linked = (
+                        SecureWiseGitHubAppInstallation.objects.select_for_update()
+                        .filter(installation_id=installation_id)
+                        .select_related("organization")
+                        .first()
+                    )
+                    if linked:
+                        github_app.mark_installation_event(linked, f"{event_type}.{payload.get('action', '')}", payload)
+                        _audit(
+                            None,
+                            "github_app_webhook_received",
+                            org=linked.organization,
+                            target_type="SecureWiseGitHubAppInstallation",
+                            target_id=linked.id,
+                            detail={"event": event_type, "action": payload.get("action", "")},
+                        )
+        except IntegrityError:
+            return Response({"detail": "Webhook delivery already processed."}, status=202)
+        return Response({"detail": "Webhook accepted."}, status=202)
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +671,47 @@ class MembershipViewSet(viewsets.ModelViewSet):
             from rest_framework.exceptions import PermissionDenied
 
             raise PermissionDenied("Only org admins can add members.")
+        if serializer.validated_data.get("role") == "owner" and self.request.user.id != org.owner_id:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("Only the organization owner can assign the owner role.")
         serializer.save(invited_by=self.request.user)
+
+    def perform_update(self, serializer):
+        instance = serializer.instance
+        membership = _membership(self.request.user, instance.organization)
+        if membership is None or membership.role not in ADMIN_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("Only org admins can update memberships.")
+        if instance.user_id == instance.organization.owner_id:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("The organization owner's membership cannot be changed.")
+        if (
+            serializer.validated_data.get("organization", instance.organization).id != instance.organization_id
+            or serializer.validated_data.get("user", instance.user).id != instance.user_id
+        ):
+            from rest_framework.exceptions import ValidationError
+
+            raise ValidationError({"detail": "Membership organization and user cannot be changed."})
+        if serializer.validated_data.get("role") == "owner" and self.request.user.id != instance.organization.owner_id:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("Only the organization owner can assign the owner role.")
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        membership = _membership(self.request.user, instance.organization)
+        if membership is None or membership.role not in ADMIN_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("Only org admins can remove memberships.")
+        if instance.user_id == instance.organization.owner_id:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("The organization owner's membership cannot be removed.")
+        instance.delete()
 
 
 # ---------------------------------------------------------------------------
@@ -238,6 +783,11 @@ class GitIntegrationViewSet(viewsets.ModelViewSet):
     def test(self, request, pk=None):
         """Test connectivity for this Git integration."""
         integration = self.get_object()
+        membership = _membership(request.user, integration.organization)
+        if membership is None or membership.role not in ADMIN_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("Only organization admins can test Git integrations.")
         token = integration.get_token()
         if not token:
             return Response({"detail": "No token stored for this integration."}, status=400)
@@ -469,6 +1019,28 @@ class RepositoryViewSet(viewsets.ModelViewSet):
             detail=audit_detail,
             request=self.request,
         )
+
+    def perform_update(self, serializer):
+        repository = serializer.instance
+        membership = _membership(self.request.user, repository.organization)
+        if membership is None or membership.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to update this repository.")
+        organization = serializer.validated_data.get("organization", repository.organization)
+        if organization.id != repository.organization_id:
+            from rest_framework.exceptions import ValidationError
+
+            raise ValidationError({"organization": "Repositories cannot be moved to another organization."})
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        membership = _membership(self.request.user, instance.organization)
+        if membership is None or membership.role not in ADMIN_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("Only org admins can delete repositories.")
+        instance.delete()
 
     @action(detail=False, methods=["post"], throttle_classes=[RepositoryValidateThrottle])
     def validate(self, request):
@@ -735,7 +1307,7 @@ class ScanViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = SecureWiseScan.objects.filter(organization_id__in=_get_user_org_ids(self.request.user)).select_related(
-            "project", "repository", "policy", "triggered_by"
+            "project", "repository", "policy", "triggered_by", "testing_authorization__target"
         )
         project_id = self.request.query_params.get("project")
         if project_id:
@@ -768,6 +1340,232 @@ class ScanViewSet(viewsets.ModelViewSet):
                 scan.save(update_fields=["policy"])
         return scan
 
+    def _require_write_membership(self, request, scan):
+        membership = _membership(request.user, scan.organization)
+        if membership is None or membership.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to manage scans.")
+
+    def _url_authorization_block(self, scan):
+        if not scan.target_url:
+            return ""
+        if scan.testing_authorization_id is None:
+            return "An approved testing authorization is required for external URL scans."
+        authorization = (
+            SecureWiseTestingAuthorization.objects.select_for_update()
+            .select_related("target")
+            .filter(id=scan.testing_authorization_id)
+            .first()
+        )
+        if authorization is None or not url_security.authorization_is_active(authorization):
+            return "URL ownership or testing authorization has expired or been revoked."
+        if not url_security.worker_has_url_egress():
+            return "Passive URL scanning is disabled until a protected worker and egress policy are available."
+        active_jobs = (
+            authorization.scans.filter(status__in=("queued", *_SCAN_ACTIVE_STATUSES)).exclude(id=scan.id).exists()
+        )
+        if active_jobs:
+            return "Another scan is already running under this authorization."
+        if authorization.scans.filter(created_at__gte=timezone.now() - timedelta(minutes=1)).count() >= 3:
+            return "Authorization request rate limit exceeded; wait before starting another scan."
+        return ""
+
+    def _runner_selection_block(self, scan):
+        from apps.securewise.services.runners import select_runner
+
+        selection = select_runner(scan)
+        return "" if selection.available else selection.blocked_reason
+
+    @action(detail=False, methods=["get"], url_path="worker-status")
+    def worker_status(self, request):
+        """Return tenant-scoped queue and execution metrics plus sanitized readiness."""
+        organization_ids = _get_user_org_ids(request.user)
+        if not organization_ids.exists():
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("Organization membership is required to view worker status.")
+        is_org_admin = SecureWiseMembership.objects.filter(
+            organization_id__in=organization_ids,
+            user=request.user,
+            role__in=ADMIN_ROLES,
+        ).exists()
+        now = timezone.now()
+        recent_cutoff = now - timedelta(days=7)
+        stale_cutoff = now - timedelta(minutes=30)
+        scans = SecureWiseScan.objects.filter(organization_id__in=organization_ids)
+        pentests = PentestSession.objects.filter(organization_id__in=organization_ids)
+        active_scans = scans.filter(status__in=_SCAN_ACTIVE_STATUSES)
+        active_pentests = pentests.filter(status__in=("worker_claimed", "running"))
+        stale_jobs = (
+            active_scans.filter(worker_claimed_at__lt=stale_cutoff).count()
+            + active_pentests.filter(worker_claimed_at__lt=stale_cutoff).count()
+        )
+        active_workers = list(
+            SecureWiseWorkerRegistration.objects.filter(
+                status="online",
+                last_seen_at__gte=now - timedelta(seconds=45),
+            ).order_by("-last_seen_at")
+        )
+        worker = active_workers[0] if active_workers else None
+        worker_available = bool(active_workers)
+        capabilities = {
+            capability
+            for registration in active_workers
+            for capability in registration.capabilities or ()
+        }
+        engine_metrics = list(
+            SecureWiseScanEngineResult.objects.filter(
+                scan__organization_id__in=organization_ids,
+                scan__created_at__gte=recent_cutoff,
+            )
+            .values("engine", "status")
+            .annotate(count=Count("id"), average_duration_seconds=Avg("duration_seconds"))
+            .order_by("engine", "status")
+        )
+        metrics = worker.metrics if worker and isinstance(worker.metrics, dict) else {}
+        compatible_worker_capabilities = set()
+        compatible_resource_tiers = set()
+        matched_worker_count = 0
+        reported_key_count = 0
+        unreported_key_count = 0
+        api_key_invalid = False
+        current_key_fingerprint = None
+        for registration in active_workers:
+            worker_metrics = registration.metrics if isinstance(registration.metrics, dict) else {}
+            encryption_key_fingerprint = worker_metrics.get("encryption_key_fingerprint")
+            if not encryption_key_fingerprint:
+                unreported_key_count += 1
+                continue
+            reported_key_count += 1
+            if current_key_fingerprint is None and not api_key_invalid:
+                from .models import securewise_encryption_key_fingerprint
+
+                try:
+                    current_key_fingerprint = securewise_encryption_key_fingerprint()
+                except (TypeError, ValueError):
+                    api_key_invalid = True
+                    continue
+            if api_key_invalid:
+                continue
+            try:
+                if secrets.compare_digest(
+                    str(encryption_key_fingerprint),
+                    current_key_fingerprint,
+                ):
+                    matched_worker_count += 1
+                    compatible_worker_capabilities.update(registration.capabilities or ())
+                    if worker_metrics.get("resource_tier"):
+                        compatible_resource_tiers.add(worker_metrics["resource_tier"])
+            except (TypeError, ValueError):
+                continue
+        if not worker_available or not reported_key_count:
+            encryption_key_compatibility = "not_reported"
+        elif matched_worker_count:
+            encryption_key_compatibility = "matched"
+        elif api_key_invalid:
+            encryption_key_compatibility = "unavailable"
+        elif unreported_key_count:
+            encryption_key_compatibility = "not_reported"
+        else:
+            encryption_key_compatibility = "mismatch"
+        from apps.securewise.services.runners import runner_fleet_summary
+        from apps.securewise.services.worker_profile import experimental_low_resource_allowed
+
+        runner_fleet = runner_fleet_summary(now=now)
+        website_readiness = _website_readiness(
+            active_workers,
+            organization_ids,
+            now,
+        )
+        return Response(
+            {
+                "worker_available": worker_available,
+                "docker_ready": "docker_daemon" in capabilities,
+                "capabilities": sorted(capabilities),
+                "worker_profile": metrics.get("worker_profile", "") if worker_available else "",
+                "website_readiness": website_readiness,
+                "autopentest_readiness": {
+                    "worker_available": worker_available,
+                    "worker_supports_passive": "autopentest_openapi_contract" in capabilities,
+                    "worker_supports_authenticated_api": (
+                        "autopentest_authenticated_api" in compatible_worker_capabilities
+                        and "docker_daemon" in compatible_worker_capabilities
+                    ),
+                    "worker_supports_experimental_api": (
+                        "autopentest_experimental_low_resource" in compatible_worker_capabilities
+                        and "docker_daemon" in compatible_worker_capabilities
+                        and experimental_low_resource_allowed()
+                    ),
+                    "experimental_low_resource_enabled": experimental_low_resource_allowed(),
+                    "resource_tier": (
+                        "recommended"
+                        if "recommended" in compatible_resource_tiers
+                        else "experimental"
+                        if "experimental" in compatible_resource_tiers
+                        else "insufficient"
+                        if "insufficient" in compatible_resource_tiers
+                        else ""
+                    ),
+                    "worker_supports_authenticated_browser": (
+                        "playwright" in compatible_worker_capabilities
+                        and "docker_daemon" in compatible_worker_capabilities
+                    ),
+                    "encryption_key_compatibility": encryption_key_compatibility,
+                    "diagnostics": (
+                        ["No active SecureWise worker heartbeat is available."]
+                        if not worker_available
+                        else (
+                            ["Restart the worker to publish its encryption-key compatibility check."]
+                            if encryption_key_compatibility == "not_reported"
+                            else (
+                                ["API and worker credential-encryption keys do not match."]
+                                if encryption_key_compatibility == "mismatch"
+                                else (
+                                    ["The API credential-encryption key is invalid."]
+                                    if encryption_key_compatibility == "unavailable"
+                                    else []
+                                )
+                            )
+                        )
+                    ),
+                },
+                "runners": runner_fleet,
+                "heartbeat_age_seconds": (
+                    max(0, int((now - worker.last_seen_at).total_seconds())) if worker_available else None
+                ),
+                "resources": (
+                    {
+                        key: metrics[key]
+                        for key in (
+                            "vmrss_kb",
+                            "vmhwm_kb",
+                            "available_memory_bytes",
+                            "temp_disk_free_bytes",
+                            "temp_disk_total_bytes",
+                            "load_average_1m",
+                        )
+                        if key in metrics
+                    }
+                    if is_org_admin
+                    else {}
+                ),
+                "queue": {
+                    "queued_scans": scans.filter(status="queued").count(),
+                    "queued_pentests": pentests.filter(status="queued").count(),
+                    "stale_jobs": stale_jobs,
+                    "failed_scans": scans.filter(status="failed", created_at__gte=recent_cutoff).count(),
+                    "failed_pentests": pentests.filter(status="failed", created_at__gte=recent_cutoff).count(),
+                    "average_scan_duration_seconds": scans.filter(
+                        status__in=("completed", "completed_with_warnings", "completed_partial"),
+                        duration_seconds__isnull=False,
+                        completed_at__gte=recent_cutoff,
+                    ).aggregate(value=Avg("duration_seconds"))["value"],
+                },
+                "engine_executions_last_7_days": engine_metrics,
+            }
+        )
+
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -776,36 +1574,48 @@ class ScanViewSet(viewsets.ModelViewSet):
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
     @action(detail=True, methods=["post"])
+    @transaction.atomic
     def start(self, request, pk=None):
         scan = self.get_object()
+        self._require_write_membership(request, scan)
         if scan.status not in ("pending", "failed"):
             return Response(
                 {"detail": f"Cannot start a scan with status '{scan.status}'."},
                 status=400,
             )
+        block_reason = self._url_authorization_block(scan)
+        if block_reason:
+            return Response({"detail": block_reason, "status": "blocked"}, status=409)
+        runner_block_reason = self._runner_selection_block(scan)
+        if runner_block_reason:
+            return Response(
+                {
+                    "detail": f"Scan blocked: no secure compatible runner is available. {runner_block_reason}",
+                    "status": "blocked",
+                },
+                status=409,
+            )
         scan.status = "queued"
         scan.save(update_fields=["status"])
-        # Run scanner in background thread (MVP — use Celery/RQ in production)
-        # TODO: Replace threading with Celery task for production
-        runner = ScannerRunner()
-        t = threading.Thread(target=runner.run_scan, args=(str(scan.id),), daemon=True)
-        t.start()
         serializer = self.get_serializer(scan)
         return Response(serializer.data)
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
         scan = self.get_object()
-        if scan.status not in ("pending", "queued") and not scan.status.startswith("running"):
+        self._require_write_membership(request, scan)
+        if scan.status not in ("pending", "queued", "worker_claimed") and not scan.status.startswith("running"):
             return Response(
                 {"detail": f"Cannot cancel a scan with status '{scan.status}'."},
                 status=400,
             )
         scan.status = "cancelled"
-        scan.save(update_fields=["status"])
+        scan.worker_claimed_at = None
+        scan.save(update_fields=["status", "worker_claimed_at"])
         return Response({"detail": "Scan cancelled.", "status": "cancelled"})
 
     @action(detail=True, methods=["post"])
+    @transaction.atomic
     def retry(self, request, pk=None):
         """
         Re-run a scan that failed, was cancelled, or completed with warnings —
@@ -817,13 +1627,27 @@ class ScanViewSet(viewsets.ModelViewSet):
         findings that no longer reproduce.
         """
         scan = self.get_object()
+        self._require_write_membership(request, scan)
         if scan.status not in ("failed", "cancelled", "completed_with_warnings", "completed", "completed_partial"):
             return Response(
                 {"detail": f"Cannot retry a scan with status '{scan.status}'."},
                 status=400,
             )
+        block_reason = self._url_authorization_block(scan)
+        if block_reason:
+            return Response({"detail": block_reason, "status": "blocked"}, status=409)
+        runner_block_reason = self._runner_selection_block(scan)
+        if runner_block_reason:
+            return Response(
+                {
+                    "detail": f"Retry blocked: no secure compatible runner is available. {runner_block_reason}",
+                    "status": "blocked",
+                },
+                status=409,
+            )
         scan.engine_results.all().delete()
         scan.status = "queued"
+        scan.worker_claimed_at = None
         scan.progress = 0
         scan.error_message = ""
         scan.started_at = None
@@ -833,6 +1657,7 @@ class ScanViewSet(viewsets.ModelViewSet):
         scan.save(
             update_fields=[
                 "status",
+                "worker_claimed_at",
                 "progress",
                 "error_message",
                 "started_at",
@@ -849,9 +1674,6 @@ class ScanViewSet(viewsets.ModelViewSet):
             target_id=str(scan.id),
             detail={"scan_type": scan.scan_type},
         )
-        runner = ScannerRunner()
-        t = threading.Thread(target=runner.run_scan, args=(str(scan.id),), daemon=True)
-        t.start()
         serializer = self.get_serializer(scan)
         return Response(serializer.data)
 
@@ -862,42 +1684,110 @@ class ScanViewSet(viewsets.ModelViewSet):
         if scan.started_at:
             end = scan.completed_at or timezone.now()
             elapsed_seconds = int((end - scan.started_at).total_seconds())
-        engines = [
-            {
-                "engine": er.engine,
-                "status": er.status,
-                "findings_count": er.findings_count,
-                "skipped_reason": er.skipped_reason,
-                "diagnostics": {
-                    "log_excerpt": (
-                        (
-                            (er.raw_summary or {}).get("dast_runtime_logs")
-                            or (er.raw_summary or {}).get("stdout")
-                            or (er.raw_summary or {}).get("stderr")
-                            or er.error_message
-                            or er.skipped_reason
-                            or ""
-                        )[:4000]
-                        if (
-                            (er.raw_summary or {}).get("dast_runtime_logs")
-                            or (er.raw_summary or {}).get("stdout")
-                            or (er.raw_summary or {}).get("stderr")
-                            or er.error_message
-                            or er.skipped_reason
-                        )
-                        else ""
-                    ),
-                },
-            }
-            for er in scan.engine_results.all()
-        ]
+        results = list(scan.engine_results.all())
+        engines = []
+        for er in results:
+            raw_summary = er.raw_summary or {}
+            log_excerpt = (
+                raw_summary.get("dast_runtime_logs")
+                or raw_summary.get("stdout")
+                or raw_summary.get("stderr")
+                or er.error_message
+                or er.skipped_reason
+                or ""
+            )
+            engines.append(
+                {
+                    "engine": er.engine,
+                    "status": er.status,
+                    "findings_count": er.findings_count,
+                    "skipped_reason": er.skipped_reason,
+                    "diagnostics": {
+                        "log_excerpt": redact_secrets(tail_lines(str(log_excerpt), max_lines=80))[:4000],
+                        "mode": raw_summary.get("mode", ""),
+                        "execution_mode": raw_summary.get("execution_mode", ""),
+                        "coverage": raw_summary.get("coverage", {}),
+                    },
+                }
+            )
+        coverage = {
+            "requested_engines": len(scan.selected_engines or []),
+            "completed_engines": sum(er.status == "completed" for er in results),
+            "skipped_engines": sum(er.status == "skipped" for er in results),
+            "failed_engines": sum(er.status == "failed" for er in results),
+            "total_findings": SecureWiseFinding.objects.filter(SecureWiseFinding.for_scan_q(scan.id)).count(),
+        }
+        worker = SecureWiseWorkerRegistration.objects.order_by("-last_seen_at").first()
+        worker_available = bool(
+            worker and worker.status == "online" and worker.last_seen_at >= timezone.now() - timedelta(seconds=45)
+        )
+        capabilities = set(worker.capabilities if worker_available else ())
+        readiness_diagnostics = []
+        if not worker_available:
+            readiness_diagnostics.append(
+                "No worker has checked in within the last 45 seconds."
+                if worker
+                else "No SecureWise worker has registered."
+            )
+        else:
+            worker_metrics = worker.metrics if isinstance(worker.metrics, dict) else {}
+            if worker_metrics.get("worker_profile") == "lightweight":
+                readiness_diagnostics.append(
+                    "Lightweight profile: external scanners, Docker, browser and customer URL execution are disabled; "
+                    "only repository-static fallback checks are available."
+                )
+            else:
+                if "docker_daemon" not in capabilities:
+                    readiness_diagnostics.append("Docker daemon is unavailable on the worker.")
+                if "trivy" not in capabilities:
+                    readiness_diagnostics.append("Trivy is not installed on the worker.")
+                if not {"zap_baseline_cli", "zap_baseline_docker"} & capabilities:
+                    readiness_diagnostics.append("Neither ZAP baseline nor Docker-based ZAP is available.")
+        from apps.securewise.services.runners import runner_fleet_summary
+
+        worker_readiness = {
+            "worker_available": worker_available,
+            "docker_ready": "docker_daemon" in capabilities,
+            "trivy_available": "trivy" in capabilities,
+            "zap_available": bool({"zap_baseline_cli", "zap_baseline_docker"} & capabilities),
+            "runner_type": (
+                (worker.metrics or {}).get("runner_type", "linux_worker")
+                if worker_available and isinstance(worker.metrics, dict)
+                else ""
+            ),
+            "architecture": (
+                (worker.metrics or {}).get("architecture", "unknown")
+                if worker_available and isinstance(worker.metrics, dict)
+                else ""
+            ),
+            "scanner_versions": (
+                (worker.metrics or {}).get("scanner_versions", {})
+                if worker_available and isinstance(worker.metrics, dict)
+                else {}
+            ),
+            "scanner_availability": (
+                (worker.metrics or {}).get("scanner_availability", {})
+                if worker_available and isinstance(worker.metrics, dict)
+                else {}
+            ),
+            "worker_profile": (
+                (worker.metrics or {}).get("worker_profile", "standard")
+                if worker_available and isinstance(worker.metrics, dict)
+                else ""
+            ),
+            "runners": runner_fleet_summary(),
+            "last_seen_at": worker.last_seen_at.isoformat() if worker else None,
+            "diagnostics": readiness_diagnostics,
+        }
         return Response(
             {
                 "id": str(scan.id),
                 "status": scan.status,
                 "progress": scan.progress,
                 "elapsed_seconds": elapsed_seconds,
-                "findings_count": scan.findings.count(),
+                "findings_count": SecureWiseFinding.objects.filter(SecureWiseFinding.for_scan_q(scan.id)).count(),
+                "coverage": coverage,
+                "worker_readiness": worker_readiness,
                 "engines": engines,
             }
         )
@@ -907,6 +1797,295 @@ class ScanViewSet(viewsets.ModelViewSet):
         scan = self.get_object()
         serializer = ScanEngineResultSerializer(scan.engine_results.all(), many=True)
         return Response(serializer.data)
+
+
+class PentestSessionViewSet(viewsets.ModelViewSet):
+    serializer_class = PentestSessionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get", "post", "head", "options"]
+
+    def get_queryset(self):
+        return (
+            PentestSession.objects.filter(organization_id__in=_get_user_org_ids(self.request.user))
+            .select_related("organization", "project", "repository", "created_by")
+            .prefetch_related("scope", "test_cases__executions__evidence", "proposals")
+        )
+
+    def perform_create(self, serializer):
+        project = serializer.validated_data["project"]
+        membership = _membership(self.request.user, project.organization)
+        if membership is None or membership.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to create AutoPentest sessions.")
+        session = serializer.save()
+        _audit(
+            self.request.user,
+            "pentest_session_created",
+            org=session.organization,
+            target_type="PentestSession",
+            target_id=session.id,
+            detail={"repository": session.repository.name, "mode": session.mode},
+            request=self.request,
+        )
+
+    @action(detail=True, methods=["post"])
+    def cancel(self, request, pk=None):
+        session = self.get_object()
+        membership = _membership(request.user, session.organization)
+        if membership is None or membership.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to cancel AutoPentest sessions.")
+        if session.status not in ("pending", "queued", "worker_claimed", "running"):
+            return Response({"detail": f"Cannot cancel a session with status '{session.status}'."}, status=400)
+        session.status = "cancelled"
+        session.worker_claimed_at = None
+        session.save(update_fields=["status", "worker_claimed_at"])
+        if session.unified_scan_id:
+            SecureWiseScan.objects.filter(
+                id=session.unified_scan_id,
+                status__in=("queued", "worker_claimed", "running", "running_api"),
+            ).update(status="cancelled", worker_claimed_at=None, completed_at=timezone.now())
+        return Response({"detail": "AutoPentest session cancelled.", "status": session.status})
+
+    @action(detail=True, methods=["post"])
+    @transaction.atomic
+    def retry(self, request, pk=None):
+        session = self.get_object()
+        membership = _membership(request.user, session.organization)
+        if membership is None or membership.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to retry AutoPentest sessions.")
+        if session.status != "failed":
+            return Response(
+                {"detail": "Only failed AutoPentest sessions can be retried."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if (
+            not session.authorization_confirmed
+            or len(session.authorization_reference.strip()) < 8
+            or not session.scope.exists()
+            or session.repository.project_id != session.project_id
+            or session.repository.organization_id != session.organization_id
+        ):
+            return Response(
+                {"detail": "Retry blocked: authorization, scope, or repository association is no longer valid."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        if session.mode == "security_planning":
+            session.proposals.all().delete()
+            session.security_inventory = {}
+        elif session.mode == "approved_tests":
+            session.proposals.filter(approval_status="executed", executable=True).update(
+                approval_status="approved",
+                test_case=None,
+                updated_at=timezone.now(),
+            )
+        session.test_cases.all().delete()
+        session.status = "queued"
+        session.progress = 0
+        session.started_at = None
+        session.completed_at = None
+        session.worker_claimed_at = None
+        session.error_message = ""
+        session.save(
+            update_fields=[
+                "status",
+                "progress",
+                "started_at",
+                "completed_at",
+                "worker_claimed_at",
+                "error_message",
+                "security_inventory",
+                "updated_at",
+            ]
+        )
+        _audit(
+            request.user,
+            "pentest_session_retried",
+            org=session.organization,
+            target_type="PentestSession",
+            target_id=session.id,
+            detail={"mode": session.mode},
+            request=request,
+        )
+        session.refresh_from_db()
+        return Response(PentestSessionSerializer(session, context={"request": request}).data, status=202)
+
+    @action(detail=True, methods=["post"], url_path="execute-approved")
+    def execute_approved(self, request, pk=None):
+        session = self.get_object()
+        membership = _membership(request.user, session.organization)
+        if membership is None or membership.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to execute AutoPentest proposals.")
+        if session.mode != "security_planning" or session.status not in {"completed", "completed_with_warnings"}:
+            return Response({"detail": "Only a completed planning session can execute approved tests."}, status=400)
+        approved = session.proposals.filter(approval_status="approved", executable=True)
+        if not approved.exists():
+            return Response({"detail": "Approve at least one supported proposal before execution."}, status=400)
+        session.mode = "approved_tests"
+        session.status = "queued"
+        session.progress = 0
+        session.started_at = None
+        session.completed_at = None
+        session.worker_claimed_at = None
+        session.error_message = ""
+        session.save(
+            update_fields=[
+                "mode",
+                "status",
+                "progress",
+                "started_at",
+                "completed_at",
+                "worker_claimed_at",
+                "error_message",
+                "updated_at",
+            ]
+        )
+        _audit(
+            request.user,
+            "pentest_execution_queued",
+            org=session.organization,
+            target_type="PentestSession",
+            target_id=session.id,
+            detail={"approved_proposals": approved.count()},
+            request=request,
+        )
+        return Response(PentestSessionSerializer(session, context={"request": request}).data, status=202)
+
+    @action(detail=True, methods=["get"])
+    def report(self, request, pk=None):
+        session = self.get_object()
+        cases = list(session.test_cases.all())
+        proposal_counts = {
+            outcome: session.proposals.filter(approval_status=outcome).count()
+            for outcome in ("pending", "approved", "rejected", "unsupported", "executed")
+        }
+        counts = (
+            {
+                outcome: sum(case.status == outcome for case in cases)
+                for outcome, _ in cases[0]._meta.get_field("status").choices
+            }
+            if cases
+            else {}
+        )
+        return Response(
+            {
+                "session": PentestSessionSerializer(session, context={"request": request}).data,
+                "summary": {
+                    "test_cases": len(cases),
+                    "outcomes": counts,
+                    "proposals": proposal_counts,
+                    "coverage": PentestSessionSerializer(session, context={"request": request}).data["coverage"],
+                    "status": session.status,
+                    "unified_findings_scan": str(session.unified_scan_id) if session.unified_scan_id else None,
+                    "limitations": (
+                        [
+                            "This session performs passive OpenAPI contract checks only.",
+                            "No application runtime, authenticated user flow, or active test was executed.",
+                        ]
+                        if session.mode == "passive"
+                        else (
+                            [
+                                "This session inventoried static metadata and generated proposals only.",
+                                "No proposal was executed during planning; human approval is required.",
+                                "Inventory and AI annotations are not security findings or assurance.",
+                            ]
+                            if session.mode == "security_planning"
+                            else [
+                                "Only human-approved and supported proposals are eligible for execution.",
+                                "Authenticated API requests are read-only and remain on the isolated repository runtime.",
+                                "Browser tests execute only the selected fixed journeys using synthetic users.",
+                                "Discovered route counts do not indicate security assurance; unsupported proposals remain unexecuted.",
+                            ]
+                        )
+                    ),
+                },
+            }
+        )
+
+
+class PentestTestProposalViewSet(mixins.UpdateModelMixin, viewsets.ReadOnlyModelViewSet):
+    serializer_class = PentestTestProposalSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get", "patch", "post", "head", "options"]
+
+    def get_queryset(self):
+        return PentestTestProposal.objects.filter(
+            session__organization_id__in=_get_user_org_ids(self.request.user),
+            session__mode="security_planning",
+        ).select_related("session", "session__organization")
+
+    def partial_update(self, request, *args, **kwargs):
+        if set(request.data) != {"safe_parameters"}:
+            return Response(
+                {"detail": "Only planner-declared safe_parameters may be edited."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        proposal = self.get_object()
+        self._require_write_membership(request, proposal)
+        if proposal.approval_status != "pending":
+            return Response({"detail": "Only pending proposals may be edited."}, status=400)
+        serializer = self.get_serializer(proposal, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    def _require_write_membership(self, request, proposal):
+        membership = _membership(request.user, proposal.session.organization)
+        if membership is None or membership.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to review AutoPentest proposals.")
+
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        proposal = self.get_object()
+        self._require_write_membership(request, proposal)
+        if proposal.session.status not in {"completed", "completed_with_warnings"}:
+            return Response({"detail": "Planning must finish before proposal review."}, status=400)
+        if not proposal.executable or proposal.approval_status != "pending":
+            return Response({"detail": "Only pending supported proposals can be approved."}, status=400)
+        proposal.approval_status = "approved"
+        proposal.approved_by = request.user
+        proposal.approved_at = timezone.now()
+        proposal.save(update_fields=["approval_status", "approved_by", "approved_at", "updated_at"])
+        _audit(
+            request.user,
+            "pentest_proposal_approved",
+            org=proposal.session.organization,
+            target_type="PentestTestProposal",
+            target_id=proposal.id,
+            detail={"proposal_key": proposal.proposal_key},
+            request=request,
+        )
+        return Response(self.get_serializer(proposal).data)
+
+    @action(detail=True, methods=["post"])
+    def reject(self, request, pk=None):
+        proposal = self.get_object()
+        self._require_write_membership(request, proposal)
+        if proposal.session.status not in {"completed", "completed_with_warnings"}:
+            return Response({"detail": "Planning must finish before proposal review."}, status=400)
+        if proposal.approval_status != "pending":
+            return Response({"detail": "Only pending proposals can be rejected."}, status=400)
+        proposal.approval_status = "rejected"
+        proposal.save(update_fields=["approval_status", "updated_at"])
+        _audit(
+            request.user,
+            "pentest_proposal_rejected",
+            org=proposal.session.organization,
+            target_type="PentestTestProposal",
+            target_id=proposal.id,
+            detail={"proposal_key": proposal.proposal_key},
+            request=request,
+        )
+        return Response(self.get_serializer(proposal).data)
 
 
 # ---------------------------------------------------------------------------
@@ -928,7 +2107,7 @@ class FindingViewSet(viewsets.ModelViewSet):
             qs = qs.filter(project_id=project_id)
         scan_id = self.request.query_params.get("scan")
         if scan_id:
-            qs = qs.filter(scan_id=scan_id)
+            qs = qs.filter(SecureWiseFinding.for_scan_q(scan_id))
         severity = self.request.query_params.get("severity")
         if severity:
             qs = qs.filter(severity=severity)
@@ -940,8 +2119,19 @@ class FindingViewSet(viewsets.ModelViewSet):
             qs = qs.filter(Q(title__icontains=search) | Q(cwe_id__icontains=search))
         return qs
 
+    def create(self, request, *args, **kwargs):
+        return Response(
+            {"detail": "Findings can only be created by a SecureWise scan execution."},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
     def perform_update(self, serializer):
         old_status = serializer.instance.status
+        membership = _membership(self.request.user, serializer.instance.organization)
+        if membership is None or membership.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to update findings.")
         instance = serializer.save()
         if instance.status != old_status:
             _audit(
@@ -1068,6 +2258,11 @@ class FindingViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="accept-risk")
     def accept_risk(self, request, pk=None):
         finding = self.get_object()
+        membership = _membership(request.user, finding.organization)
+        if membership is None or membership.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to change finding status.")
         old_status = finding.status
         finding.status = "accepted_risk"
         finding.reviewed_by = request.user
@@ -1088,6 +2283,11 @@ class FindingViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="mark-false-positive")
     def mark_false_positive(self, request, pk=None):
         finding = self.get_object()
+        membership = _membership(request.user, finding.organization)
+        if membership is None or membership.role not in WRITE_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to change finding status.")
         old_status = finding.status
         finding.status = "false_positive"
         finding.reviewed_by = request.user
@@ -1201,6 +2401,28 @@ class IntegrationViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("Only org admins can manage integrations.")
         serializer.save(created_by=self.request.user)
 
+    def perform_update(self, serializer):
+        integration = serializer.instance
+        membership = _membership(self.request.user, integration.organization)
+        if membership is None or membership.role not in ADMIN_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("Only org admins can manage integrations.")
+        organization = serializer.validated_data.get("organization", integration.organization)
+        if organization.id != integration.organization_id:
+            from rest_framework.exceptions import ValidationError
+
+            raise ValidationError({"organization": "Integrations cannot be moved to another organization."})
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        membership = _membership(self.request.user, instance.organization)
+        if membership is None or membership.role not in ADMIN_ROLES:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("Only org admins can manage integrations.")
+        instance.delete()
+
 
 # ---------------------------------------------------------------------------
 # Audit Log (read-only)
@@ -1277,11 +2499,13 @@ class DashboardSummaryView(APIView):
             deduct = min(100, (critical_count * 10) + (high_count * 5))
             security_score = max(0, 100 - deduct)
 
-        # OWASP Top 10 (2021) coverage across open findings
+        # Coverage across open findings uses the versioned taxonomy dataset.
         from .services.report import _CWE_TOP25, _OWASP_TOP10_LABELS
 
         owasp_coverage = {code: findings_qs.filter(owasp_category=code).count() for code in _OWASP_TOP10_LABELS}
-        cwe_top25_coverage = findings_qs.filter(cwe_id__in=list(_CWE_TOP25)).count()
+        cwe_ids_covered = list(
+            findings_qs.filter(cwe_id__in=list(_CWE_TOP25)).values_list("cwe_id", flat=True).distinct()
+        )
 
         # Quality gate pass/fail counts across recent scans
         recent_scan_qs = SecureWiseScan.objects.filter(organization_id__in=org_ids, quality_gate_passed__isnull=False)
@@ -1301,7 +2525,9 @@ class DashboardSummaryView(APIView):
                 "recent_scans": recent_scans_data,
                 "top_risky_projects": list(risky_projects),
                 "owasp_top10_coverage": owasp_coverage,
-                "cwe_top25_coverage_count": cwe_top25_coverage,
+                "cwe_ids_covered": cwe_ids_covered,
+                "cwe_coverage": SECURITY_TAXONOMY["cwe_coverage"],
+                "security_taxonomy": taxonomy_metadata(),
                 "quality_gate_counts": quality_gate_counts,
             }
         )

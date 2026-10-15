@@ -1,3 +1,14 @@
 fly.toml
 .git/
+.env
+.env.*
+.ssh/
+.aws/
+.config/
+venv/
+.venv/
+__pycache__/
+tests/
+media/
+staticfiles/
 *.sqlite3

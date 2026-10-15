@@ -13,7 +13,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from .base import BaseScanner, ScannerFinding, ScannerResult
+from ..services.worker_profile import is_lightweight_worker
+from .base import BaseScanner, ScannerFinding, ScannerResult, optional_scanner_status
 from .parsers.trivy_parser import parse_trivy_vuln_json
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,8 @@ class ScaScanner(BaseScanner):
         return True
 
     def run(self, repo_path: Path, scan_id: str, metadata: dict) -> ScannerResult:
+        if is_lightweight_worker():
+            return self._run_fallback(repo_path, scan_id, disabled=True)
         if shutil.which("trivy"):
             return self._run_trivy(repo_path, scan_id)
         return self._run_fallback(repo_path, scan_id)
@@ -77,7 +80,7 @@ class ScaScanner(BaseScanner):
             logger.exception("trivy run failed, falling back")
             return self._run_fallback(repo_path, scan_id, error=str(exc))
 
-    def _run_fallback(self, repo_path: Path, scan_id: str, error: str = "") -> ScannerResult:
+    def _run_fallback(self, repo_path: Path, scan_id: str, error: str = "", disabled: bool = False) -> ScannerResult:
         findings: list[ScannerFinding] = []
         inventory: list[dict] = []
 
@@ -96,6 +99,7 @@ class ScaScanner(BaseScanner):
                 "dependencies_parsed": len(inventory),
                 "dependency_inventory": inventory,
                 "note": error or None,
+                "optional_scanner": optional_scanner_status("trivy", "trivy", disabled=disabled, error=error),
             },
         )
 

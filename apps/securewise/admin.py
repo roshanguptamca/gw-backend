@@ -2,11 +2,13 @@ from django.contrib import admin
 
 from .models import (
     SecureWiseAuditLog,
+    SecureWiseApplicationTarget,
     SecureWiseFinding,
     SecureWiseGitIntegration,
     SecureWiseIntegration,
     SecureWiseMembership,
     SecureWiseOrganization,
+    SecureWiseOwnershipChallenge,
     SecureWiseProject,
     SecureWiseReport,
     SecureWiseRepository,
@@ -14,6 +16,13 @@ from .models import (
     SecureWiseScanEngineResult,
     SecureWiseScanPolicy,
     SecureWiseScanPolicyTemplate,
+    SecureWiseTestingAuthorization,
+    SecureWiseWorkerRegistration,
+    PentestEvidence,
+    PentestExecution,
+    PentestScope,
+    PentestSession,
+    PentestTestCase,
 )
 
 
@@ -38,6 +47,25 @@ class MembershipAdmin(admin.ModelAdmin):
     list_display = ("user", "organization", "role", "created_at")
     list_filter = ("role",)
     search_fields = ("user__username", "user__email", "organization__name")
+    readonly_fields = ("id", "created_at")
+
+
+@admin.register(SecureWiseApplicationTarget)
+class ApplicationTargetAdmin(admin.ModelAdmin):
+    list_display = ("hostname", "organization", "project", "verified_at", "ownership_revoked_at")
+    search_fields = ("hostname", "organization__name", "project__name")
+    readonly_fields = ("id", "created_at", "updated_at")
+
+
+@admin.register(SecureWiseOwnershipChallenge)
+class OwnershipChallengeAdmin(admin.ModelAdmin):
+    list_display = ("target", "method", "expires_at", "verified_at")
+    readonly_fields = ("id", "challenge_digest", "created_at")
+
+
+@admin.register(SecureWiseTestingAuthorization)
+class TestingAuthorizationAdmin(admin.ModelAdmin):
+    list_display = ("target", "testing_environment", "starts_at", "expires_at", "approved_by", "revoked_at")
     readonly_fields = ("id", "created_at")
 
 
@@ -98,6 +126,59 @@ class ScanEngineResultAdmin(admin.ModelAdmin):
     list_filter = ("engine", "status")
     search_fields = ("scan__id",)
     readonly_fields = ("id", "created_at", "updated_at")
+
+
+@admin.register(SecureWiseWorkerRegistration)
+class WorkerRegistrationAdmin(admin.ModelAdmin):
+    list_display = ("worker_id", "status", "last_seen_at")
+    readonly_fields = ("worker_id", "capabilities", "status", "last_seen_at")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+class PentestScopeInline(admin.TabularInline):
+    model = PentestScope
+    extra = 0
+
+
+@admin.register(PentestSession)
+class PentestSessionAdmin(admin.ModelAdmin):
+    list_display = ("id", "project", "repository", "mode", "status", "progress", "created_at")
+    list_filter = ("mode", "status")
+    readonly_fields = ("id", "progress", "started_at", "completed_at", "created_at", "updated_at")
+    inlines = (PentestScopeInline,)
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(PentestTestCase)
+class PentestTestCaseAdmin(admin.ModelAdmin):
+    list_display = ("title", "category", "status", "severity", "session")
+    list_filter = ("category", "status", "severity")
+    readonly_fields = tuple(field.name for field in PentestTestCase._meta.fields)
+
+
+@admin.register(PentestExecution)
+class PentestExecutionAdmin(admin.ModelAdmin):
+    list_display = ("test_case", "outcome", "started_at", "completed_at")
+    readonly_fields = tuple(field.name for field in PentestExecution._meta.fields)
+
+
+@admin.register(PentestEvidence)
+class PentestEvidenceAdmin(admin.ModelAdmin):
+    list_display = ("execution", "kind", "sha256", "created_at")
+    readonly_fields = tuple(field.name for field in PentestEvidence._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(SecureWiseFinding)

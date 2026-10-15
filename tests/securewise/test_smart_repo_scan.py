@@ -8,6 +8,7 @@ discovery detectors run against real temp directories.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -34,6 +35,7 @@ from apps.securewise.models import (
 )
 from apps.securewise.runtime import docker_runner
 from apps.securewise.runtime.manager import RuntimeEnvironmentManager
+from apps.securewise.runtime.docker_runner import generate_dockerfile_content
 from apps.securewise.scanners.orchestrator import ScannerOrchestrator
 
 User = get_user_model()
@@ -77,6 +79,45 @@ def _make_django_repo(tmp_path: Path) -> Path:
     return tmp_path
 
 
+def test_runtime_trust_requires_exact_reviewed_content_digest(tmp_path, monkeypatch):
+    from apps.securewise.runtime.trust import repository_tree_sha256, trusted_runtime_content
+
+    (tmp_path / "requirements.txt").write_text("django\n")
+    repository_id = "reviewed-repo-id"
+    digest = repository_tree_sha256(tmp_path)
+    monkeypatch.setenv("SECUREWISE_TRUSTED_RUNTIME_CONTENT", f"{repository_id}={digest}")
+
+    trusted, reason = trusted_runtime_content(repository_id, tmp_path)
+    assert trusted is False
+    assert "Runtime builds are disabled" in reason
+
+    monkeypatch.setenv("SECUREWISE_RUNTIME_BUILDS_ENABLED", "true")
+
+    assert trusted_runtime_content(repository_id, tmp_path) == (True, digest)
+
+    (tmp_path / "Dockerfile").write_text("FROM python:3.11-slim\n")
+    trusted, _ = trusted_runtime_content(repository_id, tmp_path)
+    assert trusted is False
+
+
+def test_repository_id_allowlist_does_not_authorize_runtime_builds(tmp_path, monkeypatch):
+    from apps.securewise.runtime.trust import trusted_runtime_content
+
+    (tmp_path / "requirements.txt").write_text("django\n")
+    monkeypatch.delenv("SECUREWISE_TRUSTED_RUNTIME_CONTENT", raising=False)
+    monkeypatch.setenv("SECUREWISE_TRUSTED_RUNTIME_REPOSITORIES", "reviewed-repo-id")
+    monkeypatch.setenv("SECUREWISE_RUNTIME_BUILDS_ENABLED", "true")
+
+    trusted, reason = trusted_runtime_content("reviewed-repo-id", tmp_path)
+    assert trusted is False
+    assert "exact repository content" in reason
+
+    monkeypatch.delenv("SECUREWISE_RUNTIME_BUILDS_ENABLED")
+    trusted, reason = trusted_runtime_content("reviewed-repo-id", tmp_path)
+    assert trusted is False
+    assert "Runtime builds are disabled" in reason
+
+
 def _make_scan_with_repo(org, project, owner, repository, scan_type="full", **kwargs):
     return SecureWiseScan.objects.create(
         organization=org,
@@ -87,6 +128,24 @@ def _make_scan_with_repo(org, project, owner, repository, scan_type="full", **kw
         triggered_by=owner,
         **kwargs,
     )
+
+
+def _allow_repo_runtime(stack, repository, repo_path):
+    from apps.securewise.runtime.trust import repository_tree_sha256
+
+    stack.enter_context(
+        patch.dict(
+            os.environ,
+            {
+                "SECUREWISE_RUNTIME_BUILDS_ENABLED": "true",
+                "SECUREWISE_TRUSTED_RUNTIME_CONTENT": f"{repository.id}={repository_tree_sha256(repo_path)}",
+            },
+        )
+    )
+    stack.enter_context(
+        patch("apps.securewise.runtime.manager.docker_runner.create_isolated_network", return_value=(True, ""))
+    )
+    stack.enter_context(patch("apps.securewise.runtime.manager.docker_runner.remove_network"))
 
 
 # ---------------------------------------------------------------------------
@@ -309,6 +368,61 @@ class TestApplicationDiscoveryEngine:
 
 
 class TestRuntimeEnvironmentManager:
+    def test_generated_dockerfile_uses_repository_runtime_and_lockfile(self, tmp_path):
+        (tmp_path / ".python-version").write_text("3.12.2\n")
+        (tmp_path / "requirements.txt").write_text("flask==3.0.0\n")
+        content = generate_dockerfile_content("python", "python app.py", 8000, repo_path=tmp_path)
+
+        assert "FROM python:3.12.2-slim" in content
+        assert "RUN pip install --no-cache-dir -r requirements.txt" in content
+        assert "|| true" not in content
+
+    def test_generated_node_dockerfile_uses_lockfile_package_manager(self, tmp_path):
+        (tmp_path / ".node-version").write_text("20.12.0\n")
+        (tmp_path / "package.json").write_text('{"scripts":{"start":"node app.js"}}')
+        (tmp_path / "package-lock.json").write_text("{}")
+        content = generate_dockerfile_content("node", "npm start", 3000, repo_path=tmp_path)
+
+        assert "FROM node:20.12.0-slim" in content
+        assert "RUN npm ci" in content
+
+    def test_runtime_images_use_unique_per_scan_tags(self, tmp_path):
+        _make_django_repo(tmp_path)
+        plan = ApplicationDiscoveryEngine().discover(tmp_path)
+        with (
+            patch(
+                "apps.securewise.runtime.manager.uuid.uuid4",
+                side_effect=[
+                    MagicMock(hex="scan-one"),
+                    MagicMock(hex="network-one"),
+                    MagicMock(hex="scan-two"),
+                    MagicMock(hex="network-two"),
+                ],
+            ),
+            patch("apps.securewise.runtime.manager.docker_runner.is_docker_available", return_value=(True, "")),
+            patch("apps.securewise.runtime.manager.docker_runner.build_image", return_value=(True, "")) as build_image,
+            patch("apps.securewise.runtime.manager.docker_runner.create_isolated_network", return_value=(True, "")),
+            patch(
+                "apps.securewise.runtime.manager.docker_runner.run_container",
+                side_effect=[(True, "runtime-one", ""), (True, "runtime-two", "")],
+            ),
+            patch(
+                "apps.securewise.runtime.docker_runner.probe_health",
+                return_value={
+                    "reachable": True,
+                    "selected_endpoint": "/",
+                    "has_dedicated_health_endpoint": False,
+                    "status_code": 200,
+                },
+            ),
+        ):
+            first = RuntimeEnvironmentManager().try_start(tmp_path, plan)
+            second = RuntimeEnvironmentManager().try_start(tmp_path, plan)
+
+        tags = [call.args[2] for call in build_image.call_args_list]
+        assert first.started and second.started
+        assert tags == ["securewise-scan-tmp:scan-one", "securewise-scan-tmp:scan-two"]
+
     def test_try_start_skips_when_docker_unavailable(self, tmp_path):
         _make_django_repo(tmp_path)
         plan = ApplicationDiscoveryEngine().discover(tmp_path)
@@ -342,12 +456,13 @@ class TestRuntimeEnvironmentManager:
         with (
             patch("apps.securewise.runtime.manager.docker_runner.is_docker_available", return_value=(True, "")),
             patch("apps.securewise.runtime.manager.docker_runner.build_image", return_value=(True, "")),
+            patch("apps.securewise.runtime.manager.docker_runner.create_isolated_network", return_value=(True, "")),
             patch(
                 "apps.securewise.runtime.manager.docker_runner.run_container",
                 return_value=(True, "securewise-runtime-test", ""),
             ),
             patch(
-                "apps.securewise.runtime.manager.probe_health",
+                "apps.securewise.runtime.docker_runner.probe_health",
                 return_value={
                     "reachable": True,
                     "selected_endpoint": "/health",
@@ -367,13 +482,14 @@ class TestRuntimeEnvironmentManager:
         with (
             patch("apps.securewise.runtime.manager.docker_runner.is_docker_available", return_value=(True, "")),
             patch("apps.securewise.runtime.manager.docker_runner.build_image", return_value=(True, "")),
+            patch("apps.securewise.runtime.manager.docker_runner.create_isolated_network", return_value=(True, "")),
             patch(
                 "apps.securewise.runtime.manager.docker_runner.run_container",
                 return_value=(True, "securewise-runtime-test", ""),
             ),
             patch("apps.securewise.runtime.manager.docker_runner.get_logs", return_value="boot error"),
             patch(
-                "apps.securewise.runtime.manager.probe_health",
+                "apps.securewise.runtime.docker_runner.probe_health",
                 return_value={
                     "reachable": False,
                     "selected_endpoint": "",
@@ -431,6 +547,66 @@ class TestRuntimeEnvironmentManager:
         assert available is False
         assert "not installed" in reason
 
+    def test_docker_cli_availability_is_distinct_from_daemon_availability(self):
+        with (
+            patch("apps.securewise.runtime.docker_runner.shutil.which", return_value="/usr/local/bin/docker"),
+            patch(
+                "apps.securewise.runtime.docker_runner.subprocess.run",
+                return_value=MagicMock(returncode=1, stderr="Cannot connect to the Docker daemon"),
+            ),
+        ):
+            cli_available, cli_reason = docker_runner.is_docker_cli_available()
+            daemon_available, daemon_reason = docker_runner.is_docker_daemon_available()
+
+        assert cli_available is True
+        assert cli_reason == ""
+        assert daemon_available is False
+        assert "daemon unreachable" in daemon_reason
+
+    def test_network_health_probe_uses_container_healthcheck_for_internal_target(self):
+        with patch(
+            "apps.securewise.runtime.docker_runner.probe_network_url",
+            return_value=200,
+        ) as probe:
+            result = docker_runner.probe_health(
+                "securewise-net-test",
+                "http://securewise-runtime-test:3000",
+                "/healthz",
+            )
+
+        assert result == {
+            "reachable": True,
+            "selected_endpoint": "/healthz",
+            "has_dedicated_health_endpoint": True,
+            "status_code": 200,
+        }
+        assert probe.call_args_list[0].args == (
+            "securewise-net-test",
+            "http://securewise-runtime-test:3000/healthz",
+        )
+
+    def test_runtime_container_has_no_host_socket_or_privileged_access(self):
+        with patch(
+            "apps.securewise.runtime.docker_runner.subprocess.run",
+            return_value=MagicMock(returncode=0, stdout="container-id"),
+        ) as run:
+            started, container_id, error = docker_runner.run_container(
+                "fixture-image",
+                49152,
+                3000,
+                network_name="securewise-net-test",
+            )
+
+        command = run.call_args.args[0]
+        assert started is True
+        assert container_id.startswith("securewise-runtime-")
+        assert error == ""
+        assert "--privileged" not in command
+        assert "--cap-drop" in command
+        assert "--network" in command and "securewise-net-test" in command
+        assert "-v" not in command and "--volume" not in command
+        assert not any("docker.sock" in argument for argument in command)
+
 
 # ---------------------------------------------------------------------------
 # Orchestrator: smart DAST auto-discovery wiring
@@ -438,6 +614,60 @@ class TestRuntimeEnvironmentManager:
 
 
 class TestOrchestratorSmartDast:
+    def test_runtime_resources_are_cleaned_when_scanner_raises(self, org_project, repository, tmp_path):
+        owner, org, project = org_project
+        _make_django_repo(tmp_path)
+        scan = _make_scan_with_repo(org, project, owner, repository, scan_type="full")
+
+        import contextlib
+
+        with contextlib.ExitStack() as stack:
+            _allow_repo_runtime(stack, repository, tmp_path)
+            for cls in ("SastScanner", "ScaScanner", "SecretsScanner", "IacScanner", "ContainerScanner"):
+                stack.enter_context(
+                    patch(f"apps.securewise.scanners.orchestrator.{cls}.run", return_value=_ok_result())
+                )
+            stack.enter_context(
+                patch(
+                    "apps.securewise.scanners.orchestrator.DastScanner.run",
+                    side_effect=RuntimeError("simulated scanner failure"),
+                )
+            )
+            stack.enter_context(
+                patch("apps.securewise.runtime.manager.docker_runner.is_docker_available", return_value=(True, ""))
+            )
+            build_image = stack.enter_context(
+                patch("apps.securewise.runtime.manager.docker_runner.build_image", return_value=(True, ""))
+            )
+            stack.enter_context(
+                patch(
+                    "apps.securewise.runtime.manager.docker_runner.run_container",
+                    return_value=(True, "securewise-runtime-failing-scan", ""),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "apps.securewise.runtime.docker_runner.probe_health",
+                    return_value={
+                        "reachable": True,
+                        "selected_endpoint": "/health",
+                        "has_dedicated_health_endpoint": True,
+                        "status_code": 200,
+                    },
+                )
+            )
+            stop_container = stack.enter_context(
+                patch("apps.securewise.runtime.manager.docker_runner.stop_and_remove")
+            )
+            remove_image = stack.enter_context(
+                patch("apps.securewise.runtime.manager.docker_runner.remove_image")
+            )
+            _, _, any_failed, _ = ScannerOrchestrator().run(scan, tmp_path)
+
+        assert any_failed is True
+        stop_container.assert_called_once_with("securewise-runtime-failing-scan")
+        remove_image.assert_called_once_with(build_image.call_args.args[2])
+
     def test_resolve_engines_includes_dast_when_repository_set_even_without_target_url(
         self, org_project, repository, tmp_path
     ):
@@ -472,6 +702,7 @@ class TestOrchestratorSmartDast:
         import contextlib
 
         with contextlib.ExitStack() as stack:
+            _allow_repo_runtime(stack, repository, tmp_path)
             for cls in ("SastScanner", "ScaScanner", "SecretsScanner", "IacScanner"):
                 stack.enter_context(
                     patch(f"apps.securewise.scanners.orchestrator.{cls}.run", return_value=_ok_result())
@@ -504,6 +735,7 @@ class TestOrchestratorSmartDast:
         import contextlib
 
         with contextlib.ExitStack() as stack:
+            _allow_repo_runtime(stack, repository, tmp_path)
             for cls in ("SastScanner", "ScaScanner", "SecretsScanner", "IacScanner", "ContainerScanner"):
                 stack.enter_context(
                     patch(f"apps.securewise.scanners.orchestrator.{cls}.run", return_value=_ok_result())
@@ -523,7 +755,7 @@ class TestOrchestratorSmartDast:
             )
             stack.enter_context(
                 patch(
-                    "apps.securewise.runtime.manager.probe_health",
+                    "apps.securewise.runtime.docker_runner.probe_health",
                     return_value={
                         "reachable": True,
                         "selected_endpoint": "/health",
@@ -558,6 +790,7 @@ class TestOrchestratorSmartDast:
         import contextlib
 
         with contextlib.ExitStack() as stack:
+            _allow_repo_runtime(stack, repository, tmp_path)
             stack.enter_context(patch("apps.securewise.scanners.orchestrator.DastScanner.run", _fake_dast_run))
             stack.enter_context(
                 patch("apps.securewise.runtime.manager.docker_runner.is_docker_available", return_value=(True, ""))
@@ -573,7 +806,7 @@ class TestOrchestratorSmartDast:
             )
             stack.enter_context(
                 patch(
-                    "apps.securewise.runtime.manager.probe_health",
+                    "apps.securewise.runtime.docker_runner.probe_health",
                     return_value={
                         "reachable": True,
                         "selected_endpoint": "/health",
@@ -600,6 +833,7 @@ class TestOrchestratorSmartDast:
         import contextlib
 
         with contextlib.ExitStack() as stack:
+            _allow_repo_runtime(stack, repository, tmp_path)
             for cls in ("SastScanner", "ScaScanner", "SecretsScanner", "IacScanner", "ContainerScanner"):
                 stack.enter_context(
                     patch(f"apps.securewise.scanners.orchestrator.{cls}.run", return_value=_ok_result())
@@ -621,7 +855,7 @@ class TestOrchestratorSmartDast:
             )
             stack.enter_context(
                 patch(
-                    "apps.securewise.runtime.manager.probe_health",
+                    "apps.securewise.runtime.docker_runner.probe_health",
                     return_value={
                         "reachable": True,
                         "selected_endpoint": "/",
@@ -638,7 +872,7 @@ class TestOrchestratorSmartDast:
         assert "Missing Docker HEALTHCHECK or application health endpoint" in titles
         health_finding = next(f for f in findings if f.title.startswith("Missing Docker HEALTHCHECK"))
         assert health_finding.severity == "low"
-        assert health_finding.cwe_id == "CWE-703"
+        assert health_finding.cwe_id == ""
 
     def test_run_exposes_runtime_logs_when_auto_start_fails(self, org_project, repository, tmp_path):
         owner, org, project = org_project
@@ -648,6 +882,7 @@ class TestOrchestratorSmartDast:
         import contextlib
 
         with contextlib.ExitStack() as stack:
+            _allow_repo_runtime(stack, repository, tmp_path)
             for cls in ("SastScanner", "ScaScanner", "SecretsScanner", "IacScanner", "ContainerScanner"):
                 stack.enter_context(
                     patch(f"apps.securewise.scanners.orchestrator.{cls}.run", return_value=_ok_result())
