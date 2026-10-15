@@ -1,4 +1,5 @@
 from decimal import Decimal
+from uuid import uuid4
 
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator, RegexValidator
@@ -389,6 +390,18 @@ class Order(models.Model):
 
     def __str__(self):
         return self.order_number
+
+
+class AgentCheckout(models.Model):
+    """Short-lived review capability; locking this row makes confirmation idempotent."""
+
+    token = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    shop = models.ForeignKey(Shop, on_delete=models.CASCADE)
+    payload = models.JSONField(default=dict)
+    quote = models.JSONField(default=dict)
+    expires_at = models.DateTimeField(db_index=True)
+    order = models.OneToOneField(Order, null=True, blank=True, on_delete=models.PROTECT)
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class OrderItem(models.Model):

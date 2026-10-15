@@ -2,7 +2,7 @@ from django.urls import include, path
 
 from rest_framework.routers import DefaultRouter
 
-from .ai_order_agent import AgentMenuView, AgentQuoteView
+from .ai_order_agent import AgentConfirmOrderView, AgentMenuView, AgentPrepareCheckoutView, AgentQuoteView
 from .billing.views import InvoiceViewSet, OrderInvoiceListView
 from .views import (
     AddressLookupView,
@@ -56,6 +56,16 @@ router.register("admin/shops", AdminShopViewSet, basename="admin-shop")
 router.register("admin/products", AdminProductViewSet, basename="admin-product")
 
 urlpatterns = [
+    path(
+        "marketplace/ai/shops/<slug:slug>/checkout/prepare/",
+        AgentPrepareCheckoutView.as_view(),
+        name="marketplace-ai-checkout-prepare",
+    ),
+    path(
+        "marketplace/ai/shops/<slug:slug>/checkout/confirm/",
+        AgentConfirmOrderView.as_view(),
+        name="marketplace-ai-checkout-confirm",
+    ),
     path("marketplace/ai/shops/<slug:slug>/menu/", AgentMenuView.as_view(), name="marketplace-ai-menu"),
     path("marketplace/ai/shops/<slug:slug>/quote/", AgentQuoteView.as_view(), name="marketplace-ai-quote"),
     path("marketplace/orders/<int:order_id>/invoices/", OrderInvoiceListView.as_view(), name="order-invoices"),

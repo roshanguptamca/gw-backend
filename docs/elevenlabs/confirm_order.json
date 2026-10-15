@@ -1,0 +1,64 @@
+{
+  "type": "webhook",
+  "name": "confirm_order",
+  "description": "PLACE A REAL GUEST ORDER. Call only after the customer explicitly confirms the full prepared review and accepts marketplace policies. Retry only the same token. No online payment. Never call for a quote or before consent.",
+  "api_schema": {
+    "url": "https://api.guidewisey.com/api/marketplace/ai/shops/rishi-kitchen/checkout/confirm/",
+    "method": "POST",
+    "path_params_schema": [],
+    "query_params_schema": [],
+    "request_body_schema": {
+      "id": "body",
+      "type": "object",
+      "description": "Checkout request.",
+      "dynamic_variable": "",
+      "value_type": "llm_prompt",
+      "required": true,
+      "properties": [
+        {
+          "id": "confirmation_token",
+          "type": "string",
+          "description": "Exact capability token returned by prepare_checkout. Reuse the same token on retries; never invent or expose.",
+          "dynamic_variable": "",
+          "value_type": "llm_prompt",
+          "required": true
+        },
+        {
+          "id": "confirmed",
+          "type": "boolean",
+          "description": "Set true ONLY after the customer explicitly confirms the exact prepared review.",
+          "dynamic_variable": "",
+          "value_type": "llm_prompt",
+          "required": true
+        },
+        {
+          "id": "terms_accepted",
+          "type": "boolean",
+          "description": "Set true ONLY after the customer explicitly accepts marketplace terms and privacy policy; never infer from voice consent.",
+          "dynamic_variable": "",
+          "value_type": "llm_prompt",
+          "required": true
+        }
+      ]
+    },
+    "request_headers": [],
+    "content_type": "application/json",
+    "auth_connection": null,
+    "mtls_auth_connection": null,
+    "response_filter": null
+  },
+  "response_timeout_secs": 20,
+  "follow_redirects": false,
+  "follow_redirects_allowed_domains": [],
+  "dynamic_variables": {
+    "dynamic_variable_placeholders": {}
+  },
+  "assignments": [],
+  "interruption_mode": "allow",
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "execution_mode": "immediate",
+  "tool_error_handling_mode": "auto",
+  "response_mocks": []
+}

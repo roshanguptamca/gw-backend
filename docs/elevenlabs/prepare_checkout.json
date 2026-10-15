@@ -1,0 +1,120 @@
+{
+  "type": "webhook",
+  "name": "prepare_checkout",
+  "description": "Prepare a guest pickup/cash checkout review. Does not place an order or reserve stock. Read back review and ask for explicit order confirmation and policy acceptance.",
+  "api_schema": {
+    "url": "https://api.guidewisey.com/api/marketplace/ai/shops/rishi-kitchen/checkout/prepare/",
+    "method": "POST",
+    "path_params_schema": [],
+    "query_params_schema": [],
+    "request_body_schema": {
+      "id": "body",
+      "type": "object",
+      "description": "Checkout request.",
+      "dynamic_variable": "",
+      "value_type": "llm_prompt",
+      "required": true,
+      "properties": [
+        {
+          "id": "items",
+          "type": "array",
+          "description": "Selected products. Quantities count menu selling units, not individual pieces unless sold that way.",
+          "dynamic_variable": "",
+          "value_type": "llm_prompt",
+          "required": true,
+          "items": {
+            "type": "object",
+            "description": "One selected product.",
+            "dynamic_variable": "",
+            "value_type": "llm_prompt",
+            "properties": [
+              {
+                "id": "product_id",
+                "type": "integer",
+                "description": "Exact numeric product_id from get_menu.",
+                "dynamic_variable": "",
+                "value_type": "llm_prompt",
+                "required": true
+              },
+              {
+                "id": "quantity",
+                "type": "integer",
+                "description": "Confirmed positive integer quantity, maximum 1000.",
+                "dynamic_variable": "",
+                "value_type": "llm_prompt",
+                "required": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "customer_name",
+          "type": "string",
+          "description": "Guest name for order fulfilment.",
+          "dynamic_variable": "",
+          "value_type": "llm_prompt",
+          "required": true
+        },
+        {
+          "id": "customer_phone",
+          "type": "string",
+          "description": "Valid contact phone number, 7 to 15 digits, optional leading +.",
+          "dynamic_variable": "",
+          "value_type": "llm_prompt",
+          "required": true
+        },
+        {
+          "id": "customer_email",
+          "type": "string",
+          "description": "Optional email address for order confirmation.",
+          "dynamic_variable": "",
+          "value_type": "llm_prompt",
+          "required": false
+        },
+        {
+          "id": "pickup_slot_start",
+          "type": "string",
+          "description": "Exact ISO 8601 pickup start from quote_order options; required when scheduling is enabled, otherwise omit.",
+          "dynamic_variable": "",
+          "value_type": "llm_prompt",
+          "required": false
+        },
+        {
+          "id": "customer_note",
+          "type": "string",
+          "description": "Optional customer note, maximum 2000 characters.",
+          "dynamic_variable": "",
+          "value_type": "llm_prompt",
+          "required": false
+        },
+        {
+          "id": "language",
+          "type": "string",
+          "description": "en, nl or hi; Hindi conversations receive English receipts.",
+          "dynamic_variable": "",
+          "value_type": "llm_prompt",
+          "required": false
+        }
+      ]
+    },
+    "request_headers": [],
+    "content_type": "application/json",
+    "auth_connection": null,
+    "mtls_auth_connection": null,
+    "response_filter": null
+  },
+  "response_timeout_secs": 20,
+  "follow_redirects": false,
+  "follow_redirects_allowed_domains": [],
+  "dynamic_variables": {
+    "dynamic_variable_placeholders": {}
+  },
+  "assignments": [],
+  "interruption_mode": "allow",
+  "pre_tool_speech": "auto",
+  "tool_call_sound": null,
+  "tool_call_sound_behavior": "auto",
+  "execution_mode": "immediate",
+  "tool_error_handling_mode": "auto",
+  "response_mocks": []
+}
