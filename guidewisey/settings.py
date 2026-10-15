@@ -705,3 +705,8 @@ TRIPOSR_MODEL_PATH = os.getenv("TRIPOSR_MODEL_PATH", "")
 INSTANTMESH_MODEL_PATH = os.getenv("INSTANTMESH_MODEL_PATH", "")
 PIFUHD_MODEL_PATH = os.getenv("PIFUHD_MODEL_PATH", "")
 PSHUMAN_MODEL_PATH = os.getenv("PSHUMAN_MODEL_PATH", "")
+
+
+# Opt in only after migrations and agent confirmation instructions are deployed.
+MARKETPLACE_AI_GUEST_CHECKOUT_ENABLED = os.getenv("MARKETPLACE_AI_GUEST_CHECKOUT_ENABLED", "false").lower() == "true"
+MARKETPLACE_AI_GUEST_CHECKOUT_SHOPS = _env_list("MARKETPLACE_AI_GUEST_CHECKOUT_SHOPS", "rishi-kitchen")

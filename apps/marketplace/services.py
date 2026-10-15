@@ -474,7 +474,7 @@ def _create_account_for_order(payload):
         )
 
 
-def create_order_from_payload(payload, user=None):
+def create_order_from_payload(payload, user=None, *, defer_notifications=False):
     """Public entry point. Commits the DB transaction first, then sends emails
     in a background daemon thread so the HTTP response is immediate.
 
@@ -507,9 +507,17 @@ def create_order_from_payload(payload, user=None):
             time.sleep(_DB_LOCK_RETRY_DELAY_SECONDS * attempt)
 
     # Dispatch emails to a background daemon thread — caller gets instant response.
-    t = threading.Thread(target=_send_emails_background, args=(order.pk,), daemon=True)
-    t.start()
-    logger.info("Order %s created; email thread %s dispatched.", order.order_number, t.name)
+    def dispatch_notifications():
+        t = threading.Thread(target=_send_emails_background, args=(order.pk,), daemon=True)
+        t.start()
+        logger.info("Order %s created; email thread %s dispatched.", order.order_number, t.name)
+
+    # A caller may wrap checkout in an outer transaction (e.g. AI confirmation).
+    # Confirmation callers opt in so rolled-back orders never trigger email.
+    if defer_notifications:
+        transaction.on_commit(dispatch_notifications)
+    else:
+        dispatch_notifications()
 
     return order
 
