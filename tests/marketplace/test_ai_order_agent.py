@@ -346,3 +346,39 @@ class AgentGuestCheckoutTests(AgentToolTests):
                 format="json",
             )
         self.assertEqual(response.status_code, 404)
+
+    def test_buyer_email_is_required_and_validated_before_creating_review(self):
+        from apps.marketplace.models import AgentCheckout, Order
+
+        for email in (None, "", "not-an-email", "buyer@"):
+            with self.subTest(email=email):
+                payload = {**self.payload}
+                if email is None:
+                    payload.pop("customer_email")
+                else:
+                    payload["customer_email"] = email
+                response = self.client.post(self.prepare_url, payload, format="json")
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("customer_email", response.data)
+        self.assertFalse(AgentCheckout.objects.exists())
+        self.assertFalse(Order.objects.exists())
+
+    def test_buyer_email_is_used_for_confirmation_and_invoice(self):
+        from unittest.mock import patch
+
+        from apps.marketplace.models import Order
+
+        token = self.prepare()
+        with patch("apps.marketplace.services._send_emails_background") as emails:
+            from .test_api import _SyncThread
+
+            with (
+                self.captureOnCommitCallbacks(execute=True),
+                patch("apps.marketplace.services.threading.Thread", _SyncThread),
+            ):
+                response = self.confirm(token)
+        self.assertEqual(response.status_code, 201)
+        order = Order.objects.get(order_number=response.data["order_number"])
+        self.assertEqual(order.customer_email, "guest@example.com")
+        self.assertEqual(order.billing_snapshot["customer"]["email"], "guest@example.com")
+        emails.assert_called_once_with(order.pk)

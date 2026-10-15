@@ -160,7 +160,7 @@ class GuestCheckoutSerializer(serializers.Serializer):
     items = QuoteItemSerializer(many=True, allow_empty=False, max_length=30)
     customer_name = serializers.CharField(max_length=150)
     customer_phone = serializers.CharField(max_length=30)
-    customer_email = serializers.EmailField(required=False, allow_blank=True, default="")
+    customer_email = serializers.EmailField()
     customer_note = serializers.CharField(required=False, allow_blank=True, max_length=2000, default="")
     pickup_slot_start = serializers.DateTimeField(required=False, allow_null=True, default=None)
     language = serializers.ChoiceField(choices=["en", "nl", "hi"], default="en")

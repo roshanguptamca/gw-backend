@@ -32,7 +32,7 @@ creation are intentionally rejected by this tool contract; use normal checkout f
    details, selected products and pickup slot. It returns a full `review`, a random
    `confirmation_token` and `expires_at` (15 minutes). It creates no order and
    reserves no inventory. Required body fields: `items`, `customer_name`,
-   `customer_phone`. Optional: `customer_email`, `customer_note`, `language`
+   `customer_phone`, `customer_email` (valid, non-blank). Optional: `customer_note`, `language`
    (`en`, `nl`, `hi`), `pickup_slot_start` (required if the shop schedules pickup).
    `order_type` and `payment_method`, if supplied, must be `pickup` and `cash`.
 2. Read back the complete review, share its policy links, and obtain explicit

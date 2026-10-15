@@ -21,7 +21,8 @@
           "description": "Exact capability token returned by prepare_checkout. Reuse the same token on retries; never invent or expose.",
           "dynamic_variable": "",
           "value_type": "llm_prompt",
-          "required": true
+          "required": true,
+          "constant_value": ""
         },
         {
           "id": "confirmed",
@@ -29,7 +30,8 @@
           "description": "Set true ONLY after the customer explicitly confirms the exact prepared review.",
           "dynamic_variable": "",
           "value_type": "llm_prompt",
-          "required": true
+          "required": true,
+          "constant_value": ""
         },
         {
           "id": "terms_accepted",
@@ -37,7 +39,8 @@
           "description": "Set true ONLY after the customer explicitly accepts marketplace terms and privacy policy; never infer from voice consent.",
           "dynamic_variable": "",
           "value_type": "llm_prompt",
-          "required": true
+          "required": true,
+          "constant_value": ""
         }
       ]
     },
