@@ -9,7 +9,7 @@ gunicorn>=21.2,<22
 whitenoise==6.11.0
 
 # Google Gemini (PIN THIS)
-google-genai>=0.3.0,<0.4.0
+google-genai>=1.0.0,<2.0.0
 pydantic>=2.11,<2.14
 
 # DB
