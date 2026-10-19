@@ -199,6 +199,13 @@ class ShopSettingsSerializer(serializers.ModelSerializer):
 
 
 class ShopSerializer(serializers.ModelSerializer):
+    google_review_url = serializers.URLField(required=False, allow_blank=True, max_length=500)
+
+    def validate_google_review_url(self, value):
+        if value and not value.startswith("https://"):
+            raise serializers.ValidationError("Use an HTTPS review URL.")
+        return value
+
     translations = serializers.JSONField(required=False)
     settings = ShopSettingsSerializer(read_only=True)
     product_count = serializers.IntegerField(read_only=True)
@@ -220,6 +227,7 @@ class ShopSerializer(serializers.ModelSerializer):
             "phone",
             "email",
             "website_url",
+            "google_review_url",
             "social_links",
             "address",
             "logo",
@@ -536,6 +544,7 @@ class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     shop_name = serializers.CharField(source="shop.name", read_only=True)
     shop_slug = serializers.CharField(source="shop.slug", read_only=True)
+    google_review_url = serializers.URLField(source="shop.google_review_url", read_only=True)
     price_breakdown = serializers.SerializerMethodField()
 
     def get_price_breakdown(self, order):
@@ -559,6 +568,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "shop",
             "shop_name",
             "shop_slug",
+            "google_review_url",
             "customer",
             "order_number",
             "customer_name",
@@ -844,6 +854,7 @@ class PublicShopSerializer(ShopSerializer):
             "phone",
             "email",
             "website_url",
+            "google_review_url",
             "social_links",
             "address",
             "logo_url",

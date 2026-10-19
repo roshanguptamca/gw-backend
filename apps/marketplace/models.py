@@ -40,6 +40,7 @@ class Shop(models.Model):
     phone = models.CharField(max_length=30, blank=True)
     email = models.EmailField(blank=True)
     website_url = models.URLField(blank=True)
+    google_review_url = models.URLField(blank=True, max_length=500)
     social_links = models.JSONField(default=list, blank=True)
     address = models.TextField(blank=True)
     logo = models.ImageField(upload_to="shops/logos/", blank=True, null=True)
