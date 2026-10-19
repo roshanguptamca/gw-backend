@@ -1357,6 +1357,43 @@ class OrderCheckoutAccountCreationTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(Order.objects.filter(pk=response.data["id"]).exists())
 
+    @patch("apps.marketplace.billing.pdf_service.invoice_pdf", return_value=b"test-pdf")
+    def test_review_link_is_shop_driven_in_confirmation_and_both_email_formats(self, _pdf):
+        self.shop.google_review_url = "https://g.page/r/example/review"
+        self.shop.save(update_fields=["google_review_url"])
+        for language in ("en", "nl"):
+            mail.outbox.clear()
+            with patch("apps.marketplace.services.threading.Thread", _SyncThread):
+                response = self.client.post(
+                    "/api/marketplace/orders/", self._order_payload(language=language), format="json"
+                )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            self.assertEqual(response.data["google_review_url"], self.shop.google_review_url)
+            buyer_mail = next(msg for msg in mail.outbox if "guest-checkout@example.com" in msg.to)
+            self.assertIn(self.shop.google_review_url, buyer_mail.body)
+            self.assertIn(self.shop.google_review_url, buyer_mail.alternatives[0][0])
+
+    @patch("apps.marketplace.billing.pdf_service.invoice_pdf", return_value=b"test-pdf")
+    def test_empty_review_link_hides_email_invitation(self, _pdf):
+        with patch("apps.marketplace.services.threading.Thread", _SyncThread):
+            response = self.client.post("/api/marketplace/orders/", self._order_payload(), format="json")
+        self.assertEqual(response.data["google_review_url"], "")
+        buyer_mail = next(msg for msg in mail.outbox if "guest-checkout@example.com" in msg.to)
+        self.assertNotIn("Leave a Google review", buyer_mail.body)
+        self.assertNotIn("Leave a Google review", buyer_mail.alternatives[0][0])
+
+    def test_review_url_requires_https_and_can_be_cleared(self):
+        from apps.marketplace.serializers import ShopSerializer
+
+        for url in ("javascript:alert(1)", "http://example.com/review"):
+            serializer = ShopSerializer(self.shop, data={"google_review_url": url}, partial=True)
+            self.assertFalse(serializer.is_valid())
+            self.assertIn("google_review_url", serializer.errors)
+        serializer = ShopSerializer(self.shop, data={"google_review_url": ""}, partial=True)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        serializer.save()
+        self.assertEqual(self.shop.google_review_url, "")
+
     def test_buyer_confirmation_email_is_triggered(self):
         with patch("apps.marketplace.services.threading.Thread", _SyncThread):
             response = self.client.post("/api/marketplace/orders/", self._order_payload(), format="json")

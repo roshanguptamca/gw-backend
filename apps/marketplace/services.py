@@ -709,12 +709,25 @@ def send_buyer_confirmation_email(order):
     whatsapp_html = (
         f'<p><a href="{escape(whatsapp_group_url)}">{escape(labels["whatsapp"])}</a></p>' if whatsapp_group_url else ""
     )
+    review_url = order.shop.google_review_url
+    review_label = "Schrijf een Google-review" if order.language == "nl" else "Leave a Google review"
+    review_note = (
+        "Na je bestelling ontvangen te hebben, horen we graag je ervaring."
+        if order.language == "nl"
+        else "After you receive your order, we would love to hear about your experience."
+    )
+    review_html = (
+        f'<p>{escape(review_note)}</p><p><a href="{escape(review_url)}">{escape(review_label)}</a></p>'
+        if review_url.startswith("https://")
+        else ""
+    )
     html_message = f"""
     <h2>{escape(labels["order_confirmed"])} – {escape(order.order_number)}</h2>
     <p>{escape(labels["thank_you"])}, <strong>{escape(order.customer_name)}</strong>! {escape(labels["placed"])} <strong>{escape(snapshot.get("shop_name") or order.shop.name)}</strong> {escape(labels["placed_suffix"])}</p>
     <p><strong>{escape(labels["order_date"])}:</strong> {escape(order_date)}</p>
     {contact_html}
     {whatsapp_html}
+    {review_html}
     <table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%">
       <thead><tr><th>{escape(labels["product"])}</th><th>{escape(labels["quantity"])}</th><th>{escape(labels["unit_price"])}</th><th>{escape(labels["total"])}</th></tr></thead>
       <tbody>{items_html}</tbody>
@@ -742,6 +755,8 @@ def send_buyer_confirmation_email(order):
         f"{labels['order_confirmed']}: {order.order_number} – {snapshot.get('shop_name') or order.shop.name}",
         f"{labels['order_date']}: {order_date}",
     ]
+    if review_html:
+        plain_lines.extend([review_note, f"{review_label}: {review_url}"])
     if shop_email:
         plain_lines.append(f"{labels['email'].capitalize()}: {shop_email}")
     if shop_phone:
