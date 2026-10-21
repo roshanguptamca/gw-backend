@@ -710,3 +710,6 @@ PSHUMAN_MODEL_PATH = os.getenv("PSHUMAN_MODEL_PATH", "")
 # Opt in only after migrations and agent confirmation instructions are deployed.
 MARKETPLACE_AI_GUEST_CHECKOUT_ENABLED = os.getenv("MARKETPLACE_AI_GUEST_CHECKOUT_ENABLED", "false").lower() == "true"
 MARKETPLACE_AI_GUEST_CHECKOUT_SHOPS = _env_list("MARKETPLACE_AI_GUEST_CHECKOUT_SHOPS", "rishi-kitchen")
+
+# Server-only key; restrict to Places API (New) in Google Cloud.
+GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY", "")
