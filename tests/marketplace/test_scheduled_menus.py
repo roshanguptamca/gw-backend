@@ -4,7 +4,7 @@ from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase, skipUnlessDBFeature
 from django.urls import reverse
 
 from rest_framework.exceptions import ValidationError
@@ -294,7 +294,6 @@ class ScheduledMenuTests(TestCase):
 
 
 # Row-lock correctness is exercised when this suite uses PostgreSQL in CI/staging.
-from django.test import TransactionTestCase, skipUnlessDBFeature
 
 
 class ScheduledMenuConcurrencyTests(TransactionTestCase):
