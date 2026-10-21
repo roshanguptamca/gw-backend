@@ -200,6 +200,17 @@ def _create_order_atomic(payload, user=None):
     if not items:
         raise serializers.ValidationError({"items": "At least one item is required."})
 
+    merged = {}
+    for item in items:
+        try:
+            product_id = int(item.get("product_id"))
+            quantity = int(item.get("quantity"))
+        except (TypeError, ValueError, OverflowError):
+            raise serializers.ValidationError({"items": "Products and quantities must be integers."})
+        if type(item.get("quantity")) is bool or str(item.get("quantity")) != str(quantity) or quantity <= 0:
+            raise serializers.ValidationError({"items": "Quantities must be positive integers."})
+        merged[product_id] = merged.get(product_id, 0) + quantity
+    items = [{"product_id": product_id, "quantity": quantity} for product_id, quantity in merged.items()]
     product_ids = [item.get("product_id") for item in items]
     products = {
         product.id: product
@@ -253,8 +264,10 @@ def _create_order_atomic(payload, user=None):
         raise serializers.ValidationError({"order_type": "Pickup is not available for this shop."})
 
     lead_minutes = ordering.required_lead_minutes(product for product, _, _ in order_lines)
-    pickup_slot = None
-    if order_type == "pickup":
+    from .scheduled_menus import validate_menu_order
+
+    scheduled_menu, pickup_slot = validate_menu_order(shop, payload, order_lines, ordering.current_time())
+    if order_type == "pickup" and scheduled_menu is None:
         pickup_slot = ordering.validate_pickup_slot(
             shop, lead_minutes, payload.get("pickup_slot_start"), ordering.current_time()
         )
@@ -313,7 +326,9 @@ def _create_order_atomic(payload, user=None):
         ),
         "required_lead_time_minutes": lead_minutes,
         "required_lead_time_hours": ordering.lead_time_hours(lead_minutes),
-        "pickup_timezone": str(ordering.shop_timezone(shop)),
+        "pickup_timezone": scheduled_menu.pickup_timezone if scheduled_menu else str(ordering.shop_timezone(shop)),
+        "scheduled_menu_id": scheduled_menu.pk if scheduled_menu else None,
+        "scheduled_menu_title": scheduled_menu.title if scheduled_menu else "",
         "pickup_slot_start": pickup_slot.start.isoformat() if pickup_slot else "",
         "pickup_slot_end": pickup_slot.end.isoformat() if pickup_slot else "",
         "pickup_date": ordering.format_pickup_date(pickup_slot.start) if pickup_slot else "",
@@ -335,6 +350,7 @@ def _create_order_atomic(payload, user=None):
         shop=shop,
         customer=user if user and user.is_authenticated else None,
         order_number=next_order_number(),
+        scheduled_menu=scheduled_menu,
         customer_name=payload["customer_name"],
         customer_email=payload.get("customer_email", ""),
         customer_phone=payload["customer_phone"],
@@ -1172,15 +1188,20 @@ ALLOWED_ORDER_TRANSITIONS = {
 
 
 def update_order_status(order, new_status):
-    if new_status not in dict(Order.ORDER_STATUS):
-        raise serializers.ValidationError({"status": "Invalid order status."})
-    if new_status == order.status:
-        return order
-    if new_status not in ALLOWED_ORDER_TRANSITIONS.get(order.status, set()):
-        raise serializers.ValidationError({"status": f"Cannot change order from {order.status} to {new_status}."})
-    previous_status = order.status
-    order.status = new_status
-    order.save(update_fields=["status", "updated_at"])
+    # Use the same lock as checkout so a stale status update cannot resurrect
+    # a rejected reservation after its menu capacity has been reused.
+    with transaction.atomic():
+        Shop.objects.select_for_update().get(pk=order.shop_id)
+        order = Order.objects.select_for_update().select_related("shop").get(pk=order.pk)
+        if new_status not in dict(Order.ORDER_STATUS):
+            raise serializers.ValidationError({"status": "Invalid order status."})
+        if new_status == order.status:
+            return order
+        if new_status not in ALLOWED_ORDER_TRANSITIONS.get(order.status, set()):
+            raise serializers.ValidationError({"status": f"Cannot change order from {order.status} to {new_status}."})
+        previous_status = order.status
+        order.status = new_status
+        order.save(update_fields=["status", "updated_at"])
     try:
         send_order_status_update_email_to_buyer(order, previous_status)
     except Exception:  # noqa: BLE001

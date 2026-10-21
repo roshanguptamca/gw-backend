@@ -629,6 +629,7 @@ class OrderCreateSerializer(serializers.Serializer):
     language = serializers.ChoiceField(choices=[("en", "English"), ("nl", "Dutch")], default="en")
     customer_note = serializers.CharField(required=False, allow_blank=True)
     coupon_code = serializers.CharField(required=False, allow_blank=True)
+    scheduled_menu_id = serializers.IntegerField(required=False, min_value=1)
     pickup_slot_start = serializers.DateTimeField(required=False, allow_null=True, default=None)
     items = serializers.ListField(child=serializers.DictField(), min_length=1)
     terms_accepted = serializers.BooleanField()
