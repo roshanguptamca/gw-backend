@@ -41,6 +41,11 @@ class Shop(models.Model):
     email = models.EmailField(blank=True)
     website_url = models.URLField(blank=True)
     google_review_url = models.URLField(blank=True, max_length=500)
+    google_place_id = models.CharField(
+        max_length=255,
+        blank=True,
+        validators=[RegexValidator(r"^[A-Za-z0-9_-]+$", "Enter a Google Place ID, not a URL.")],
+    )
     social_links = models.JSONField(default=list, blank=True)
     address = models.TextField(blank=True)
     logo = models.ImageField(upload_to="shops/logos/", blank=True, null=True)

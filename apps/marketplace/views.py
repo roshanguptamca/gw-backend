@@ -13,6 +13,7 @@ from rest_framework.views import APIView
 
 from . import ordering
 from .cloudinary_service import delete_cloudinary_image
+from .google_ratings import GoogleRatingThrottle, get_google_rating
 from .models import (
     Campaign,
     Category,
@@ -81,6 +82,13 @@ class PublicShopViewSet(viewsets.ReadOnlyModelViewSet):
             .annotate(product_count=Count("products"))
             .order_by("name")
         )
+
+    @action(detail=True, methods=["get"], url_path="google-rating", throttle_classes=[GoogleRatingThrottle])
+    def google_rating(self, request, slug=None):
+        shop = self.get_object()
+        response = Response(get_google_rating(shop.google_place_id))
+        response["Cache-Control"] = "no-store"
+        return response
 
     @action(detail=True, methods=["get"])
     def products(self, request, slug=None):
