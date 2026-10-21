@@ -318,6 +318,34 @@ class CustomerProfile(models.Model):
         return self.user.get_username()
 
 
+class ScheduledMenu(models.Model):
+    """A dated pickup batch. Capacity counts ordered selling units, not individual pieces."""
+
+    shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name="scheduled_menus")
+    title = models.CharField(max_length=150)
+    pickup_timezone = models.CharField(max_length=64, default="Europe/Amsterdam")
+    description = models.TextField(blank=True, max_length=2000)
+    products = models.ManyToManyField(Product, related_name="scheduled_menus")
+    pickup_date = models.DateField()
+    pickup_start = models.TimeField()
+    pickup_end = models.TimeField()
+    order_deadline = models.DateTimeField()
+    slot_minutes = models.PositiveSmallIntegerField(
+        default=30, validators=[MinValueValidator(5), MaxValueValidator(240)]
+    )
+    capacity = models.PositiveIntegerField(validators=[MinValueValidator(1), MaxValueValidator(100000)])
+    slot_capacity = models.PositiveIntegerField(default=10, validators=[MinValueValidator(1), MaxValueValidator(10000)])
+    active = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["pickup_date", "pickup_start", "id"]
+        indexes = [models.Index(fields=["shop", "active", "pickup_date"])]
+
+    def __str__(self):
+        return self.title
+
+
 class Order(models.Model):
     STATUS_PENDING = "pending"
     STATUS_ACCEPTED = "accepted"
@@ -356,6 +384,9 @@ class Order(models.Model):
     DELIVERY_ZONE_CHOICES = [("local", "Local"), ("international", "International")]
 
     shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name="orders")
+    scheduled_menu = models.ForeignKey(
+        ScheduledMenu, on_delete=models.PROTECT, null=True, blank=True, related_name="orders"
+    )
     customer = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="orders"
     )

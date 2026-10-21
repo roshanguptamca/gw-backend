@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 
 from .ai_order_agent import AgentConfirmOrderView, AgentMenuView, AgentPrepareCheckoutView, AgentQuoteView
 from .billing.views import InvoiceViewSet, OrderInvoiceListView
+from .scheduled_menus import SellerScheduledMenuViewSet
 from .views import (
     AddressLookupView,
     AdminProductViewSet,
@@ -35,6 +36,7 @@ from .views import (
 )
 
 router = DefaultRouter()
+router.register("seller/scheduled-menus", SellerScheduledMenuViewSet, basename="seller-scheduled-menu")
 router.register("marketplace/invoices", InvoiceViewSet, basename="marketplace-invoice")
 router.register("marketplace/shops", PublicShopViewSet, basename="marketplace-shop")
 router.register("marketplace/products", PublicProductViewSet, basename="marketplace-product")

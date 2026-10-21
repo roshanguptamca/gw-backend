@@ -27,6 +27,7 @@ from .models import (
     ShopSettings,
 )
 from .permissions import IsSeller, IsShopOwner, IsSuperAdmin
+from .scheduled_menus import ScheduledMenuSerializer, menu_schedule
 from .serializers import (
     AdminProductApprovalSerializer,
     AdminSellerCreateSerializer,
@@ -90,6 +91,16 @@ class PublicShopViewSet(viewsets.ReadOnlyModelViewSet):
         response["Cache-Control"] = "no-store"
         return response
 
+    @action(detail=True, methods=["get"], url_path="scheduled-menus")
+    def scheduled_menus(self, request, slug=None):
+        shop = self.get_object()
+        menus = (
+            shop.scheduled_menus.filter(active=True, order_deadline__gt=timezone.now())
+            .select_related("shop", "shop__settings")
+            .prefetch_related("products")
+        )
+        return Response(ScheduledMenuSerializer(menus, many=True).data)
+
     @action(detail=True, methods=["get"])
     def products(self, request, slug=None):
         shop = self.get_object()
@@ -144,6 +155,14 @@ class PublicShopViewSet(viewsets.ReadOnlyModelViewSet):
         raw_ids = request.query_params.get("product_ids", "")
         product_ids = [int(value) for value in raw_ids.split(",") if value.strip().isdigit()][:100]
         products = Product.objects.filter(shop=shop, is_active=True, is_approved=True, id__in=product_ids)
+        menu_id = request.query_params.get("scheduled_menu_id")
+        if menu_id:
+            from django.shortcuts import get_object_or_404
+
+            from .models import ScheduledMenu
+
+            menu = get_object_or_404(ScheduledMenu, pk=menu_id if menu_id.isdigit() else 0, shop=shop, active=True)
+            return Response(menu_schedule(menu, list(products), ordering.current_time()))
         return Response(ordering.pickup_schedule_payload(shop, products, ordering.current_time()))
 
     @action(detail=True, methods=["get"])
