@@ -1,3 +1,5 @@
+import base64
+import hashlib
 import uuid
 
 from django.conf import settings
@@ -7,18 +9,25 @@ from django.db import models
 from cryptography.fernet import Fernet
 
 
-def _get_fernet():
+def _get_encryption_key():
     key = getattr(settings, "SECUREWISE_ENCRYPTION_KEY", None)
     if not key:
         # Fallback: derive from Django SECRET_KEY (dev only)
-        import base64
-        import hashlib
-
         raw = hashlib.sha256(settings.SECRET_KEY.encode()).digest()
         key = base64.urlsafe_b64encode(raw)
     if isinstance(key, str):
         key = key.encode()
-    return Fernet(key)
+    return key
+
+
+def _get_fernet():
+    return Fernet(_get_encryption_key())
+
+
+def securewise_encryption_key_fingerprint():
+    key = _get_encryption_key()
+    Fernet(key)
+    return hashlib.sha256(key).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -36,6 +45,7 @@ ROLE_CHOICES = [
 SCAN_STATUS_CHOICES = [
     ("pending", "Pending"),
     ("queued", "Queued"),
+    ("worker_claimed", "Worker Claimed"),
     ("running", "Running"),
     ("cloning", "Cloning Repository"),
     ("running_sast", "Running SAST"),
@@ -138,6 +148,7 @@ VISIBILITY_CHOICES = [
 ACCESS_MODE_CHOICES = [
     ("public", "Public"),
     ("integration", "Integration"),
+    ("github_app", "GitHub App"),
     ("local_path", "Local Path"),
 ]
 
@@ -159,6 +170,14 @@ AUDIT_EVENT_CHOICES = [
     ("git_integration_created", "Git Integration Created"),
     ("git_integration_updated", "Git Integration Updated"),
     ("git_integration_deleted", "Git Integration Deleted"),
+    ("github_app_installation_created", "GitHub App Installation Created"),
+    ("github_app_repository_synced", "GitHub App Repository Synced"),
+    ("github_app_webhook_received", "GitHub App Webhook Received"),
+    ("application_target_registered", "Application Target Registered"),
+    ("application_target_challenge_created", "Application Target Challenge Created"),
+    ("application_target_verified", "Application Target Verified"),
+    ("testing_authorization_approved", "Testing Authorization Approved"),
+    ("testing_authorization_revoked", "Testing Authorization Revoked"),
     ("token_used_for_scan", "Token Used for Scan"),
     ("token_failed", "Token Failed"),
     ("repository_added", "Repository Added"),
@@ -171,6 +190,13 @@ AUDIT_EVENT_CHOICES = [
     ("finding_pr_failed", "Finding PR Failed"),
     ("scan_policy_updated", "Scan Policy Updated"),
     ("scan_policy_deleted", "Scan Policy Deleted"),
+    ("pentest_session_created", "Pentest Session Created"),
+    ("pentest_session_completed", "Pentest Session Completed"),
+    ("pentest_plan_generated", "Pentest Plan Generated"),
+    ("pentest_proposal_approved", "Pentest Proposal Approved"),
+    ("pentest_proposal_rejected", "Pentest Proposal Rejected"),
+    ("pentest_execution_queued", "Pentest Execution Queued"),
+    ("pentest_ai_planner_called", "Pentest AI Planner Called"),
 ]
 
 
@@ -231,6 +257,130 @@ class SecureWiseMembership(models.Model):
 # ---------------------------------------------------------------------------
 # Git Integration
 # ---------------------------------------------------------------------------
+
+
+class SecureWiseGitHubAppState(models.Model):
+    """Short-lived, single-use state for a GitHub App installation callback."""
+
+    state_digest = models.CharField(max_length=64, primary_key=True)
+    organization = models.ForeignKey(SecureWiseOrganization, on_delete=models.CASCADE)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class SecureWiseGitHubAppInstallation(models.Model):
+    """Organization-scoped GitHub App installation; access tokens are never stored."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(
+        SecureWiseOrganization, on_delete=models.CASCADE, related_name="github_app_installations"
+    )
+    installation_id = models.PositiveBigIntegerField(unique=True)
+    account_id = models.PositiveBigIntegerField()
+    account_login = models.CharField(max_length=200)
+    account_type = models.CharField(max_length=30, blank=True)
+    permissions = models.JSONField(default=dict, blank=True)
+    suspended_at = models.DateTimeField(null=True, blank=True)
+    removed_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=("organization", "account_id"), name="sw_github_install_org_account_unique")
+        ]
+
+
+class SecureWiseGitHubWebhookDelivery(models.Model):
+    """Replay ledger for signed GitHub App webhook deliveries; payloads are not retained."""
+
+    delivery_id = models.CharField(max_length=200, primary_key=True)
+    event_type = models.CharField(max_length=100)
+    payload_sha256 = models.CharField(max_length=64)
+    received_at = models.DateTimeField(auto_now_add=True)
+
+
+class SecureWiseApplicationTarget(models.Model):
+    """A customer application hostname with separately verified ownership."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(
+        SecureWiseOrganization, on_delete=models.CASCADE, related_name="application_targets"
+    )
+    project = models.ForeignKey("SecureWiseProject", on_delete=models.CASCADE, related_name="application_targets")
+    scheme = models.CharField(max_length=5, default="https")
+    hostname = models.CharField(max_length=253)
+    port = models.PositiveIntegerField(default=443)
+    base_path = models.CharField(max_length=500, default="/")
+    verified_at = models.DateTimeField(null=True, blank=True)
+    ownership_revoked_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="sw_created_targets"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["hostname"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=("organization", "hostname", "port"),
+                name="sw_target_org_host_port_unique",
+            )
+        ]
+
+
+class SecureWiseOwnershipChallenge(models.Model):
+    METHOD_CHOICES = [("dns_txt", "DNS TXT"), ("https_well_known", "HTTPS well-known")]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    target = models.ForeignKey(
+        SecureWiseApplicationTarget, on_delete=models.CASCADE, related_name="ownership_challenges"
+    )
+    method = models.CharField(max_length=30, choices=METHOD_CHOICES)
+    challenge_digest = models.CharField(max_length=64)
+    expires_at = models.DateTimeField()
+    verified_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class SecureWiseTestingAuthorization(models.Model):
+    ENVIRONMENT_CHOICES = [
+        ("production", "Production"),
+        ("staging", "Staging"),
+        ("test", "Test"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(
+        SecureWiseOrganization, on_delete=models.CASCADE, related_name="testing_authorizations"
+    )
+    target = models.ForeignKey(
+        SecureWiseApplicationTarget, on_delete=models.CASCADE, related_name="testing_authorizations"
+    )
+    authorized_hosts = models.JSONField(default=list)
+    allowed_ports = models.JSONField(default=list)
+    allowed_paths = models.JSONField(default=list)
+    excluded_paths = models.JSONField(default=list, blank=True)
+    approved_scan_methods = models.JSONField(default=list)
+    testing_environment = models.CharField(max_length=20, choices=ENVIRONMENT_CHOICES)
+    starts_at = models.DateTimeField()
+    expires_at = models.DateTimeField()
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="sw_testing_approvals"
+    )
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
 
 
 class SecureWiseGitIntegration(models.Model):
@@ -340,6 +490,14 @@ class SecureWiseRepository(models.Model):
         related_name="repositories",
         help_text="Git integration used for private repo access.",
     )
+    github_app_installation = models.ForeignKey(
+        SecureWiseGitHubAppInstallation,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="repositories",
+    )
+    provider_repository_id = models.PositiveBigIntegerField(null=True, blank=True, db_index=True)
     name = models.CharField(max_length=200)
     provider = models.CharField(max_length=30, choices=GIT_PROVIDER_CHOICES, blank=True)
     repository_url = models.CharField(max_length=500, blank=True, validators=[URLValidator()])
@@ -365,6 +523,13 @@ class SecureWiseRepository(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=("organization", "provider_repository_id"),
+                condition=models.Q(provider_repository_id__isnull=False),
+                name="sw_repo_org_provider_id_unique",
+            )
+        ]
 
     def __str__(self):
         return self.name
@@ -485,6 +650,13 @@ class SecureWiseScan(models.Model):
         blank=True,
         related_name="scans",
     )
+    testing_authorization = models.ForeignKey(
+        SecureWiseTestingAuthorization,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="scans",
+    )
     policy = models.ForeignKey(
         SecureWiseScanPolicy,
         on_delete=models.SET_NULL,
@@ -496,6 +668,7 @@ class SecureWiseScan(models.Model):
     branch = models.CharField(max_length=200, blank=True)
     commit_sha = models.CharField(max_length=64, blank=True)
     status = models.CharField(max_length=30, choices=SCAN_STATUS_CHOICES, default="pending")
+    worker_claimed_at = models.DateTimeField(null=True, blank=True)
     triggered_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -567,6 +740,212 @@ class SecureWiseScanEngineResult(models.Model):
 
     def __str__(self):
         return f"{self.engine} [{self.status}] for scan {self.scan_id}"
+
+
+class SecureWiseWorkerRegistration(models.Model):
+    worker_id = models.CharField(max_length=200, primary_key=True)
+    capabilities = models.JSONField(default=list)
+    metrics = models.JSONField(default=dict, blank=True)
+    status = models.CharField(max_length=20, default="online")
+    last_seen_at = models.DateTimeField()
+    active_job_id = models.CharField(max_length=64, blank=True)
+    active_job_type = models.CharField(max_length=20, blank=True)
+    active_job_started_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["worker_id"]
+
+
+PENTEST_SESSION_STATUS_CHOICES = [
+    ("pending", "Pending"),
+    ("queued", "Queued"),
+    ("worker_claimed", "Worker Claimed"),
+    ("running", "Running"),
+    ("completed", "Completed"),
+    ("completed_with_warnings", "Completed with Warnings"),
+    ("failed", "Failed"),
+    ("cancelled", "Cancelled"),
+]
+
+PENTEST_OUTCOME_CHOICES = [
+    ("planned", "Planned"),
+    ("confirmed_vulnerability", "Confirmed Vulnerability"),
+    ("suspected_vulnerability", "Suspected Vulnerability"),
+    ("inconclusive", "Inconclusive"),
+    ("passed", "Passed"),
+    ("not_executed", "Not Executed"),
+]
+
+
+class PentestSession(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(SecureWiseOrganization, on_delete=models.CASCADE, related_name="pentest_sessions")
+    project = models.ForeignKey(SecureWiseProject, on_delete=models.CASCADE, related_name="pentest_sessions")
+    repository = models.ForeignKey(SecureWiseRepository, on_delete=models.PROTECT, related_name="pentest_sessions")
+    retest_of = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, blank=True, related_name="retests")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="sw_pentest_sessions"
+    )
+    authorization_confirmed = models.BooleanField(default=False)
+    authorization_reference = models.CharField(max_length=500)
+    # Admin-confirmed opt-in to run on a worker below the recommended CPU/RAM (ACC fixture only).
+    experimental_low_resource = models.BooleanField(default=False)
+    mode = models.CharField(
+        max_length=30,
+        choices=[
+            ("passive", "Passive"),
+            ("authenticated_api", "Authenticated API"),
+            ("authenticated_browser", "Authenticated Browser"),
+            ("security_planning", "Security Test Planning"),
+            ("approved_tests", "Approved Security Tests"),
+        ],
+        default="passive",
+    )
+    _encrypted_auth_config = models.BinaryField(null=True, blank=True, db_column="encrypted_auth_config")
+    unified_scan = models.ForeignKey(
+        SecureWiseScan,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="autopentest_sessions",
+    )
+    status = models.CharField(max_length=30, choices=PENTEST_SESSION_STATUS_CHOICES, default="pending")
+    progress = models.PositiveSmallIntegerField(default=0)
+    security_inventory = models.JSONField(default=dict, blank=True)
+    worker_claimed_at = models.DateTimeField(null=True, blank=True)
+    error_message = models.TextField(blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    timeout_seconds = models.PositiveSmallIntegerField(default=900)
+    requests_per_minute = models.PositiveSmallIntegerField(default=30)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def set_auth_config(self, value: dict) -> None:
+        import json
+
+        self._encrypted_auth_config = _get_fernet().encrypt(json.dumps(value, separators=(",", ":")).encode())
+
+    def get_auth_config(self) -> dict:
+        import json
+
+        if not self._encrypted_auth_config:
+            return {}
+        return json.loads(_get_fernet().decrypt(bytes(self._encrypted_auth_config)).decode())
+
+
+class PentestScope(models.Model):
+    session = models.ForeignKey(PentestSession, on_delete=models.CASCADE, related_name="scope")
+    scheme = models.CharField(max_length=5, choices=[("http", "HTTP"), ("https", "HTTPS")])
+    host = models.CharField(max_length=253)
+    port = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("session", "scheme", "host", "port"), name="sw_pentest_scope_unique")
+        ]
+
+
+class PentestTestCase(models.Model):
+    session = models.ForeignKey(PentestSession, on_delete=models.CASCADE, related_name="test_cases")
+    test_key = models.CharField(max_length=200)
+    title = models.CharField(max_length=300)
+    category = models.CharField(max_length=50)
+    endpoint = models.CharField(max_length=500, blank=True)
+    method = models.CharField(max_length=10, blank=True)
+    expected_behavior = models.TextField()
+    status = models.CharField(max_length=30, choices=PENTEST_OUTCOME_CHOICES, default="planned")
+    severity = models.CharField(max_length=20, choices=SEVERITY_CHOICES, default="info")
+    confidence = models.CharField(max_length=20, choices=CONFIDENCE_CHOICES, default="low")
+    cwe_id = models.CharField(max_length=20, blank=True)
+    owasp_category = models.CharField(max_length=50, blank=True)
+    recommendation = models.TextField(blank=True)
+    source = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        constraints = [models.UniqueConstraint(fields=("session", "test_key"), name="sw_pentest_test_case_unique")]
+
+
+class PentestExecution(models.Model):
+    test_case = models.ForeignKey(PentestTestCase, on_delete=models.CASCADE, related_name="executions")
+    outcome = models.CharField(max_length=30, choices=PENTEST_OUTCOME_CHOICES, default="planned")
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    duration_ms = models.PositiveIntegerField(null=True, blank=True)
+    summary = models.TextField(blank=True)
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class PentestEvidence(models.Model):
+    execution = models.ForeignKey(PentestExecution, on_delete=models.CASCADE, related_name="evidence")
+    kind = models.CharField(max_length=50)
+    content = models.JSONField(default=dict)
+    sha256 = models.CharField(max_length=64, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class PentestTestProposal(models.Model):
+    APPROVAL_CHOICES = [
+        ("pending", "Pending Review"),
+        ("approved", "Approved"),
+        ("rejected", "Rejected"),
+        ("unsupported", "Not Executable"),
+        ("executed", "Executed"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session = models.ForeignKey(PentestSession, on_delete=models.CASCADE, related_name="proposals")
+    proposal_key = models.CharField(max_length=200)
+    test_type = models.CharField(max_length=50)
+    title = models.CharField(max_length=300)
+    endpoint = models.CharField(max_length=500, blank=True)
+    method = models.CharField(max_length=10, blank=True)
+    required_role = models.CharField(max_length=100, blank=True)
+    expected_property = models.TextField()
+    safe_method = models.CharField(max_length=100)
+    required_test_data = models.JSONField(default=dict, blank=True)
+    estimated_cost = models.JSONField(default=dict, blank=True)
+    parameter_schema = models.JSONField(default=dict, blank=True)
+    safe_parameters = models.JSONField(default=dict, blank=True)
+    cwe_id = models.CharField(max_length=20, blank=True)
+    owasp_category = models.CharField(max_length=50, blank=True)
+    severity = models.CharField(max_length=20, choices=SEVERITY_CHOICES, default="info")
+    confidence = models.CharField(max_length=20, choices=CONFIDENCE_CHOICES, default="low")
+    rationale = models.TextField()
+    limitations = models.TextField(blank=True)
+    execution_mode = models.CharField(max_length=30, blank=True)
+    executable = models.BooleanField(default=False)
+    approval_status = models.CharField(max_length=20, choices=APPROVAL_CHOICES, default="pending")
+    source = models.CharField(max_length=20, default="deterministic")
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sw_approved_test_proposals",
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    test_case = models.ForeignKey(
+        PentestTestCase,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="proposal_links",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at", "proposal_key"]
+        constraints = [models.UniqueConstraint(fields=("session", "proposal_key"), name="sw_pentest_proposal_unique")]
 
 
 # ---------------------------------------------------------------------------

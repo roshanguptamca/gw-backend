@@ -6,11 +6,9 @@ missing security schemes, unauthenticated sensitive paths, unsafe HTTP
 methods without auth, and missing error response schemas. It never sends a
 single request to a live API — there is no runtime/dynamic testing here.
 
-TODO(SW-401/SW-501, docs/FULL_SCAN_ORCHESTRATOR.md): once
-RuntimeEnvironmentManager can start the target application, extend this
-engine (or add a companion live-API engine) to actually exercise discovered
-endpoints against the running app, per docs/IMPLEMENTATION_ROADMAP.md
-Phases 3-4. Every finding/engine-result produced by this file is labeled
+RuntimeEnvironmentManager can start the target application, a separate live
+API adapter may exercise discovered endpoints against the running app. Every
+finding/engine-result produced by this file is labeled
 `mode="passive_only"` (see scanners/mode_labels.py) so the UI never implies
 this is a live API scan.
 """
@@ -85,7 +83,7 @@ class ApiScanner(BaseScanner):
                 findings=[],
                 status="skipped",
                 skipped_reason="no OpenAPI/Swagger spec found",
-                metadata={"raw_tool": "openapi-static-checks"},
+                metadata={"raw_tool": "openapi-static-checks", "execution_mode": "openapi_static_analysis"},
             )
 
         spec = _load_spec(spec_path)
@@ -95,7 +93,11 @@ class ApiScanner(BaseScanner):
                 findings=[],
                 status="skipped",
                 skipped_reason="OpenAPI/Swagger spec found but could not be parsed",
-                metadata={"raw_tool": "openapi-static-checks", "spec_file": str(spec_path)},
+                metadata={
+                    "raw_tool": "openapi-static-checks",
+                    "execution_mode": "openapi_static_analysis",
+                    "spec_file": str(spec_path),
+                },
             )
 
         findings = self._analyze_spec(spec, spec_path)
@@ -104,6 +106,7 @@ class ApiScanner(BaseScanner):
             findings=findings,
             metadata={
                 "raw_tool": "openapi-static-checks",
+                "execution_mode": "openapi_static_analysis",
                 "spec_file": str(spec_path),
                 "paths_scanned": len(spec.get("paths", {}) or {}),
             },

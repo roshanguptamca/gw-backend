@@ -129,6 +129,9 @@ WSGI_APPLICATION = "guidewisey.wsgi.application"
 # -------------------------------
 # Database
 # -------------------------------
+# -------------------------------
+# Database
+# -------------------------------
 if IS_DEVELOPMENT:
     DATABASES = {
         "default": {
@@ -143,6 +146,17 @@ if IS_DEVELOPMENT:
         }
     }
 else:
+    # PostgreSQL TLS settings are optional.
+    # Render: no new environment variables required.
+    # Oracle: set DB_SSLMODE=verify-full and DB_SSLROOTCERT to Aiven CA path.
+    db_options = {}
+
+    if os.getenv("DB_SSLMODE"):
+        db_options["sslmode"] = os.environ["DB_SSLMODE"]
+
+    if os.getenv("DB_SSLROOTCERT"):
+        db_options["sslrootcert"] = os.environ["DB_SSLROOTCERT"]
+
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
@@ -151,6 +165,7 @@ else:
             "PASSWORD": os.getenv("DB_PASSWORD"),
             "HOST": os.getenv("DB_HOST"),
             "PORT": os.getenv("DB_PORT", "5432"),
+            **({"OPTIONS": db_options} if db_options else {}),
         }
     }
 

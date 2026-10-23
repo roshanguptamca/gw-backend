@@ -1,0 +1,42 @@
+[Unit]
+Description=SecureWise lightweight static scanner worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=securewise-worker
+Group=securewise-worker
+EnvironmentFile=/etc/securewise/worker.env
+Environment=SECUREWISE_WORKER_PROFILE=lightweight
+WorkingDirectory=/opt/securewise/backend
+ExecStart=/usr/bin/env SECUREWISE_WORKER_PROFILE=lightweight /opt/securewise/venv-lightweight/bin/python manage.py securewise_worker --poll-interval 2 --skip-checks
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/securewise-worker
+StateDirectory=securewise-worker
+StateDirectoryMode=0700
+Environment=TMPDIR=/var/lib/securewise-worker
+CPUQuota=100%
+MemoryHigh=640M
+MemoryMax=768M
+MemorySwapMax=2G
+TasksMax=128
+LimitNOFILE=2048
+KillMode=mixed
+
+[Install]
+WantedBy=multi-user.target

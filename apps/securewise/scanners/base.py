@@ -4,6 +4,7 @@ Base data classes and scanner interface shared by all SecureWise scan engines.
 
 from __future__ import annotations
 
+import shutil
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -58,3 +59,13 @@ class BaseScanner(ABC):
     @abstractmethod
     def run(self, repo_path: Path, scan_id: str, metadata: dict) -> ScannerResult:
         raise NotImplementedError
+
+
+def optional_scanner_status(name: str, executable: str, *, disabled: bool = False, error: str = "") -> dict:
+    if disabled:
+        return {"name": name, "status": "disabled", "reason": "disabled by lightweight worker profile"}
+    if error:
+        return {"name": name, "status": "failed", "reason": error[:500]}
+    if shutil.which(executable) is None:
+        return {"name": name, "status": "unavailable", "reason": f"{executable} is not installed"}
+    return {"name": name, "status": "available"}

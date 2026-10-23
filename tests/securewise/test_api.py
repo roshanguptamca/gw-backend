@@ -10,21 +10,30 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.utils import timezone
 
 import pytest
 from rest_framework.test import APIClient
 
 from apps.securewise.models import (
+    PentestEvidence,
+    PentestExecution,
+    PentestSession,
+    PentestTestCase,
     SecureWiseAuditLog,
     SecureWiseFinding,
+    SecureWiseGitIntegration,
     SecureWiseMembership,
     SecureWiseOrganization,
     SecureWiseProject,
     SecureWiseReport,
     SecureWiseRepository,
     SecureWiseScan,
+    SecureWiseScanEngineResult,
     SecureWiseScanPolicy,
     SecureWiseScanPolicyTemplate,
+    SecureWiseWorkerRegistration,
+    securewise_encryption_key_fingerprint,
 )
 from apps.securewise.services.scanner import ScannerRunner
 from apps.securewise.views import AIRecommendationThrottle
@@ -275,6 +284,23 @@ class TestProjectAPI:
         )
         assert resp.status_code == 201
 
+    def test_non_admin_cannot_promote_membership(self, org, other_user):
+        membership = SecureWiseMembership.objects.create(organization=org, user=other_user, role="developer")
+        auditor = User.objects.create_user(
+            username="api_auditor", email="auditor@sw.test", password="local-test-password"
+        )
+        SecureWiseMembership.objects.create(organization=org, user=auditor, role="auditor")
+        client = APIClient()
+        client.force_authenticate(auditor)
+        response = client.patch(
+            f"/api/securewise/memberships/{membership.id}/",
+            {"role": "admin"},
+            format="json",
+        )
+        assert response.status_code == 403
+        membership.refresh_from_db()
+        assert membership.role == "developer"
+
     def test_retrieve_project(self, auth_client, project):
         resp = auth_client.get(f"/api/securewise/projects/{project.id}/")
         assert resp.status_code == 200
@@ -301,6 +327,24 @@ class TestProjectAPI:
 # ---------------------------------------------------------------------------
 # Repository endpoints
 # ---------------------------------------------------------------------------
+
+
+class TestGitIntegrationAPI:
+    def test_github_app_cannot_be_connected_as_a_legacy_token_integration(self, auth_client, org):
+        response = auth_client.post(
+            "/api/securewise/git-integrations/",
+            {
+                "organization": str(org.id),
+                "provider": "github",
+                "auth_type": "github_app",
+                "name": "GitHub App",
+                "access_token": "not-a-github-app-token",
+            },
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "auth_type" in response.json()
+        assert SecureWiseGitIntegration.objects.count() == 0
 
 
 class TestRepositoryAPI:
@@ -351,6 +395,44 @@ class TestRepositoryAPI:
     def test_retrieve_repository(self, auth_client, repository):
         resp = auth_client.get(f"/api/securewise/repositories/{repository.id}/")
         assert resp.status_code == 200
+
+    def test_repository_cannot_borrow_another_organizations_integration(self, auth_client, org, project, other_user):
+        other_org = SecureWiseOrganization.objects.create(name="Foreign", slug="foreign", owner=other_user)
+        integration = SecureWiseGitIntegration.objects.create(
+            organization=other_org,
+            provider="github",
+            auth_type="personal_access_token",
+            name="Foreign GitHub",
+        )
+        response = auth_client.post(
+            "/api/securewise/repositories/",
+            {
+                "organization": str(org.id),
+                "project": str(project.id),
+                "integration": str(integration.id),
+                "name": "foreign-integration-repository",
+                "repository_url": "https://github.com/example/private",
+                "access_mode": "integration",
+            },
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "integration" in response.json()
+
+    def test_viewer_cannot_test_github_integration(self, auth_client, org, owner):
+        membership = SecureWiseMembership.objects.get(organization=org, user=owner)
+        membership.role = "auditor"
+        membership.save(update_fields=["role"])
+        integration = SecureWiseGitIntegration.objects.create(
+            organization=org,
+            provider="github",
+            auth_type="personal_access_token",
+            name="Customer GitHub",
+        )
+        integration.set_token("opaque-test-token")
+        integration.save(update_fields=["_encrypted_access_token", "token_last_four"])
+        response = auth_client.post(f"/api/securewise/git-integrations/{integration.id}/test/")
+        assert response.status_code == 403
 
     def test_validate_endpoint_valid_url(self, auth_client):
         resp = auth_client.post(
@@ -600,6 +682,34 @@ class TestScanAPI:
         data = resp.json()
         assert data["status"] == "pending"
 
+    def test_create_scan_rejects_repository_from_another_project(self, auth_client, org, project, owner):
+        other_project = SecureWiseProject.objects.create(
+            organization=org,
+            name="Different project",
+            slug="different-project",
+            created_by=owner,
+        )
+        other_repository = SecureWiseRepository.objects.create(
+            organization=org,
+            project=other_project,
+            name="other-project-repo",
+            repository_url="https://github.com/test/other-project-repo",
+            clone_url="https://github.com/test/other-project-repo.git",
+            access_mode="public",
+            created_by=owner,
+        )
+        response = auth_client.post(
+            "/api/securewise/scans/",
+            {
+                "project": str(project.id),
+                "repository": str(other_repository.id),
+                "scan_type": "sast",
+            },
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "repository" in response.json()
+
     def test_create_dast_scan_allows_repository_without_target_url(self, auth_client, org, project, repository, policy):
         resp = auth_client.post(
             "/api/securewise/scans/",
@@ -652,13 +762,25 @@ class TestScanAPI:
         assert data["can_retry"] is True
 
     def test_start_scan(self, auth_client, scan):
-        # Mock Thread to avoid SQLite table-locking issue in tests
-        with patch("apps.securewise.views.threading.Thread") as mock_thread:
-            mock_thread.return_value.start = lambda: None
-            resp = auth_client.post(f"/api/securewise/scans/{scan.id}/start/")
+        SecureWiseWorkerRegistration.objects.create(
+            worker_id="api-start-sast-worker",
+            capabilities=["sast"],
+            metrics={"architecture": "amd64"},
+            status="online",
+            last_seen_at=timezone.now(),
+        )
+        resp = auth_client.post(f"/api/securewise/scans/{scan.id}/start/")
         assert resp.status_code == 200
         scan.refresh_from_db()
-        assert scan.status in ("queued", "pending")
+        assert scan.status == "queued"
+
+    def test_start_scan_is_blocked_without_compatible_runner(self, auth_client, scan):
+        resp = auth_client.post(f"/api/securewise/scans/{scan.id}/start/")
+        assert resp.status_code == 409
+        assert resp.json()["status"] == "blocked"
+        assert "No online idle runner" in resp.json()["detail"]
+        scan.refresh_from_db()
+        assert scan.status == "pending"
 
     def test_start_already_running_scan_fails(self, auth_client, scan):
         scan.status = "running"
@@ -675,6 +797,13 @@ class TestScanAPI:
             scan_type="dast",
             status="completed_partial",
             triggered_by=owner,
+        )
+        SecureWiseWorkerRegistration.objects.create(
+            worker_id="api-retry-dast-worker",
+            capabilities=["dast"],
+            metrics={"architecture": "amd64"},
+            status="online",
+            last_seen_at=timezone.now(),
         )
         resp = auth_client.post(f"/api/securewise/scans/{scan.id}/retry/")
         assert resp.status_code == 200
@@ -713,6 +842,20 @@ class TestFindingAPI:
         assert resp.status_code == 200
         results = _results(resp.json())
         assert len(results) > 0
+
+    def test_finding_creation_is_reserved_for_scanner_execution(self, auth_client, org, project, scan):
+        response = auth_client.post(
+            "/api/securewise/findings/",
+            {
+                "organization": str(org.id),
+                "project": str(project.id),
+                "scan": str(scan.id),
+                "title": "User-supplied finding",
+            },
+            format="json",
+        )
+        assert response.status_code == 405
+        assert not SecureWiseFinding.objects.filter(title="User-supplied finding").exists()
 
     def test_retrieve_finding(self, auth_client, finding):
         resp = auth_client.get(f"/api/securewise/findings/{finding.id}/")
@@ -845,6 +988,149 @@ class TestReportAPI:
         assert data["format"] == "json"
         assert data["status"] in ("pending", "ready")
 
+    def test_report_cannot_export_another_tenants_scan(self, auth_client, org, project, owner):
+        foreign_org = SecureWiseOrganization.objects.create(name="Foreign", slug="report-foreign", owner=owner)
+        SecureWiseMembership.objects.create(organization=foreign_org, user=owner, role="owner")
+        foreign_project = SecureWiseProject.objects.create(
+            organization=foreign_org,
+            name="Foreign project",
+            slug="foreign-project",
+            created_by=owner,
+        )
+        foreign_scan = SecureWiseScan.objects.create(
+            organization=foreign_org,
+            project=foreign_project,
+            scan_type="sast",
+            status="completed",
+            triggered_by=owner,
+        )
+        response = auth_client.post(
+            "/api/securewise/reports/",
+            {
+                "organization": str(org.id),
+                "project": str(project.id),
+                "scan": str(foreign_scan.id),
+                "title": "Cross-tenant report",
+                "format": "json",
+            },
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "scan" in response.json()
+
+    def test_worker_status_is_scoped_to_member_organizations(self, auth_client, other_client, org, project):
+        scan = SecureWiseScan.objects.create(
+            organization=org,
+            project=project,
+            scan_type="sast",
+            status="queued",
+            triggered_by=org.owner,
+        )
+        SecureWiseScanEngineResult.objects.create(scan=scan, engine="sast", status="completed")
+        SecureWiseWorkerRegistration.objects.create(
+            worker_id="worker-private-hostname",
+            capabilities=["docker_daemon", "trivy"],
+            metrics={"vmrss_kb": 128, "credential": "never expose"},
+            status="online",
+            last_seen_at=timezone.now(),
+        )
+        auditor = User.objects.create_user(
+            username="worker_status_auditor", email="worker-status-auditor@sw.test", password="local-test-password"
+        )
+        SecureWiseMembership.objects.create(organization=org, user=auditor, role="auditor")
+        auditor_client = APIClient()
+        auditor_client.force_authenticate(auditor)
+        owner_response = auth_client.get("/api/securewise/scans/worker-status/")
+        stranger_response = other_client.get("/api/securewise/scans/worker-status/")
+        auditor_response = auditor_client.get("/api/securewise/scans/worker-status/")
+        assert owner_response.status_code == 200
+        assert owner_response.json()["queue"]["queued_scans"] == 1
+        assert owner_response.json()["worker_available"] is True
+        assert owner_response.json()["autopentest_readiness"]["encryption_key_compatibility"] == "not_reported"
+        assert owner_response.json()["resources"] == {"vmrss_kb": 128}
+        assert owner_response.json()["engine_executions_last_7_days"] == [
+            {"engine": "sast", "status": "completed", "count": 1, "average_duration_seconds": None}
+        ]
+        assert "worker-private-hostname" not in owner_response.content.decode()
+        assert "credential" not in owner_response.content.decode()
+        assert auditor_response.status_code == 200
+        assert auditor_response.json()["resources"] == {}
+        assert stranger_response.status_code == 403
+
+    def test_worker_status_reports_encryption_key_match_without_exposing_fingerprint(
+        self, auth_client, org
+    ):
+        fingerprint = securewise_encryption_key_fingerprint()
+        worker = SecureWiseWorkerRegistration.objects.create(
+            worker_id="key-match-worker",
+            capabilities=["autopentest_openapi_contract", "autopentest_authenticated_api", "docker_daemon"],
+            metrics={"encryption_key_fingerprint": fingerprint, "worker_profile": "standard"},
+            status="online",
+            last_seen_at=timezone.now(),
+        )
+
+        response = auth_client.get("/api/securewise/scans/worker-status/")
+
+        assert response.status_code == 200
+        readiness = response.json()["autopentest_readiness"]
+        assert readiness["worker_available"] is True
+        assert readiness["worker_supports_passive"] is True
+        assert readiness["worker_supports_authenticated_api"] is True
+        assert readiness["worker_supports_authenticated_browser"] is False
+        assert readiness["encryption_key_compatibility"] == "matched"
+        assert "fingerprint" not in response.content.decode()
+        assert fingerprint not in response.content.decode()
+
+        worker.metrics = {"encryption_key_fingerprint": "different-key-fingerprint"}
+        worker.save(update_fields=["metrics"])
+        mismatch = auth_client.get("/api/securewise/scans/worker-status/")
+        assert mismatch.json()["autopentest_readiness"]["encryption_key_compatibility"] == "mismatch"
+
+    def test_tenant_cannot_read_other_tenants_scan_report_finding_or_evidence(
+        self, other_client, completed_scan, org, project, repository, owner
+    ):
+        finding = SecureWiseFinding.objects.create(
+            scan=completed_scan,
+            project=project,
+            organization=org,
+            title="Tenant-scoped finding",
+        )
+        report = SecureWiseReport.objects.create(
+            organization=org,
+            project=project,
+            scan=completed_scan,
+            title="Tenant-scoped report",
+            generated_by=owner,
+            status="ready",
+        )
+        session = PentestSession.objects.create(
+            organization=org,
+            project=project,
+            repository=repository,
+            created_by=owner,
+            authorization_confirmed=True,
+            authorization_reference="controlled test authorization",
+        )
+        test_case = PentestTestCase.objects.create(
+            session=session,
+            test_key="tenant-case",
+            title="Tenant evidence",
+            category="authorization",
+            expected_behavior="Evidence is visible only to organization members.",
+        )
+        execution = PentestExecution.objects.create(test_case=test_case, outcome="passed")
+        evidence = PentestEvidence.objects.create(execution=execution, kind="assertion", content={"passed": True})
+
+        protected_urls = (
+            f"/api/securewise/scans/{completed_scan.id}/",
+            f"/api/securewise/findings/{finding.id}/",
+            f"/api/securewise/reports/{report.id}/",
+            f"/api/securewise/reports/{report.id}/html/",
+            f"/api/securewise/autopentest/sessions/{session.id}/",
+        )
+        assert all(other_client.get(url).status_code == 404 for url in protected_urls)
+        assert evidence.execution.test_case.session.organization_id == org.id
+
     def test_report_html_endpoint(self, auth_client, completed_scan, org, project):
         create_resp = auth_client.post(
             "/api/securewise/reports/",
@@ -881,7 +1167,8 @@ class TestReportAPI:
         )
         report_id = create_resp.json()["id"]
 
-        resp = auth_client.get(f"/api/securewise/reports/{report_id}/pdf/")
+        with patch("apps.securewise.views.render_report_pdf", return_value=b"%PDF-1.4" + b"x" * 600):
+            resp = auth_client.get(f"/api/securewise/reports/{report_id}/pdf/")
         assert resp.status_code == 200
         assert resp["Content-Type"] == "application/pdf"
         assert resp.content.startswith(b"%PDF")
@@ -906,6 +1193,9 @@ class TestDashboardAPI:
         assert "recent_scans" in data
         assert "top_risky_projects" in data
         assert "critical_high_count" in data
+        assert data["security_taxonomy"]["cwe_top25_edition"] == "MITRE CWE Top 25 2025"
+        assert set(data["cwe_ids_covered"]).issubset(data["cwe_coverage"])
+        assert len(data["cwe_coverage"]) == 25
 
     def test_dashboard_no_data(self, other_client):
         resp = other_client.get("/api/securewise/dashboard/summary/")
@@ -913,6 +1203,7 @@ class TestDashboardAPI:
         data = resp.json()
         assert data["total_projects"] == 0
         assert data["total_scans"] == 0
+        assert data["cwe_ids_covered"] == []
 
 
 # ---------------------------------------------------------------------------

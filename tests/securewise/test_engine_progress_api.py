@@ -6,6 +6,7 @@ endpoints, including org isolation checks.
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 
 import pytest
 from rest_framework.test import APIClient
@@ -16,6 +17,7 @@ from apps.securewise.models import (
     SecureWiseProject,
     SecureWiseScan,
     SecureWiseScanEngineResult,
+    SecureWiseWorkerRegistration,
 )
 
 User = get_user_model()
@@ -117,6 +119,64 @@ class TestScanProgressEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         assert data["engines"][0]["diagnostics"]["log_excerpt"] == "build step failed: missing dependency"
+
+    def test_progress_reports_worker_and_scanner_readiness(self, client_a, scan_a):
+        SecureWiseWorkerRegistration.objects.create(
+            worker_id="fixture-worker",
+            capabilities=["docker_daemon", "trivy", "zap_baseline_docker"],
+            metrics={
+                "runner_type": "linux_worker",
+                "architecture": "arm64",
+                "scanner_versions": {"trivy": "0.72.0"},
+                "scanner_availability": {"trivy": "available", "semgrep": "unavailable"},
+            },
+            status="online",
+            last_seen_at=timezone.now(),
+        )
+
+        response = client_a.get(f"/api/securewise/scans/{scan_a.id}/progress/")
+
+        assert response.status_code == 200
+        readiness = response.json()["worker_readiness"]
+        assert readiness["worker_available"] is True
+        assert readiness["docker_ready"] is True
+        assert readiness["trivy_available"] is True
+        assert readiness["zap_available"] is True
+        assert "worker_id" not in readiness
+        assert readiness["runner_type"] == "linux_worker"
+        assert readiness["architecture"] == "arm64"
+        assert readiness["scanner_versions"] == {"trivy": "0.72.0"}
+        assert readiness["scanner_availability"] == {"trivy": "available", "semgrep": "unavailable"}
+        assert readiness["worker_profile"] == "standard"
+        assert response.json()["worker_readiness"]["runners"][0]["online"] == 1
+        assert readiness["diagnostics"] == []
+
+    def test_progress_reports_lightweight_profile_and_disabled_scanners(self, client_a, scan_a):
+        SecureWiseWorkerRegistration.objects.create(
+            worker_id="lightweight-fixture-worker",
+            capabilities=["sast", "sca", "secrets", "iac", "api"],
+            metrics={
+                "runner_type": "linux_worker",
+                "architecture": "amd64",
+                "worker_profile": "lightweight",
+                "scanner_availability": {
+                    "semgrep": "disabled",
+                    "trivy": "disabled",
+                    "gitleaks": "disabled",
+                    "zap": "disabled",
+                },
+            },
+            status="online",
+            last_seen_at=timezone.now(),
+        )
+
+        response = client_a.get(f"/api/securewise/scans/{scan_a.id}/progress/")
+
+        assert response.status_code == 200
+        readiness = response.json()["worker_readiness"]
+        assert readiness["worker_profile"] == "lightweight"
+        assert readiness["scanner_availability"]["trivy"] == "disabled"
+        assert any("repository-static fallback checks" in item for item in readiness["diagnostics"])
 
     def test_other_org_user_cannot_view_progress(self, client_b, scan_a):
         resp = client_b.get(f"/api/securewise/scans/{scan_a.id}/progress/")

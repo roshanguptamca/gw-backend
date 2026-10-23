@@ -12,7 +12,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from .base import BaseScanner, ScannerFinding, ScannerResult
+from ..services.worker_profile import is_lightweight_worker
+from .base import BaseScanner, ScannerFinding, ScannerResult, optional_scanner_status
 from .parsers.trivy_parser import parse_trivy_config_json
 from .recommendation import RecommendationEngine
 
@@ -52,6 +53,8 @@ class IacScanner(BaseScanner):
         return True
 
     def run(self, repo_path: Path, scan_id: str, metadata: dict) -> ScannerResult:
+        if is_lightweight_worker():
+            return self._run_fallback(repo_path, scan_id, disabled=True)
         if shutil.which("trivy"):
             return self._run_trivy(repo_path, scan_id)
         return self._run_fallback(repo_path, scan_id)
@@ -70,7 +73,7 @@ class IacScanner(BaseScanner):
             logger.exception("trivy config run failed, falling back")
             return self._run_fallback(repo_path, scan_id, error=str(exc))
 
-    def _run_fallback(self, repo_path: Path, scan_id: str, error: str = "") -> ScannerResult:
+    def _run_fallback(self, repo_path: Path, scan_id: str, error: str = "", disabled: bool = False) -> ScannerResult:
         iac_files = _find_iac_files(repo_path)
         total_files = sum(len(v) for v in iac_files.values())
         if total_files == 0:
@@ -79,7 +82,12 @@ class IacScanner(BaseScanner):
                 findings=[],
                 status="skipped",
                 skipped_reason="no IaC files found",
-                metadata={"raw_tool": "fallback-iac-checks", "files_scanned": 0, "note": error or None},
+                metadata={
+                    "raw_tool": "fallback-iac-checks",
+                    "files_scanned": 0,
+                    "note": error or None,
+                    "optional_scanner": optional_scanner_status("trivy", "trivy", disabled=disabled, error=error),
+                },
             )
 
         findings: list[ScannerFinding] = []
@@ -95,7 +103,12 @@ class IacScanner(BaseScanner):
         return ScannerResult(
             success=True,
             findings=findings,
-            metadata={"raw_tool": "fallback-iac-checks", "files_scanned": total_files, "note": error or None},
+            metadata={
+                "raw_tool": "fallback-iac-checks",
+                "files_scanned": total_files,
+                "note": error or None,
+                "optional_scanner": optional_scanner_status("trivy", "trivy", disabled=disabled, error=error),
+            },
         )
 
     # ------------------------------------------------------------------
