@@ -569,7 +569,9 @@ class BillingTests(TestCase):
         updated = current_invoice_pdf(invoice)
         self.assertNotEqual(updated, original)
         pdf = PdfReader(BytesIO(updated))
-        self.assertIn("15.00", "\n".join(page.extract_text() for page in pdf.pages))
+        visible_text = "\n".join(page.extract_text() for page in pdf.pages)
+        self.assertIn("15.00", visible_text)
+        self.assertIn("Diwali Discount", visible_text)
 
     def test_seller_can_resend_but_buyer_cannot(self):
         from apps.marketplace.billing.models import InvoiceRevision
