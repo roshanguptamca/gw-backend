@@ -12,9 +12,9 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from . import ordering
-from .manual_discount import apply_manual_discount
 from .cloudinary_service import delete_cloudinary_image
 from .google_ratings import GoogleRatingThrottle, get_google_rating
+from .manual_discount import apply_manual_discount
 from .models import (
     Campaign,
     Category,
