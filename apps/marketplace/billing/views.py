@@ -13,7 +13,6 @@ from apps.marketplace.invoice_refresh import current_invoice_pdf, refresh_invoic
 from apps.marketplace.models import Order
 
 from .models import Invoice
-from .pdf_service import invoice_pdf
 from .serializers import InvoiceSerializer
 
 
