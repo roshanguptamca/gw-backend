@@ -561,18 +561,19 @@ class OrderSerializer(serializers.ModelSerializer):
             for item, discount in zip(items, discounts):
                 gross = item.line_total - discount
                 net, vat = extract_vat(gross, item.vat_rate)
-                row = amounts.setdefault(item.vat_rate, {
-                    "rate": item.vat_rate, "net": Decimal("0"), "vat": Decimal("0"), "gross": Decimal("0")
-                })
+                row = amounts.setdefault(
+                    item.vat_rate,
+                    {"rate": item.vat_rate, "net": Decimal("0"), "vat": Decimal("0"), "gross": Decimal("0")},
+                )
                 row["net"] += net
                 row["vat"] += vat
                 row["gross"] += gross
             if order.delivery_fee:
                 rate = Decimal(order.billing_snapshot.get("delivery_vat_rate", "0"))
                 net, vat = extract_vat(order.delivery_fee, rate)
-                row = amounts.setdefault(rate, {
-                    "rate": rate, "net": Decimal("0"), "vat": Decimal("0"), "gross": Decimal("0")
-                })
+                row = amounts.setdefault(
+                    rate, {"rate": rate, "net": Decimal("0"), "vat": Decimal("0"), "gross": Decimal("0")}
+                )
                 row["net"] += net
                 row["vat"] += vat
                 row["gross"] += order.delivery_fee
