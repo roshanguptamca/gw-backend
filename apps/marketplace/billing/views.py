@@ -61,7 +61,9 @@ class InvoiceRefreshView(APIView):
 
     def post(self, request, order_id):
         order = get_object_or_404(authorized_orders(request.user), pk=order_id)
-        if not (request.user.is_superuser or order.customer_id == request.user.id or order.shop.owner_id == request.user.id):
+        if not (
+            request.user.is_superuser or order.customer_id == request.user.id or order.shop.owner_id == request.user.id
+        ):
             return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
         invoice = refresh_invoice(order.pk)
         return Response(InvoiceSerializer(invoice).data)
