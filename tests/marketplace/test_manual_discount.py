@@ -1,8 +1,6 @@
 from decimal import Decimal
 from unittest.mock import patch
 
-from django.contrib.auth import get_user_model
-
 import pytest
 
 from apps.marketplace.manual_discount import apply_manual_discount
