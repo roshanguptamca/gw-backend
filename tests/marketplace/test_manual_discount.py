@@ -18,6 +18,7 @@ def test_manual_discount_reconciles_totals():
         order.discount_total = Decimal("0.00")
         order.manual_discount_amount = Decimal("0.00")
         order.delivery_fee = Decimal("0.00")
+        order.invoices.exists.return_value = False
         result = apply_manual_discount(1, title="Diwali Discount", amount=Decimal("60.87"))
         assert result.total == Decimal("244.00")
         assert result.manual_discount_title == "Diwali Discount"
