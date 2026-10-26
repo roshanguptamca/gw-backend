@@ -134,6 +134,45 @@ class BillingTests(TestCase):
         payload.update(overrides)
         return _create_order_atomic(payload, user=user)
 
+    def test_seller_manual_discount_and_buyer_refresh_and_resend(self):
+        from apps.marketplace.billing.models import InvoiceRevision
+        from apps.marketplace.invoice_refresh import current_invoice_pdf
+
+        order = self.order(user=self.buyer)
+        original_invoice = order.invoices.get()
+        self.client.force_authenticate(self.other_seller)
+        denied = self.client.patch(
+            f"/api/seller/orders/{order.pk}/manual-discount/",
+            {"title": "Diwali Discount", "amount": "5.00"},
+            format="json",
+        )
+        self.assertEqual(denied.status_code, 404)
+
+        self.client.force_authenticate(self.seller)
+        changed = self.client.patch(
+            f"/api/seller/orders/{order.pk}/manual-discount/",
+            {"title": "Diwali Discount", "amount": "5.00"},
+            format="json",
+        )
+        self.assertEqual(changed.status_code, 200)
+        self.assertEqual(changed.data["total"], "15.00")
+        self.assertEqual(changed.data["manual_discount_title"], "Diwali Discount")
+        order.refresh_from_db()
+
+        self.client.force_authenticate(self.buyer)
+        refreshed = self.client.post(f"/api/marketplace/orders/{order.pk}/invoices/refresh/")
+        self.assertEqual(refreshed.status_code, 200)
+        self.assertEqual(InvoiceRevision.objects.filter(invoice=original_invoice).count(), 1)
+        self.assertTrue(current_invoice_pdf(original_invoice).startswith(b"%PDF"))
+
+        self.client.force_authenticate(self.seller)
+        resend = self.client.post(f"/api/marketplace/orders/{order.pk}/invoices/resend/")
+        self.assertEqual(resend.status_code, 200)
+        self.assertEqual(InvoiceRevision.objects.filter(invoice=original_invoice).count(), 1)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["buyer@example.com"])
+        self.assertTrue(mail.outbox[0].attachments[0][1].startswith(b"%PDF"))
+
     def test_single_shop_snapshot_and_invoice_totals(self):
         order = self.order(user=self.buyer, billing_address="Buyer Lane 2")
         invoice = order.invoices.get()
