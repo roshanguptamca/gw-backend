@@ -95,7 +95,7 @@ class InvoicePDF(ImmutableDocument):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
-class InvoiceRevision(models.Model):
+class InvoiceRevision(ImmutableDocument):
     """Append-only archive of regenerated invoice PDFs."""
 
     invoice = models.ForeignKey(Invoice, on_delete=models.PROTECT, related_name="revisions")
