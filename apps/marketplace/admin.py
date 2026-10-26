@@ -1,5 +1,5 @@
 from django import forms
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.core.files.uploadedfile import UploadedFile
 from django.utils.html import format_html
 
@@ -14,6 +14,7 @@ from .cloudinary_service import (
     upload_shop_logo,
     validate_image_file,
 )
+from .invoice_refresh import resend_current_invoice
 from .manual_discount import apply_manual_discount
 from .models import (
     Campaign,
@@ -408,9 +409,21 @@ class OrderAdminForm(forms.ModelForm):
         return values
 
 
+@admin.action(description="Regenerate and resend current invoice to buyer")
+def resend_invoice_admin(modeladmin, request, queryset):
+    for order in queryset:
+        try:
+            resend_current_invoice(order.pk)
+        except Exception as exc:
+            modeladmin.message_user(request, f"{order.order_number}: {exc}", level=messages.ERROR)
+        else:
+            modeladmin.message_user(request, f"Resent updated invoice for {order.order_number}.")
+
+
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
     form = OrderAdminForm
+    actions = [resend_invoice_admin]
     list_display = [
         "order_number",
         "shop",
