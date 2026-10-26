@@ -141,8 +141,10 @@ def resend_current_invoice(order_id):
     order = invoice.order
     if not order.customer_email:
         raise ValidationError("This order has no buyer email address.")
+    shop_name = order.shop.name
+    subject = f"Factuur van {shop_name}" if order.language == "nl" else f"Invoice from {shop_name}"
     message = EmailMessage(
-        subject=f"Updated invoice / Bijgewerkte factuur {invoice.invoice_number}",
+        subject=subject,
         body=f"Attached is the latest invoice for order {order.order_number}. / Bijgevoegd de bijgewerkte factuur.",
         to=[order.customer_email],
     )
