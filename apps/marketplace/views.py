@@ -12,6 +12,7 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from . import ordering
+from .manual_discount import apply_manual_discount
 from .cloudinary_service import delete_cloudinary_image
 from .google_ratings import GoogleRatingThrottle, get_google_rating
 from .models import (
@@ -753,6 +754,19 @@ class SellerOrderViewSet(viewsets.ReadOnlyModelViewSet):
         if status:
             queryset = queryset.filter(status=status)
         return queryset.order_by("-created_at")
+
+    @action(detail=True, methods=["patch"], url_path="manual-discount")
+    def manual_discount(self, request, pk=None):
+        from .serializers import ManualDiscountInputSerializer
+
+        payload = ManualDiscountInputSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        order = self.get_object()
+        try:
+            order = apply_manual_discount(order.pk, **payload.validated_data)
+        except ValueError as exc:
+            raise DRFValidationError({"discount": str(exc)}) from exc
+        return Response(OrderSerializer(order, context={"request": request}).data)
 
     @action(detail=True, methods=["patch"])
     def status(self, request, pk=None):
