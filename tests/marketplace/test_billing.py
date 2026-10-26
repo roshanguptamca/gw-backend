@@ -550,6 +550,7 @@ class BillingTests(TestCase):
                 raise RuntimeError("rollback")
         self.assertFalse(Invoice.objects.exists())
         self.assertTrue(self.order().invoices.get().invoice_number.endswith("-000001"))
+
     def test_manual_discount_regenerates_and_preserves_issued_invoice(self):
         from apps.marketplace.billing.models import InvoiceRevision
         from apps.marketplace.invoice_refresh import current_invoice_pdf
