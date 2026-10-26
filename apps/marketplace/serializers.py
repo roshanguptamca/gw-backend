@@ -946,4 +946,4 @@ class PublicCategorySerializer(serializers.ModelSerializer):
 
 class ManualDiscountInputSerializer(serializers.Serializer):
     title = serializers.CharField(max_length=120, allow_blank=True)
-    amount = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal('0'))
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal("0"))
