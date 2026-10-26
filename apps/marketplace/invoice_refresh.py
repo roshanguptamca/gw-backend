@@ -78,9 +78,16 @@ def generate_current_invoice(order):
         vat_total=sum((r["vat"] for r in groups.values()), Decimal("0")),
         total_inc_vat=order.total,
     )
-        "customer": invoice.customer_snapshot, "items": lines,
-        "vat_summary": [groups[rate] for rate in sorted(groups)],
-    })
+    markup = render_to_string(
+        "marketplace/billing/invoice.html",
+        {
+            "invoice": current,
+            "seller": invoice.seller_snapshot,
+            "customer": invoice.customer_snapshot,
+            "items": lines,
+            "vat_summary": [groups[rate] for rate in sorted(groups)],
+        },
+    )
     return HTML(string=markup, url_fetcher=_private_url_fetcher).write_pdf()
 
 
