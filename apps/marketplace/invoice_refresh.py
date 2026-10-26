@@ -75,6 +75,8 @@ def generate_current_invoice(order):
         order=order,
         discount_total=order.discount_total,
         manual_discount_title=order.manual_discount_title,
+        manual_discount_amount=order.manual_discount_amount,
+        other_discount_total=order.discount_total - order.manual_discount_amount,
         delivery_total=order.delivery_fee,
         subtotal_ex_vat=sum((r["net"] for r in groups.values()), Decimal("0")),
         vat_total=sum((r["vat"] for r in groups.values()), Decimal("0")),
