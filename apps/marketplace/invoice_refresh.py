@@ -101,6 +101,7 @@ def refresh_invoice(order_id):
     invoice = Invoice.objects.filter(order=order).first()
     if not invoice:
         from .billing.invoice_service import create_invoice
+
         invoice = create_invoice(order)
     if (
         invoice.total_inc_vat == order.total
@@ -112,8 +113,13 @@ def refresh_invoice(order_id):
     if latest and latest.total == order.total and latest.discount_title == order.manual_discount_title:
         return invoice
     binary = generate_current_invoice(order)
-    InvoiceRevision.objects.create(invoice=invoice, content=binary, total=order.total,
-        discount_title=order.manual_discount_title, discount_total=order.discount_total)
+    InvoiceRevision.objects.create(
+        invoice=invoice,
+        content=binary,
+        total=order.total,
+        discount_title=order.manual_discount_title,
+        discount_total=order.discount_total,
+    )
     return invoice
 
 
@@ -122,6 +128,7 @@ def current_invoice_pdf(invoice):
     if latest:
         return bytes(latest.content)
     from .billing.pdf_service import invoice_pdf
+
     return invoice_pdf(invoice)
 
 
