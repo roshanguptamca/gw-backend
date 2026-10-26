@@ -27,4 +27,8 @@ def apply_manual_discount(order_id, *, title, amount):
     order.save(
         update_fields=["manual_discount_title", "manual_discount_amount", "discount_total", "total", "updated_at"]
     )
+    if order.invoices.exists():
+        from .invoice_refresh import refresh_invoice
+
+        refresh_invoice(order.pk)
     return order
