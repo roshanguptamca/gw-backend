@@ -2,7 +2,7 @@ from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 
-from rest_framework import viewsets
+from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.renderers import JSONRenderer
@@ -10,6 +10,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.marketplace.models import Order
+
+from apps.marketplace.invoice_refresh import current_invoice_pdf, refresh_invoice, resend_current_invoice
 
 from .models import Invoice
 from .pdf_service import invoice_pdf
@@ -54,6 +56,28 @@ class OrderInvoiceListView(APIView):
         return Response(InvoiceSerializer(invoices, many=True).data)
 
 
+class InvoiceRefreshView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, order_id):
+        order = get_object_or_404(authorized_orders(request.user), pk=order_id)
+        if not (request.user.is_superuser or order.customer_id == request.user.id or order.shop.owner_id == request.user.id):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+        invoice = refresh_invoice(order.pk)
+        return Response(InvoiceSerializer(invoice).data)
+
+
+class InvoiceResendView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, order_id):
+        order = get_object_or_404(authorized_orders(request.user), pk=order_id)
+        if not (request.user.is_superuser or order.shop.owner_id == request.user.id):
+            return Response({"detail": "Seller access required."}, status=status.HTTP_403_FORBIDDEN)
+        invoice = resend_current_invoice(order.pk)
+        return Response(InvoiceSerializer(invoice).data)
+
+
 class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = InvoiceSerializer
@@ -65,7 +89,7 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True, methods=["get"], renderer_classes=[InvoicePDFRenderer, JSONRenderer])
     def pdf(self, request, pk=None):
         invoice = self.get_object()
-        response = HttpResponse(invoice_pdf(invoice), content_type="application/pdf")
+        response = HttpResponse(current_invoice_pdf(invoice), content_type="application/pdf")
         response["Content-Disposition"] = f'attachment; filename="{invoice.invoice_number}.pdf"'
         response["Cache-Control"] = "private, no-store"
         response["X-Content-Type-Options"] = "nosniff"
