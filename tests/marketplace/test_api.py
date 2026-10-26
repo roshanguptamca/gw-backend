@@ -479,9 +479,7 @@ class MarketplaceAPITests(TestCase):
         good = self.client.patch(f"/api/seller/orders/{order.id}/status/", {"status": "accepted"}, format="json")
         self.assertEqual(good.status_code, status.HTTP_200_OK)
         self.assertEqual(good.data["status"], "accepted")
-        completed = self.client.patch(
-            f"/api/seller/orders/{order.id}/status/", {"status": "completed"}, format="json"
-        )
+        completed = self.client.patch(f"/api/seller/orders/{order.id}/status/", {"status": "completed"}, format="json")
         self.assertEqual(completed.status_code, status.HTTP_200_OK)
         self.assertEqual(completed.data["status"], "completed")
         terminal = self.client.patch(f"/api/seller/orders/{order.id}/status/", {"status": "accepted"}, format="json")
