@@ -550,7 +550,6 @@ class BillingTests(TestCase):
                 raise RuntimeError("rollback")
         self.assertFalse(Invoice.objects.exists())
         self.assertTrue(self.order().invoices.get().invoice_number.endswith("-000001"))
-
     def test_manual_discount_regenerates_and_preserves_issued_invoice(self):
         from apps.marketplace.billing.models import InvoiceRevision
         from apps.marketplace.invoice_refresh import current_invoice_pdf
@@ -568,7 +567,8 @@ class BillingTests(TestCase):
         self.assertEqual(InvoiceRevision.objects.filter(invoice=invoice).count(), 1)
         updated = current_invoice_pdf(invoice)
         self.assertNotEqual(updated, original)
-        self.assertIn("15.00", updated.decode("latin1", errors="ignore") if b"15.00" in updated else "15.00")
+        pdf = PdfReader(BytesIO(updated))
+        self.assertIn("15.00", "\n".join(page.extract_text() for page in pdf.pages))
 
     def test_seller_can_resend_but_buyer_cannot(self):
         from apps.marketplace.billing.models import InvoiceRevision
