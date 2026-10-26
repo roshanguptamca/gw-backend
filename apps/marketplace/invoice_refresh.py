@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from django.core.mail import EmailMessage
 from django.db import transaction
 from django.template.loader import render_to_string
+
 from rest_framework.exceptions import ValidationError
 
 from .billing.models import Invoice, InvoiceRevision
