@@ -1,4 +1,5 @@
 """Seller-initiated fixed order discounts, with server-side reconciliation."""
+
 from decimal import Decimal
 
 from django.db import transaction
@@ -25,7 +26,7 @@ def apply_manual_discount(order_id, *, title, amount):
     order.manual_discount_amount = amount
     order.discount_total = order.discount_total - previous + amount
     order.total = order.subtotal - order.discount_total + order.delivery_fee
-    order.save(update_fields=[
-        "manual_discount_title", "manual_discount_amount", "discount_total", "total", "updated_at"
-    ])
+    order.save(
+        update_fields=["manual_discount_title", "manual_discount_amount", "discount_total", "total", "updated_at"]
+    )
     return order
