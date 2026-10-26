@@ -6,13 +6,14 @@ from types import SimpleNamespace
 from django.core.mail import EmailMessage
 from django.db import transaction
 from django.template.loader import render_to_string
+from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError
 
 from .billing.models import Invoice, InvoiceRevision
 from .billing.pdf_service import _private_url_fetcher
 from .billing.vat_service import allocate_discount, extract_vat
-from .models import Order
+from .models import Order, OrderEmailLog
 
 
 def generate_current_invoice(order):
@@ -144,5 +145,17 @@ def resend_current_invoice(order_id):
         to=[order.customer_email],
     )
     message.attach(f"{invoice.invoice_number}.pdf", current_invoice_pdf(invoice), "application/pdf")
-    message.send(fail_silently=False)
+    log = OrderEmailLog.objects.create(
+        order=order, email_type=OrderEmailLog.EMAIL_TYPE_INVOICE_RESEND, recipient=order.customer_email
+    )
+    try:
+        message.send(fail_silently=False)
+    except Exception as exc:
+        log.status = OrderEmailLog.STATUS_FAILED
+        log.error_message = str(exc)[:1000]
+        log.save(update_fields=["status", "error_message"])
+        raise
+    log.status = OrderEmailLog.STATUS_SENT
+    log.sent_at = timezone.now()
+    log.save(update_fields=["status", "sent_at"])
     return invoice
