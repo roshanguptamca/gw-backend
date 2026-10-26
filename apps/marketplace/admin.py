@@ -1,6 +1,4 @@
 from django import forms
-
-from .manual_discount import apply_manual_discount
 from django.contrib import admin
 from django.core.files.uploadedfile import UploadedFile
 from django.utils.html import format_html
@@ -16,6 +14,7 @@ from .cloudinary_service import (
     upload_shop_logo,
     validate_image_file,
 )
+from .manual_discount import apply_manual_discount
 from .models import (
     Campaign,
     Category,
@@ -395,15 +394,17 @@ class OrderItemInline(admin.TabularInline):
 class OrderAdminForm(forms.ModelForm):
     class Meta:
         model = Order
-        fields = '__all__'
+        fields = "__all__"
 
     def clean(self):
         values = super().clean()
-        if self.instance.pk and ('manual_discount_amount' in self.changed_data or 'manual_discount_title' in self.changed_data):
-            amount = values.get('manual_discount_amount')
-            title = values.get('manual_discount_title', '')
+        if self.instance.pk and (
+            "manual_discount_amount" in self.changed_data or "manual_discount_title" in self.changed_data
+        ):
+            amount = values.get("manual_discount_amount")
+            title = values.get("manual_discount_title", "")
             if amount and not title:
-                raise forms.ValidationError('A title is required for a manual discount.')
+                raise forms.ValidationError("A title is required for a manual discount.")
         return values
 
 
@@ -428,7 +429,6 @@ class OrderAdmin(admin.ModelAdmin):
 
     def save_model(self, request, obj, form, change):
         if change and ({"manual_discount_title", "manual_discount_amount"} & set(form.changed_data)):
-            # Never save the stale Order instance over the recalculated totals.
             apply_manual_discount(obj.pk, title=obj.manual_discount_title, amount=obj.manual_discount_amount)
             return
         super().save_model(request, obj, form, change)
