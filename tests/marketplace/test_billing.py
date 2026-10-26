@@ -552,6 +552,55 @@ class BillingTests(TestCase):
         self.assertTrue(self.order().invoices.get().invoice_number.endswith("-000001"))
 
 
+    def test_manual_discount_regenerates_and_preserves_issued_invoice(self):
+        from apps.marketplace.billing.models import InvoiceRevision
+        from apps.marketplace.invoice_refresh import current_invoice_pdf
+        from apps.marketplace.manual_discount import apply_manual_discount
+
+        order = self.order(user=self.buyer)
+        invoice = order.invoices.get()
+        original = invoice_pdf(invoice)
+        self.assertEqual(invoice.total_inc_vat, Decimal("20.00"))
+        apply_manual_discount(order.pk, title="Diwali Discount", amount=Decimal("5.00"))
+        order.refresh_from_db()
+        self.assertEqual(order.total, Decimal("15.00"))
+        self.assertEqual(order.discount_total, Decimal("5.00"))
+        self.assertEqual(invoice.total_inc_vat, Decimal("20.00"))
+        self.assertEqual(InvoiceRevision.objects.filter(invoice=invoice).count(), 1)
+        updated = current_invoice_pdf(invoice)
+        self.assertNotEqual(updated, original)
+        self.assertIn("15.00", updated.decode("latin1", errors="ignore") if b"15.00" in updated else "15.00")
+
+    def test_seller_can_resend_but_buyer_cannot(self):
+        from apps.marketplace.billing.models import InvoiceRevision
+
+        order = self.order(user=self.buyer)
+        self.client.force_authenticate(self.seller)
+        response = self.client.patch(
+            f"/api/seller/orders/{order.pk}/manual-discount/",
+            {"title": "Special discount", "amount": "5.00"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(InvoiceRevision.objects.filter(invoice__order=order).count(), 1)
+        self.client.force_authenticate(self.buyer)
+        response = self.client.post(f"/api/marketplace/orders/{order.pk}/invoices/resend/")
+        self.assertEqual(response.status_code, 403)
+        response = self.client.post(f"/api/marketplace/orders/{order.pk}/invoices/refresh/")
+        self.assertEqual(response.status_code, 200)
+        self.client.force_authenticate(self.seller)
+        response = self.client.post(f"/api/marketplace/orders/{order.pk}/invoices/resend/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(len(mail.outbox[0].attachments), 1)
+
+    def test_unrelated_user_cannot_refresh_invoice(self):
+        order = self.order(user=self.buyer)
+        self.client.force_authenticate(self.other_buyer)
+        response = self.client.post(f"/api/marketplace/orders/{order.pk}/invoices/refresh/")
+        self.assertEqual(response.status_code, 404)
+
+
 class ConcurrentNumberingTests(TransactionTestCase):
     def test_numbering_on_database_with_row_locking(self):
         if not connection.features.has_select_for_update:
