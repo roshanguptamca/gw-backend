@@ -1,4 +1,5 @@
 """Current downloadable invoice revisions, preserving previously issued documents."""
+
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -24,19 +25,41 @@ def generate_current_invoice(order):
     for item, discount in zip(items, discounts):
         gross = item.line_total - discount
         net, vat = extract_vat(gross, item.vat_rate)
-        lines.append(SimpleNamespace(description=item.product_name, sku=item.sku, quantity=item.quantity,
-            unit_price_inc_vat=item.unit_price, vat_rate=item.vat_rate, line_total_ex_vat=net,
-            vat_amount=vat, line_total_inc_vat=gross, discount_inc_vat=discount))
-        row = groups.setdefault(item.vat_rate, {"rate": item.vat_rate, "net": Decimal("0"), "vat": Decimal("0"), "gross": Decimal("0")})
+        lines.append(
+            SimpleNamespace(
+                description=item.product_name,
+                sku=item.sku,
+                quantity=item.quantity,
+                unit_price_inc_vat=item.unit_price,
+                vat_rate=item.vat_rate,
+                line_total_ex_vat=net,
+                vat_amount=vat,
+                line_total_inc_vat=gross,
+                discount_inc_vat=discount,
+            )
+        )
+        row = groups.setdefault(
+            item.vat_rate, {"rate": item.vat_rate, "net": Decimal("0"), "vat": Decimal("0"), "gross": Decimal("0")}
+        )
         row["net"] += net
         row["vat"] += vat
         row["gross"] += gross
     if order.delivery_fee:
         rate = Decimal(order.billing_snapshot.get("delivery_vat_rate", "0"))
         net, vat = extract_vat(order.delivery_fee, rate)
-        lines.append(SimpleNamespace(description="Delivery / Bezorging", sku="", quantity=1,
-            unit_price_inc_vat=order.delivery_fee, vat_rate=rate, line_total_ex_vat=net,
-            vat_amount=vat, line_total_inc_vat=order.delivery_fee, discount_inc_vat=Decimal("0")))
+        lines.append(
+            SimpleNamespace(
+                description="Delivery / Bezorging",
+                sku="",
+                quantity=1,
+                unit_price_inc_vat=order.delivery_fee,
+                vat_rate=rate,
+                line_total_ex_vat=net,
+                vat_amount=vat,
+                line_total_inc_vat=order.delivery_fee,
+                discount_inc_vat=Decimal("0"),
+            )
+        )
         row = groups.setdefault(rate, {"rate": rate, "net": Decimal("0"), "vat": Decimal("0"), "gross": Decimal("0")})
         row["net"] += net
         row["vat"] += vat
@@ -55,8 +78,6 @@ def generate_current_invoice(order):
         vat_total=sum((r["vat"] for r in groups.values()), Decimal("0")),
         total_inc_vat=order.total,
     )
-    markup = render_to_string("marketplace/billing/invoice.html", {
-        "invoice": current, "seller": invoice.seller_snapshot,
         "customer": invoice.customer_snapshot, "items": lines,
         "vat_summary": [groups[rate] for rate in sorted(groups)],
     })
