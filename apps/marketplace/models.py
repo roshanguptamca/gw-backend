@@ -451,9 +451,11 @@ class OrderEmailLog(models.Model):
 
     EMAIL_TYPE_BUYER_CONFIRMATION = "buyer_confirmation"
     EMAIL_TYPE_SELLER_NOTIFICATION = "seller_notification"
+    EMAIL_TYPE_INVOICE_RESEND = "invoice_resend"
     EMAIL_TYPE_CHOICES = [
         (EMAIL_TYPE_BUYER_CONFIRMATION, "Buyer confirmation"),
         (EMAIL_TYPE_SELLER_NOTIFICATION, "Seller notification"),
+        (EMAIL_TYPE_INVOICE_RESEND, "Invoice resend"),
     ]
 
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="email_logs")
