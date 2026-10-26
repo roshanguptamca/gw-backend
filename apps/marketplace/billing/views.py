@@ -9,9 +9,8 @@ from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.marketplace.models import Order
-
 from apps.marketplace.invoice_refresh import current_invoice_pdf, refresh_invoice, resend_current_invoice
+from apps.marketplace.models import Order
 
 from .models import Invoice
 from .pdf_service import invoice_pdf
