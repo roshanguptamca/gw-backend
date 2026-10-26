@@ -3,7 +3,7 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from .ai_order_agent import AgentConfirmOrderView, AgentMenuView, AgentPrepareCheckoutView, AgentQuoteView
-from .billing.views import InvoiceViewSet, OrderInvoiceListView
+from .billing.views import InvoiceRefreshView, InvoiceResendView, InvoiceViewSet, OrderInvoiceListView
 from .views import (
     AddressLookupView,
     AdminProductViewSet,
@@ -68,6 +68,8 @@ urlpatterns = [
     ),
     path("marketplace/ai/shops/<slug:slug>/menu/", AgentMenuView.as_view(), name="marketplace-ai-menu"),
     path("marketplace/ai/shops/<slug:slug>/quote/", AgentQuoteView.as_view(), name="marketplace-ai-quote"),
+    path("marketplace/orders/<int:order_id>/invoices/refresh/", InvoiceRefreshView.as_view()),
+    path("marketplace/orders/<int:order_id>/invoices/resend/", InvoiceResendView.as_view()),
     path("marketplace/orders/<int:order_id>/invoices/", OrderInvoiceListView.as_view(), name="order-invoices"),
     path("orders/", OrderCreateView.as_view(), name="marketplace-order-create"),
     path("marketplace/orders/", OrderCreateView.as_view(), name="marketplace-order-request-create"),

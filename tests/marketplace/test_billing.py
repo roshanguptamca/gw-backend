@@ -134,6 +134,45 @@ class BillingTests(TestCase):
         payload.update(overrides)
         return _create_order_atomic(payload, user=user)
 
+    def test_seller_manual_discount_and_buyer_refresh_and_resend(self):
+        from apps.marketplace.billing.models import InvoiceRevision
+        from apps.marketplace.invoice_refresh import current_invoice_pdf
+
+        order = self.order(user=self.buyer)
+        original_invoice = order.invoices.get()
+        self.client.force_authenticate(self.other_seller)
+        denied = self.client.patch(
+            f"/api/seller/orders/{order.pk}/manual-discount/",
+            {"title": "Diwali Discount", "amount": "5.00"},
+            format="json",
+        )
+        self.assertEqual(denied.status_code, 404)
+
+        self.client.force_authenticate(self.seller)
+        changed = self.client.patch(
+            f"/api/seller/orders/{order.pk}/manual-discount/",
+            {"title": "Diwali Discount", "amount": "5.00"},
+            format="json",
+        )
+        self.assertEqual(changed.status_code, 200)
+        self.assertEqual(changed.data["total"], "15.00")
+        self.assertEqual(changed.data["manual_discount_title"], "Diwali Discount")
+        order.refresh_from_db()
+
+        self.client.force_authenticate(self.buyer)
+        refreshed = self.client.post(f"/api/marketplace/orders/{order.pk}/invoices/refresh/")
+        self.assertEqual(refreshed.status_code, 200)
+        self.assertEqual(InvoiceRevision.objects.filter(invoice=original_invoice).count(), 1)
+        self.assertTrue(current_invoice_pdf(original_invoice).startswith(b"%PDF"))
+
+        self.client.force_authenticate(self.seller)
+        resend = self.client.post(f"/api/marketplace/orders/{order.pk}/invoices/resend/")
+        self.assertEqual(resend.status_code, 200)
+        self.assertEqual(InvoiceRevision.objects.filter(invoice=original_invoice).count(), 1)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["buyer@example.com"])
+        self.assertTrue(mail.outbox[0].attachments[0][1].startswith(b"%PDF"))
+
     def test_single_shop_snapshot_and_invoice_totals(self):
         order = self.order(user=self.buyer, billing_address="Buyer Lane 2")
         invoice = order.invoices.get()
@@ -511,6 +550,62 @@ class BillingTests(TestCase):
                 raise RuntimeError("rollback")
         self.assertFalse(Invoice.objects.exists())
         self.assertTrue(self.order().invoices.get().invoice_number.endswith("-000001"))
+
+    def test_manual_discount_regenerates_and_preserves_issued_invoice(self):
+        from apps.marketplace.billing.models import InvoiceRevision
+        from apps.marketplace.invoice_refresh import current_invoice_pdf
+        from apps.marketplace.manual_discount import apply_manual_discount
+
+        order = self.order(user=self.buyer)
+        invoice = order.invoices.get()
+        original = invoice_pdf(invoice)
+        self.assertEqual(invoice.total_inc_vat, Decimal("20.00"))
+        apply_manual_discount(order.pk, title="Diwali Discount", amount=Decimal("5.00"))
+        order.refresh_from_db()
+        self.assertEqual(order.total, Decimal("15.00"))
+        self.assertEqual(order.discount_total, Decimal("5.00"))
+        self.assertEqual(invoice.total_inc_vat, Decimal("20.00"))
+        self.assertEqual(InvoiceRevision.objects.filter(invoice=invoice).count(), 1)
+        updated = current_invoice_pdf(invoice)
+        self.assertNotEqual(updated, original)
+        pdf = PdfReader(BytesIO(updated))
+        visible_text = "\n".join(page.extract_text() for page in pdf.pages)
+        self.assertIn("15.00", visible_text)
+        self.assertIn("Diwali Discount", visible_text)
+
+    def test_seller_can_resend_but_buyer_cannot(self):
+        from apps.marketplace.billing.models import InvoiceRevision
+
+        order = self.order(user=self.buyer)
+        self.client.force_authenticate(self.seller)
+        response = self.client.patch(
+            f"/api/seller/orders/{order.pk}/manual-discount/",
+            {"title": "Special discount", "amount": "5.00"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(InvoiceRevision.objects.filter(invoice__order=order).count(), 1)
+        self.client.force_authenticate(self.buyer)
+        response = self.client.post(f"/api/marketplace/orders/{order.pk}/invoices/resend/")
+        self.assertEqual(response.status_code, 403)
+        response = self.client.post(f"/api/marketplace/orders/{order.pk}/invoices/refresh/")
+        self.assertEqual(response.status_code, 200)
+        self.client.force_authenticate(self.seller)
+        response = self.client.post(f"/api/marketplace/orders/{order.pk}/invoices/resend/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(len(mail.outbox[0].attachments), 1)
+        from apps.marketplace.models import OrderEmailLog
+
+        log = OrderEmailLog.objects.get(order=order, email_type=OrderEmailLog.EMAIL_TYPE_INVOICE_RESEND)
+        self.assertEqual(log.status, OrderEmailLog.STATUS_SENT)
+        self.assertIsNotNone(log.sent_at)
+
+    def test_unrelated_user_cannot_refresh_invoice(self):
+        order = self.order(user=self.buyer)
+        self.client.force_authenticate(self.other_buyer)
+        response = self.client.post(f"/api/marketplace/orders/{order.pk}/invoices/refresh/")
+        self.assertEqual(response.status_code, 404)
 
 
 class ConcurrentNumberingTests(TransactionTestCase):

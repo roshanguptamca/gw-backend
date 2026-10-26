@@ -88,7 +88,10 @@
     {% endif %}
   </p>
   <table class="totals">
-    {% if invoice.discount_total %}<tr><td>{% if invoice.order.language == "nl" %}Korting incl. btw{% else %}Discount incl. VAT{% endif %}</td><td>-{{ invoice.discount_total|floatformat:2 }}</td></tr>{% endif %}
+    {% if invoice.manual_discount_amount %}
+      {% if invoice.other_discount_total %}<tr><td>{% if invoice.order.language == "nl" %}Overige korting incl. btw{% else %}Other discount incl. VAT{% endif %}</td><td>-{{ invoice.other_discount_total|floatformat:2 }}</td></tr>{% endif %}
+      <tr><td>{{ invoice.manual_discount_title }}</td><td>-{{ invoice.manual_discount_amount|floatformat:2 }}</td></tr>
+    {% elif invoice.discount_total %}<tr><td>{% if invoice.order.language == "nl" %}Korting incl. btw{% else %}Discount incl. VAT{% endif %}</td><td>-{{ invoice.discount_total|floatformat:2 }}</td></tr>{% endif %}
     {% if invoice.delivery_total %}<tr><td>{% if invoice.order.language == "nl" %}Bezorging incl. btw (inbegrepen){% else %}Delivery incl. VAT (included){% endif %}</td><td>{{ invoice.delivery_total|floatformat:2 }}</td></tr>{% endif %}
     <tr><td>{% if invoice.order.language == "nl" %}Subtotaal excl. btw{% else %}Subtotal excl. VAT{% endif %}</td><td>{{ invoice.subtotal_ex_vat|floatformat:2 }}</td></tr>
     <tr><td>{% if invoice.order.language == "nl" %}Btw{% else %}VAT{% endif %}</td><td>{{ invoice.vat_total|floatformat:2 }}</td></tr>

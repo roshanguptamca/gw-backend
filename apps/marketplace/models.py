@@ -376,6 +376,8 @@ class Order(models.Model):
     payment_status = models.CharField(max_length=30, choices=PAYMENT_STATUS, default="unpaid")
     subtotal = models.DecimalField(max_digits=10, decimal_places=2)
     discount_total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    manual_discount_title = models.CharField(max_length=120, blank=True)
+    manual_discount_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     delivery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     total = models.DecimalField(max_digits=10, decimal_places=2)
     customer_note = models.TextField(blank=True)
@@ -449,9 +451,11 @@ class OrderEmailLog(models.Model):
 
     EMAIL_TYPE_BUYER_CONFIRMATION = "buyer_confirmation"
     EMAIL_TYPE_SELLER_NOTIFICATION = "seller_notification"
+    EMAIL_TYPE_INVOICE_RESEND = "invoice_resend"
     EMAIL_TYPE_CHOICES = [
         (EMAIL_TYPE_BUYER_CONFIRMATION, "Buyer confirmation"),
         (EMAIL_TYPE_SELLER_NOTIFICATION, "Seller notification"),
+        (EMAIL_TYPE_INVOICE_RESEND, "Invoice resend"),
     ]
 
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="email_logs")

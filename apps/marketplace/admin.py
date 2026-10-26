@@ -1,5 +1,5 @@
 from django import forms
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.core.files.uploadedfile import UploadedFile
 from django.utils.html import format_html
 
@@ -14,6 +14,8 @@ from .cloudinary_service import (
     upload_shop_logo,
     validate_image_file,
 )
+from .invoice_refresh import resend_current_invoice
+from .manual_discount import apply_manual_discount
 from .models import (
     Campaign,
     Category,
@@ -390,8 +392,38 @@ class OrderItemInline(admin.TabularInline):
     readonly_fields = ["product", "product_name", "unit_price", "quantity", "line_total"]
 
 
+class OrderAdminForm(forms.ModelForm):
+    class Meta:
+        model = Order
+        fields = "__all__"
+
+    def clean(self):
+        values = super().clean()
+        if self.instance.pk and (
+            "manual_discount_amount" in self.changed_data or "manual_discount_title" in self.changed_data
+        ):
+            amount = values.get("manual_discount_amount")
+            title = values.get("manual_discount_title", "")
+            if amount and not title:
+                raise forms.ValidationError("A title is required for a manual discount.")
+        return values
+
+
+@admin.action(description="Regenerate and resend current invoice to buyer")
+def resend_invoice_admin(modeladmin, request, queryset):
+    for order in queryset:
+        try:
+            resend_current_invoice(order.pk)
+        except Exception as exc:
+            modeladmin.message_user(request, f"{order.order_number}: {exc}", level=messages.ERROR)
+        else:
+            modeladmin.message_user(request, f"Resent updated invoice for {order.order_number}.")
+
+
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
+    form = OrderAdminForm
+    actions = [resend_invoice_admin]
     list_display = [
         "order_number",
         "shop",
@@ -405,8 +437,14 @@ class OrderAdmin(admin.ModelAdmin):
     ]
     list_filter = ["status", "payment_status", "order_type", "payment_method", "shop"]
     search_fields = ["order_number", "customer_name", "customer_email", "customer_phone", "shop__name"]
-    readonly_fields = ["buyer_email_sent_at", "seller_email_sent_at"]
+    readonly_fields = ["buyer_email_sent_at", "seller_email_sent_at", "discount_total", "total", "subtotal"]
     inlines = [OrderItemInline]
+
+    def save_model(self, request, obj, form, change):
+        if change and ({"manual_discount_title", "manual_discount_amount"} & set(form.changed_data)):
+            apply_manual_discount(obj.pk, title=obj.manual_discount_title, amount=obj.manual_discount_amount)
+            return
+        super().save_model(request, obj, form, change)
 
 
 @admin.register(OrderEmailLog)

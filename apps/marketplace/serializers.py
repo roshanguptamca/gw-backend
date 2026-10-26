@@ -552,7 +552,38 @@ class OrderSerializer(serializers.ModelSerializer):
         invoice = order.invoices.first()
         if not invoice:
             return None
-        from .billing.vat_service import vat_summary
+        from .billing.vat_service import allocate_discount, extract_vat, vat_summary
+
+        if order.manual_discount_amount:
+            items = list(order.items.order_by("id"))
+            discounts = allocate_discount(order.discount_total, [item.line_total for item in items])
+            amounts = {}
+            for item, discount in zip(items, discounts):
+                gross = item.line_total - discount
+                net, vat = extract_vat(gross, item.vat_rate)
+                row = amounts.setdefault(
+                    item.vat_rate,
+                    {"rate": item.vat_rate, "net": Decimal("0"), "vat": Decimal("0"), "gross": Decimal("0")},
+                )
+                row["net"] += net
+                row["vat"] += vat
+                row["gross"] += gross
+            if order.delivery_fee:
+                rate = Decimal(order.billing_snapshot.get("delivery_vat_rate", "0"))
+                net, vat = extract_vat(order.delivery_fee, rate)
+                row = amounts.setdefault(
+                    rate, {"rate": rate, "net": Decimal("0"), "vat": Decimal("0"), "gross": Decimal("0")}
+                )
+                row["net"] += net
+                row["vat"] += vat
+                row["gross"] += order.delivery_fee
+            return {
+                "currency": invoice.currency,
+                "net": str(sum((row["net"] for row in amounts.values()), Decimal("0"))),
+                "vat": str(sum((row["vat"] for row in amounts.values()), Decimal("0"))),
+                "gross": str(order.total),
+                "rates": [{key: str(value) for key, value in amounts[rate].items()} for rate in sorted(amounts)],
+            }
 
         return {
             "currency": invoice.currency,
@@ -587,6 +618,8 @@ class OrderSerializer(serializers.ModelSerializer):
             "payment_status",
             "subtotal",
             "discount_total",
+            "manual_discount_title",
+            "manual_discount_amount",
             "delivery_fee",
             "total",
             "price_breakdown",
@@ -940,3 +973,8 @@ class PublicCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
         fields = ["id", "name", "slug", "is_global", "product_count"]
+
+
+class ManualDiscountInputSerializer(serializers.Serializer):
+    title = serializers.CharField(max_length=120, allow_blank=True)
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal("0"))
