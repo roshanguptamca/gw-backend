@@ -573,6 +573,20 @@ class BillingTests(TestCase):
         self.assertIn("15.00", visible_text)
         self.assertIn("Diwali Discount", visible_text)
 
+    def test_resend_invoice_subject_uses_order_language_and_shop_name(self):
+        from apps.marketplace.invoice_refresh import resend_current_invoice
+
+        for language, subject in (
+            ("en", f"Invoice from {self.shop.name}"),
+            ("nl", f"Factuur van {self.shop.name}"),
+        ):
+            with self.subTest(language=language):
+                order = self.order(user=self.buyer, language=language)
+                resend_current_invoice(order.pk)
+                self.assertEqual(mail.outbox[-1].subject, subject)
+                self.assertEqual(len(mail.outbox[-1].attachments), 1)
+                self.assertEqual(mail.outbox[-1].attachments[0][2], "application/pdf")
+
     def test_seller_can_resend_but_buyer_cannot(self):
         from apps.marketplace.billing.models import InvoiceRevision
 
