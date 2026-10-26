@@ -474,11 +474,18 @@ class MarketplaceAPITests(TestCase):
             status=Order.STATUS_PENDING,
         )
         self.client.force_authenticate(self.seller_user)
-        bad = self.client.patch(f"/api/seller/orders/{order.id}/status/", {"status": "completed"}, format="json")
+        bad = self.client.patch(f"/api/seller/orders/{order.id}/status/", {"status": "invalid"}, format="json")
         self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST)
         good = self.client.patch(f"/api/seller/orders/{order.id}/status/", {"status": "accepted"}, format="json")
         self.assertEqual(good.status_code, status.HTTP_200_OK)
         self.assertEqual(good.data["status"], "accepted")
+        completed = self.client.patch(
+            f"/api/seller/orders/{order.id}/status/", {"status": "completed"}, format="json"
+        )
+        self.assertEqual(completed.status_code, status.HTTP_200_OK)
+        self.assertEqual(completed.data["status"], "completed")
+        terminal = self.client.patch(f"/api/seller/orders/{order.id}/status/", {"status": "accepted"}, format="json")
+        self.assertEqual(terminal.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_public_shop_slug_lookup_and_products_action(self):
         detail = self.client.get(f"/api/marketplace/shops/{self.shop.slug}/")
