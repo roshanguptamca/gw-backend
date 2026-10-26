@@ -15,8 +15,6 @@ def apply_manual_discount(order_id, *, title, amount):
     if order.payment_status in ("paid", "refunded"):
         raise ValueError("Paid orders require a separate refund or credit note.")
     amount = Decimal(amount).quantize(Decimal("0.01"))
-    if order.invoices.exists():
-        raise ValueError("An issued invoice exists; update through the invoice correction workflow.")
     if amount < 0 or amount > order.subtotal - (order.discount_total - order.manual_discount_amount):
         raise ValueError("Discount must be between zero and the remaining merchandise subtotal.")
     if amount and not title.strip():
