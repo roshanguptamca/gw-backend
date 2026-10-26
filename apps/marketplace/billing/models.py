@@ -93,3 +93,14 @@ class InvoicePDF(ImmutableDocument):
     invoice = models.OneToOneField(Invoice, on_delete=models.PROTECT, related_name="document")
     content = models.BinaryField()
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class InvoiceRevision(models.Model):
+    """Append-only archive of regenerated invoice PDFs."""
+
+    invoice = models.ForeignKey(Invoice, on_delete=models.PROTECT, related_name="revisions")
+    content = models.BinaryField()
+    total = models.DecimalField(max_digits=12, decimal_places=2)
+    discount_title = models.CharField(max_length=120, blank=True)
+    discount_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
