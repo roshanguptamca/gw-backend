@@ -28,6 +28,8 @@ class InvoiceSerializer(serializers.ModelSerializer):
     shop_name = serializers.CharField(source="seller_snapshot.shop_name", read_only=True)
     items = InvoiceItemSerializer(many=True, read_only=True)
     vat_summary = serializers.SerializerMethodField()
+    manual_discount_title = serializers.CharField(source="order.manual_discount_title", read_only=True)
+    current_total = serializers.DecimalField(source="order.total", max_digits=12, decimal_places=2, read_only=True)
 
     class Meta:
         model = Invoice
@@ -45,6 +47,8 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "vat_total",
             "total_inc_vat",
             "discount_total",
+            "manual_discount_title",
+            "current_total",
             "delivery_total",
             "items",
             "vat_summary",
