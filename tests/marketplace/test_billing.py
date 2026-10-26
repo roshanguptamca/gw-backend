@@ -593,6 +593,11 @@ class BillingTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(len(mail.outbox[0].attachments), 1)
+        from apps.marketplace.models import OrderEmailLog
+
+        log = OrderEmailLog.objects.get(order=order, email_type=OrderEmailLog.EMAIL_TYPE_INVOICE_RESEND)
+        self.assertEqual(log.status, OrderEmailLog.STATUS_SENT)
+        self.assertIsNotNone(log.sent_at)
 
     def test_unrelated_user_cannot_refresh_invoice(self):
         order = self.order(user=self.buyer)
