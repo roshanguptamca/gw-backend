@@ -587,6 +587,8 @@ class OrderSerializer(serializers.ModelSerializer):
             "payment_status",
             "subtotal",
             "discount_total",
+            "manual_discount_title",
+            "manual_discount_amount",
             "delivery_fee",
             "total",
             "price_breakdown",
