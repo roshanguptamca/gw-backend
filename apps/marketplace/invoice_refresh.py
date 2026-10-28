@@ -86,6 +86,7 @@ def generate_current_invoice(order):
         "marketplace/billing/invoice.html",
         {
             "invoice": current,
+            "original_total_inc_vat": order.total + order.discount_total,
             "seller": invoice.seller_snapshot,
             "customer": invoice.customer_snapshot,
             "items": lines,
