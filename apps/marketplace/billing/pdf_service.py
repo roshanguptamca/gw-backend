@@ -49,6 +49,7 @@ def invoice_html(invoice):
         "marketplace/billing/invoice.html",
         {
             "invoice": invoice,
+            "original_total_inc_vat": invoice.total_inc_vat + invoice.discount_total,
             "seller": invoice.seller_snapshot,
             "customer": invoice.customer_snapshot,
             "items": invoice.items.all(),
