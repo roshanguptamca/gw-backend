@@ -572,6 +572,39 @@ class BillingTests(TestCase):
         visible_text = "\n".join(page.extract_text() for page in pdf.pages)
         self.assertIn("15.00", visible_text)
         self.assertIn("Diwali Discount", visible_text)
+        self.assertIn("Total before discount", visible_text)
+        self.assertIn("Amount payable", visible_text)
+        self.assertIn("20.00", visible_text)
+        self.assertIn("5.00", visible_text)
+
+    def test_invoice_shows_original_total_discount_and_final_payment(self):
+        Coupon.objects.create(shop=self.shop, code="SAVE5", discount_type="fixed", discount_value=Decimal("5.00"))
+        order = self.order(coupon_code="SAVE5", user=self.buyer)
+        invoice = order.invoices.get()
+
+        html = invoice_html(invoice)
+        self.assertIn("Total before discount incl. VAT", html)
+        self.assertIn("EUR 20.00", html)
+        self.assertIn("Discount incl. VAT", html)
+        self.assertIn("-5.00", html)
+        self.assertIn("Amount payable incl. VAT", html)
+        self.assertIn("EUR 15.00", html)
+        self.assertEqual(invoice.subtotal_ex_vat + invoice.vat_total, Decimal("15.00"))
+
+        pdf = PdfReader(BytesIO(invoice_pdf(invoice)))
+        text = "\\n".join(page.extract_text() for page in pdf.pages)
+        self.assertIn("Total before discount", text)
+        self.assertIn("Amount payable", text)
+        self.assertIn("20.00", text)
+        self.assertIn("15.00", text)
+
+    def test_invoice_summary_without_discount_and_in_dutch(self):
+        order = self.order(language="nl")
+        html = invoice_html(order.invoices.get())
+        self.assertIn("Totaal vóór korting incl. btw", html)
+        self.assertIn("Te betalen incl. btw", html)
+        self.assertEqual(html.count("EUR 20.00"), 2)
+        self.assertNotIn("Korting incl. btw</td>", html)
 
     def test_resend_invoice_subject_uses_order_language_and_shop_name(self):
         from apps.marketplace.invoice_refresh import resend_current_invoice
