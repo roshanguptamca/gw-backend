@@ -572,7 +572,7 @@ class BillingTests(TestCase):
         visible_text = "\n".join(page.extract_text() for page in pdf.pages)
         self.assertIn("15.00", visible_text)
         self.assertIn("Diwali Discount", visible_text)
-        self.assertIn("Total before discount", visible_text)
+        self.assertIn("Totalbeforediscountincl.VAT", "".join(visible_text.split()))
         self.assertIn("Amount payable", visible_text)
         self.assertIn("20.00", visible_text)
         self.assertIn("5.00", visible_text)
@@ -593,7 +593,7 @@ class BillingTests(TestCase):
 
         pdf = PdfReader(BytesIO(invoice_pdf(invoice)))
         text = "\\n".join(page.extract_text() for page in pdf.pages)
-        self.assertIn("Total before discount", text)
+        self.assertIn("Totalbeforediscountincl.VAT", "".join(text.split()))
         self.assertIn("Amount payable", text)
         self.assertIn("20.00", text)
         self.assertIn("15.00", text)
