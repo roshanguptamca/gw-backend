@@ -37,7 +37,7 @@ IS_LOCAL = IS_DEVELOPMENT or IS_ACC
 # Security
 # -------------------------------
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key-change-in-production")
-DEBUG = IS_DEVELOPMENT or IS_ACC # Only True in development
+DEBUG = IS_DEVELOPMENT or IS_ACC  # Only True in development
 
 ALLOWED_HOSTS = list(
     dict.fromkeys(

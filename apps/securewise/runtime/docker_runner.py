@@ -11,8 +11,8 @@ Design constraints (see docs/SMART_REPO_SCAN.md):
 
 from __future__ import annotations
 
-import logging
 import json
+import logging
 import re
 import shutil
 import subprocess

@@ -14,10 +14,10 @@ import logging
 import tempfile
 from pathlib import Path
 
+from apps.securewise.runtime.logs import redact_secrets
 from apps.securewise.scanners.mode_labels import engine_ran_in_real_tool_mode
 from apps.securewise.scanners.orchestrator import ScannerOrchestrator
 from apps.securewise.scanners.repository import clone_repository
-from apps.securewise.runtime.logs import redact_secrets
 
 logger = logging.getLogger(__name__)
 

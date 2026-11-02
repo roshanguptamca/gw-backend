@@ -7,25 +7,23 @@ Users can only access organizations where they are members.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import re
 import secrets
-import hashlib
-import ipaddress
 from datetime import timedelta
 from uuid import UUID
-from urllib.parse import urlsplit
 
 from django.db import IntegrityError, transaction
 from django.db.models import Avg, Count, Q
 from django.http import HttpResponse
-from django.utils.decorators import method_decorator
 from django.utils import timezone
+from django.utils.decorators import method_decorator
 from django.utils.text import slugify
-from django.views.generic import TemplateView
 from django.views.decorators.csrf import csrf_exempt
+from django.views.generic import TemplateView
 
 from rest_framework import mixins, permissions, status, viewsets
 from rest_framework.decorators import action
@@ -36,17 +34,16 @@ from rest_framework.views import APIView
 from .models import (
     PentestSession,
     PentestTestProposal,
-    SecureWiseAuditLog,
     SecureWiseApplicationTarget,
+    SecureWiseAuditLog,
     SecureWiseFinding,
-    SecureWiseGitIntegration,
     SecureWiseGitHubAppInstallation,
     SecureWiseGitHubAppState,
     SecureWiseGitHubWebhookDelivery,
+    SecureWiseGitIntegration,
     SecureWiseIntegration,
     SecureWiseMembership,
     SecureWiseOrganization,
-    SecureWiseOwnershipChallenge,
     SecureWiseProject,
     SecureWiseReport,
     SecureWiseRepository,
@@ -78,13 +75,11 @@ from .serializers import (
     SecureWiseScanPolicyTemplateSerializer,
     SecureWiseScanSerializer,
 )
+from .services import github_app, url_security
 from .services.ai_recommendation import generate_ai_fix_suggestion
-from .services import github_app
-from .services import url_security
 from .services.github_actions import GitHubActionError, create_github_issue, create_github_pr
 from .services.report import generate_report
 from .services.report_render import render_report_html, render_report_pdf
-from .services.worker import _SCAN_ACTIVE_STATUSES
 from .services.repository import (
     check_private_access,
     check_public_access,
@@ -92,6 +87,7 @@ from .services.repository import (
     normalize_url,
     validate_url_format,
 )
+from .services.worker import _SCAN_ACTIVE_STATUSES
 
 logger = logging.getLogger(__name__)
 

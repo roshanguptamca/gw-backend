@@ -48,7 +48,7 @@ def parse_https_url(value: str) -> tuple[str, str, int, str]:
         parsed = urlsplit(value)
         host = normalize_host(parsed.hostname or "")
         port = parsed.port or 443
-    except (TypeError, ValueError, UnicodeError) as exc:
+    except (TypeError, ValueError) as exc:
         raise URLSecurityError("Provide a valid HTTPS application URL.") from exc
     if (
         parsed.scheme.lower() != "https"

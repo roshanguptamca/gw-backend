@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-import pytest
 from django.utils import timezone
+
+import pytest
 
 from apps.securewise.models import (
     SecureWiseMembership,
@@ -12,6 +13,7 @@ from apps.securewise.models import (
     SecureWiseScan,
     SecureWiseWorkerRegistration,
 )
+from apps.securewise.services import url_security
 from apps.securewise.services.runners import (
     discover_runner_capabilities,
     runner_fleet_summary,
@@ -19,7 +21,6 @@ from apps.securewise.services.runners import (
     worker_supports_scan,
 )
 from apps.securewise.services.worker import claim_next_job, heartbeat_worker, release_worker_job
-from apps.securewise.services import url_security
 
 pytestmark = pytest.mark.django_db
 

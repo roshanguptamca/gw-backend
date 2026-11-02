@@ -1,8 +1,13 @@
 from django.contrib import admin
 
 from .models import (
-    SecureWiseAuditLog,
+    PentestEvidence,
+    PentestExecution,
+    PentestScope,
+    PentestSession,
+    PentestTestCase,
     SecureWiseApplicationTarget,
+    SecureWiseAuditLog,
     SecureWiseFinding,
     SecureWiseGitIntegration,
     SecureWiseIntegration,
@@ -18,11 +23,6 @@ from .models import (
     SecureWiseScanPolicyTemplate,
     SecureWiseTestingAuthorization,
     SecureWiseWorkerRegistration,
-    PentestEvidence,
-    PentestExecution,
-    PentestScope,
-    PentestSession,
-    PentestTestCase,
 )
 
 

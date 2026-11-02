@@ -2,20 +2,19 @@
 
 from __future__ import annotations
 
-import hashlib
 import ipaddress
 import logging
 from datetime import datetime, timedelta
 from urllib.parse import urlsplit
 
 from django.utils import timezone
+
 from rest_framework import permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import (
     SecureWiseApplicationTarget,
-    SecureWiseMembership,
     SecureWiseOwnershipChallenge,
     SecureWiseProject,
     SecureWiseTestingAuthorization,

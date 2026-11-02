@@ -20,8 +20,8 @@ from apps.securewise.services.worker_profile import (
     is_autopentest_api_worker,
     is_lightweight_worker,
     is_website_passive_worker,
-    website_passive_scan_allowed,
     lightweight_scan_allowed,
+    website_passive_scan_allowed,
 )
 
 ENGINE_CAPABILITIES = {
@@ -44,6 +44,7 @@ _AUTOPENTEST_API_MIN_MEMORY_BYTES = 8 * 1024**3
 # Oracle Always Free A1 provides 2 OCPUs (2 physical Arm cores) / 12 GB in total. One job runs at a
 # time and builds are capped at 2 CPUs / 2 GB, so 2 CPUs is the approved floor; memory stays at 8 GB.
 _AUTOPENTEST_API_MIN_CPUS = 2
+_DEFAULT_HEARTBEAT_MAX_AGE = timedelta(seconds=45)
 
 
 @dataclass(frozen=True)
@@ -299,7 +300,7 @@ def worker_supports_scan(
     scan: SecureWiseScan,
     *,
     now=None,
-    max_age: timedelta = timedelta(seconds=45),
+    max_age: timedelta = _DEFAULT_HEARTBEAT_MAX_AGE,
     require_local_egress_proof: bool = True,
 ) -> tuple[bool, str]:
     """Check a registration against a scan.

@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-import pytest
 from django.utils import timezone
+
+import pytest
 
 from apps.securewise.models import (
     SecureWiseApplicationTarget,
@@ -150,8 +151,6 @@ def test_claimed_scan_keeps_a_durable_worker_execution_record(monkeypatch, env):
 
 
 def test_retest_keeps_findings_visible_on_the_original_scan(env):
-    from rest_framework.test import APIRequestFactory, force_authenticate
-
     from apps.securewise.models import SecureWiseFinding
     from apps.securewise.serializers import SecureWiseScanSerializer
     from apps.securewise.services.scanner import ScannerRunner

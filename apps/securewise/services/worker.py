@@ -26,8 +26,8 @@ from apps.securewise.services.worker_profile import (
     LIGHTWEIGHT_CAPABILITIES,
     LIGHTWEIGHT_SCAN_TYPES,
     autopentest_api_repository_id,
-    is_autopentest_api_worker,
     experimental_low_resource_allowed,
+    is_autopentest_api_worker,
     is_lightweight_worker,
     is_website_passive_worker,
 )

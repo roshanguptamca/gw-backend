@@ -9,9 +9,10 @@ import re
 import time
 from urllib.parse import quote
 
+from django.utils import timezone
+
 import jwt
 import requests
-from django.utils import timezone
 
 GITHUB_API = "https://api.github.com"
 _API_HEADERS = {

@@ -17,8 +17,7 @@ import shutil
 import subprocess
 import tempfile
 import zipfile
-from pathlib import Path
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse, urlunparse
 
 logger = logging.getLogger(__name__)

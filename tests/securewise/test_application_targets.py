@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import shutil
 from datetime import timedelta
 from pathlib import Path
-import shutil
+
+from django.utils import timezone
 
 import pytest
-from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.securewise.models import (
@@ -22,8 +23,8 @@ from apps.securewise.models import (
 )
 from apps.securewise.scanners.dast import DastScanner
 from apps.securewise.scanners.sast import SastScanner
-from apps.securewise.services.scanner import ScannerRunner
 from apps.securewise.services import url_security
+from apps.securewise.services.scanner import ScannerRunner
 from apps.securewise.services.worker import claim_next_job
 
 pytestmark = pytest.mark.django_db
@@ -177,7 +178,6 @@ def test_ownership_challenge_expiry_and_revocation_disable_authorization(target_
     target_id = register_and_verify(client, project, monkeypatch)
     authorization_response = authorize_target(client, target_id)
     authorization_id = authorization_response.json()["id"]
-    target = SecureWiseApplicationTarget.objects.get(id=target_id)
     authorization = SecureWiseTestingAuthorization.objects.get(id=authorization_id)
     assert url_security.authorization_is_active(authorization)
 

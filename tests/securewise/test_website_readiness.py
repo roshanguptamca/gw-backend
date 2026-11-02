@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-import pytest
 from django.utils import timezone
+
+import pytest
 from rest_framework.test import APIClient
 
 from apps.securewise.models import (
