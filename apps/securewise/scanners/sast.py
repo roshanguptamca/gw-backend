@@ -13,7 +13,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from .base import BaseScanner, ScannerFinding, ScannerResult
+from ..services.worker_profile import is_lightweight_worker
+from .base import BaseScanner, ScannerFinding, ScannerResult, optional_scanner_status
 from .parsers.semgrep_parser import parse_semgrep_json
 from .recommendation import RecommendationEngine
 
@@ -87,6 +88,8 @@ class SastScanner(BaseScanner):
         return True  # fallback engine always available
 
     def run(self, repo_path: Path, scan_id: str, metadata: dict) -> ScannerResult:
+        if is_lightweight_worker():
+            return self._run_fallback(repo_path, scan_id, disabled=True)
         if shutil.which("semgrep"):
             return self._run_semgrep(repo_path, scan_id)
         return self._run_fallback(repo_path, scan_id)
@@ -117,7 +120,7 @@ class SastScanner(BaseScanner):
             logger.exception("semgrep run failed, falling back")
             return self._run_fallback(repo_path, scan_id, error=str(exc))
 
-    def _run_fallback(self, repo_path: Path, scan_id: str, error: str = "") -> ScannerResult:
+    def _run_fallback(self, repo_path: Path, scan_id: str, error: str = "", disabled: bool = False) -> ScannerResult:
         findings: list[ScannerFinding] = []
         files_scanned = 0
         if repo_path.exists():
@@ -134,7 +137,12 @@ class SastScanner(BaseScanner):
         return ScannerResult(
             success=True,
             findings=findings,
-            metadata={"raw_tool": "fallback-rules", "files_scanned": files_scanned, "note": error or None},
+            metadata={
+                "raw_tool": "fallback-rules",
+                "files_scanned": files_scanned,
+                "note": error or None,
+                "optional_scanner": optional_scanner_status("semgrep", "semgrep", disabled=disabled, error=error),
+            },
         )
 
     def _scan_file(self, path: Path, repo_path: Path) -> list[ScannerFinding]:

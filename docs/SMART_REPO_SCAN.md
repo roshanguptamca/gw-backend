@@ -1,7 +1,7 @@
 # Smart Repository Scan
 
-**Status: implemented** (branch `feature/securewise-smart-repo-scan`). This
-document describes what SecureWise actually does today when a user provides
+**Status: partially implemented.** This document describes what SecureWise
+does today when a user provides
 only a repository URL and runs a Full Scan — as opposed to
 `docs/RUNTIME_TEST_ENVIRONMENT.md` / `docs/DOCKERIZATION_ENGINE.md`, which are
 earlier aspirational design notes for a more ambitious future version.
@@ -80,11 +80,11 @@ Unified Report (per-engine SecureWiseScanEngineResult rows + findings)
   never a plain `completed` that hides the gap. The pre-existing
   `completed_partial` honesty check (when *no* engine ran a real tool) is
   preserved and takes precedence.
-- **Missing health endpoint finding** — when a runtime is auto-started but has
-  no dedicated health endpoint (only `/` responds) and/or the Dockerfile has
-  no `HEALTHCHECK` instruction, a genuine LOW-severity finding is emitted
-  (`CWE-703`, `OWASP A10:2025-Mishandling of Exceptional Conditions`) — never
-  a scan failure.
+- **Missing health endpoint recommendation** — when a runtime is auto-started
+  but has no dedicated health endpoint (only `/` responds) and/or the
+  Dockerfile has no `HEALTHCHECK` instruction, a LOW-severity reliability
+  recommendation may be emitted. It is not assigned a CWE or OWASP category:
+  absence of a health check is not by itself a confirmed security weakness.
 - **Discovery preview API** — `POST
   /api/securewise/repositories/{id}/discovery-preview/` clones the repo into
   an ephemeral temp directory, runs `ApplicationDiscoveryEngine`, and returns
@@ -100,14 +100,16 @@ Unified Report (per-engine SecureWiseScanEngineResult rows + findings)
 
 ## What is fallback / best-effort / skipped by design
 
-- **Dockerfile generation for repos with no Dockerfile** — only supported for
-  a small set of known simple stacks (Python/Node/Go) using minimal, generic
-  base images. This generated Dockerfile is written only into the
+- **Dockerfile generation for repos with no Dockerfile** — supported for a
+  limited set of detected Python/Node/Go/PHP/Ruby stacks using runtime
+  versions and package managers read from project metadata where available.
+  Dependency installation fails the build; it is never ignored. This
+  generated Dockerfile is written only into the
   scan-scoped ephemeral clone directory and is never committed or persisted
   anywhere.
 - **Multi-service / docker-compose auto-run** — discovery detects
   `docker-compose.yml` and lists external service dependencies (e.g.
-  Postgres), but the MVP runtime manager only builds/runs a single
+  Postgres), but   the runtime manager only builds/runs a single
   Dockerfile-based container, not a full compose stack. If the primary
   service genuinely requires those external dependencies at startup, the
   container may fail to become healthy — in which case DAST is skipped with
@@ -140,17 +142,20 @@ Unified Report (per-engine SecureWiseScanEngineResult rows + findings)
 
 ## How to test locally
 
-1. Add a repository (e.g. `https://github.com/roshanguptamca/gw-backend`) via
-   the SecureWise UI or API.
-2. `POST /api/securewise/repositories/{id}/discovery-preview/` — inspect the
+1. Start the Docker-capable worker using `docs/SECUREWISE_WORKER.md`.
+2. Register the controlled local fixture at
+   `tests/fixtures/securewise-autopentest-api/` as a local-path repository.
+   The fixture is synthetic, loopback-bound and intentionally vulnerable;
+   never point automatic active testing at a public production target.
+3. `POST /api/securewise/repositories/{id}/discovery-preview/` — inspect the
    returned `ApplicationRunPlan` JSON.
-3. Create a `full` scan against that repository and start it.
-4. Inspect `GET /api/securewise/scans/{id}/engine-results/` — DAST will show
+4. Create and start a `full` scan. The web process only queues it; the worker
+   performs cloning, runtime creation and scanner execution.
+5. Inspect `GET /api/securewise/scans/{id}/engine-results/` — DAST will show
    `status=skipped` with a specific `skipped_reason` if Docker isn't
-   available in your environment (as it is not in this sandbox), or
-   `status=completed`/`status=failed` with real passive-DAST findings if a
-   Docker daemon is reachable and the app starts successfully.
-5. Run the backend test suite: `pytest tests/securewise -q` (includes
+   available on the worker, or `status=completed`/`status=failed` if the
+   worker can start the app and ZAP/passive fallback completes.
+6. Run the backend test suite: `pytest tests/securewise -q` (includes
    `tests/securewise/test_smart_repo_scan.py`, all mocked at the Docker
    subprocess boundary plus one live sanity check against the real on-disk
    `gw-backend` repo).
@@ -180,9 +185,8 @@ Unified Report (per-engine SecureWiseScanEngineResult rows + findings)
   `required_env_vars` with safe, non-secret placeholder values where an app
   needs *some* value to boot (e.g. `SECRET_KEY=dev-placeholder`), clearly
   logged as synthetic.
-- Wire the discovered `openapi_specs` paths into the API scanner
-  automatically when found, matching the same "smart" auto-discovery
-  philosophy as DAST.
-- Real, opt-in end-to-end validation in an environment with a running Docker
-  daemon (this sandbox does not have one) against
-  `https://github.com/roshanguptamca/gw-backend`.
+- AutoPentest currently checks OpenAPI authentication declarations and records
+  evidence. Missing requirements remain suspected; live authorization,
+  synthetic-user, Playwright and API runtime tests are not implemented.
+- Real, opt-in end-to-end validation in an isolated environment with a running
+  Docker daemon against the controlled local fixture is still required.

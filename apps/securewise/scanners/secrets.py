@@ -13,7 +13,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from .base import BaseScanner, ScannerFinding, ScannerResult
+from ..services.worker_profile import is_lightweight_worker
+from .base import BaseScanner, ScannerFinding, ScannerResult, optional_scanner_status
 from .parsers.gitleaks_parser import parse_gitleaks_json
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,8 @@ class SecretsScanner(BaseScanner):
         return True
 
     def run(self, repo_path: Path, scan_id: str, metadata: dict) -> ScannerResult:
+        if is_lightweight_worker():
+            return self._run_fallback(repo_path, scan_id, disabled=True)
         if shutil.which("gitleaks"):
             return self._run_gitleaks(repo_path, scan_id)
         return self._run_fallback(repo_path, scan_id)
@@ -81,7 +84,7 @@ class SecretsScanner(BaseScanner):
         finally:
             report_path.unlink(missing_ok=True)
 
-    def _run_fallback(self, repo_path: Path, scan_id: str, error: str = "") -> ScannerResult:
+    def _run_fallback(self, repo_path: Path, scan_id: str, error: str = "", disabled: bool = False) -> ScannerResult:
         findings: list[ScannerFinding] = []
         files_scanned = 0
         if repo_path.exists():
@@ -120,5 +123,10 @@ class SecretsScanner(BaseScanner):
         return ScannerResult(
             success=True,
             findings=findings,
-            metadata={"raw_tool": "fallback-regex", "files_scanned": files_scanned, "note": error or None},
+            metadata={
+                "raw_tool": "fallback-regex",
+                "files_scanned": files_scanned,
+                "note": error or None,
+                "optional_scanner": optional_scanner_status("gitleaks", "gitleaks", disabled=disabled, error=error),
+            },
         )

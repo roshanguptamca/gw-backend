@@ -224,3 +224,7 @@ media/
 # Versioned Dutch-practice clips are migration inputs, not user uploads.
 !apps/dutch_practice/data/media/
 !apps/dutch_practice/data/media/*.mp4
+
+# Local/ACC environment files and backups (templates stay tracked)
+.env.*
+!.env.example

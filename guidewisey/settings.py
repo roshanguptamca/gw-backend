@@ -31,12 +31,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 ENV = os.getenv("ENV", "DEV").upper()
 IS_PRODUCTION = ENV == "PROD"
 IS_DEVELOPMENT = ENV == "DEV"
-
+IS_ACC = ENV == "ACC"
+IS_LOCAL = IS_DEVELOPMENT or IS_ACC
 # -------------------------------
 # Security
 # -------------------------------
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key-change-in-production")
-DEBUG = IS_DEVELOPMENT  # Only True in development
+DEBUG = IS_DEVELOPMENT or IS_ACC  # Only True in development
 
 ALLOWED_HOSTS = list(
     dict.fromkeys(
@@ -129,6 +130,9 @@ WSGI_APPLICATION = "guidewisey.wsgi.application"
 # -------------------------------
 # Database
 # -------------------------------
+# -------------------------------
+# Database
+# -------------------------------
 if IS_DEVELOPMENT:
     DATABASES = {
         "default": {
@@ -143,6 +147,17 @@ if IS_DEVELOPMENT:
         }
     }
 else:
+    # PostgreSQL TLS settings are optional.
+    # Render: no new environment variables required.
+    # Oracle: set DB_SSLMODE=verify-full and DB_SSLROOTCERT to Aiven CA path.
+    db_options = {}
+
+    if os.getenv("DB_SSLMODE"):
+        db_options["sslmode"] = os.environ["DB_SSLMODE"]
+
+    if os.getenv("DB_SSLROOTCERT"):
+        db_options["sslrootcert"] = os.environ["DB_SSLROOTCERT"]
+
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
@@ -151,6 +166,7 @@ else:
             "PASSWORD": os.getenv("DB_PASSWORD"),
             "HOST": os.getenv("DB_HOST"),
             "PORT": os.getenv("DB_PORT", "5432"),
+            **({"OPTIONS": db_options} if db_options else {}),
         }
     }
 
@@ -177,7 +193,7 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https://gw-marketplace-fe.*\.vercel\.app$",
 ] + _env_list("EXTRA_CORS_ORIGIN_REGEXES")
 
-if IS_DEVELOPMENT:
+if IS_LOCAL:
     CORS_ALLOWED_ORIGINS += [
         "http://localhost:3000",
         "http://localhost:3002",
@@ -209,7 +225,7 @@ CSRF_TRUSTED_ORIGINS = list(
     )
 )
 
-if IS_DEVELOPMENT:
+if IS_LOCAL:
     CSRF_TRUSTED_ORIGINS += [
         "http://localhost:3000",
         "http://localhost:3002",
@@ -224,7 +240,7 @@ if IS_DEVELOPMENT:
 # -------------------------------
 # Cookie Settings (Environment-Specific)
 # -------------------------------
-if IS_DEVELOPMENT:
+if IS_LOCAL:
     # Development: HTTP (no Secure flag needed)
     CSRF_COOKIE_SECURE = False
     SESSION_COOKIE_SECURE = False
@@ -429,7 +445,7 @@ FILE_STORAGE_BACKEND = os.getenv("FILE_STORAGE_BACKEND", "db")
 # Local DEV: fall back to console if no credentials, or SMTP with certifi.
 BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
 
-if ENV == "DEV" and not os.getenv("EMAIL_HOST_PASSWORD") and not BREVO_API_KEY:
+if IS_LOCAL and not os.getenv("EMAIL_HOST_PASSWORD") and not BREVO_API_KEY:
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 elif BREVO_API_KEY:
     # Preferred on Render — uses HTTPS, no SMTP port blocking
