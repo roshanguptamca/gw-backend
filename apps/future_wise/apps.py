@@ -70,6 +70,9 @@ class FutureWiseConfig(AppConfig):
         if len(sys.argv) >= 2 and sys.argv[1] in _NO_SCHEDULER_COMMANDS:
             return
 
+        if "pytest" in sys.modules:
+            return
+
         # Guard: only start once per process
         if _scheduler_started:
             return
