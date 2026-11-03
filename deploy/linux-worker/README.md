@@ -7,6 +7,11 @@ installed scanner binaries support that architecture. Oracle, AWS, Azure,
 Google Cloud, Hetzner, DigitalOcean, on-premises Linux, and local Linux VMs
 are infrastructure choices only.
 
+For opt-in, environment-separated ACC/production Oracle releases, GitHub
+environment approvals, health checks and rollback, use the
+[managed Oracle deployment guide](../../docs/SECUREWISE_ORACLE_WORKER_DEPLOYMENTS.md).
+It does not replace this installer or adopt existing ACC services automatically.
+
 ## Install and configure
 
 1. Provision a dedicated Ubuntu LTS/Debian Linux VM; use at least 2 vCPU, 8 GB

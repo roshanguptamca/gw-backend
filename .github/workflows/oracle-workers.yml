@@ -1,0 +1,128 @@
+name: Deploy Oracle workers
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Enrolled Oracle environment
+        type: choice
+        options: [acc, production]
+        required: true
+      profile:
+        description: Restricted worker profile (one profile per deployment)
+        type: choice
+        options: [lightweight, website_passive]
+        required: true
+      revision:
+        description: Full reviewed backend commit SHA (production must be on main)
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: oracle-workers-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Require production protection and trusted workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          WORKFLOW_REF: ${{ github.ref }}
+          REVISION: ${{ inputs.revision }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          case "$ENVIRONMENT" in
+            acc) ;;
+            production)
+              [[ "$WORKFLOW_REF" == refs/heads/main ]] || exit 1
+              gh api "repos/$REPOSITORY/environments/production" |
+                python3 -c 'import json,sys; rules=json.load(sys.stdin)["protection_rules"]; assert any(r["type"] == "required_reviewers" and r.get("reviewers") and r.get("prevent_self_review") for r in rules), "Production needs required reviewers and prevent-self-review"'
+              ;;
+            *) exit 1 ;;
+          esac
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify source ancestry
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          REVISION: ${{ inputs.revision }}
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$REVISION" ]] || exit 1
+          if [[ "$ENVIRONMENT" == production ]]; then
+            git merge-base --is-ancestor "$REVISION" origin/main
+          fi
+          test -f deploy/oracle-worker/deploy.py
+
+      - name: Package tracked source and deploy over pinned SSH
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          PROFILE: ${{ inputs.profile }}
+          REVISION: ${{ inputs.revision }}
+          SSH_USER: ${{ vars.WORKER_SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.WORKER_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.WORKER_SSH_KNOWN_HOSTS }}
+          LIGHTWEIGHT_CONFIG: ${{ secrets.LIGHTWEIGHT_WORKER_CONFIG }}
+          WEBSITE_CONFIG: ${{ secrets.WEBSITE_WORKER_CONFIG }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]*$ ]] || exit 1
+          case "$ENVIRONMENT" in
+            acc) host=158.101.218.17 ;;
+            production) host=152.70.53.242 ;;
+            *) exit 1 ;;
+          esac
+          case "$PROFILE" in lightweight|website_passive) ;; *) exit 1 ;; esac
+          local_dir=$(mktemp -d "$RUNNER_TEMP/oracle-worker.XXXXXXXX")
+          remote_dir=""
+          remote="$SSH_USER@$host"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$local_dir/key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$local_dir/known_hosts"
+          unset SSH_PRIVATE_KEY SSH_KNOWN_HOSTS
+          ssh_options=(-i "$local_dir/key" -o "UserKnownHostsFile=$local_dir/known_hosts" -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+          cleanup() {
+            # Only known individual staging files are removed; never recursive deletion.
+            if [[ "$remote_dir" =~ ^/var/tmp/securewise-worker\.[A-Za-z0-9]+$ ]]; then
+              ssh "${ssh_options[@]}" "$remote" "rm -f -- '$remote_dir/code.tar.gz' '$remote_dir/config.json' '$remote_dir/deploy.py' '$remote_dir/policy.py'; rmdir -- '$remote_dir'" ||
+                printf '%s\n' "Warning: remote staging cleanup failed; inspect $remote_dir on the VM." >&2
+            fi
+            rm -f -- "$local_dir/key" "$local_dir/known_hosts" "$local_dir/config.json" "$local_dir/code.tar.gz"
+            rmdir -- "$local_dir"
+          }
+          trap cleanup EXIT
+          export PACKAGE_DIR="$local_dir"
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          directory = pathlib.Path(os.environ["PACKAGE_DIR"])
+          selected = "LIGHTWEIGHT_CONFIG" if os.environ["PROFILE"] == "lightweight" else "WEBSITE_CONFIG"
+          config = json.loads(os.environ[selected])
+          (directory / "config.json").write_text(json.dumps(config))
+          paths = subprocess.check_output(["git", "ls-tree", "-r", "--name-only", "-z", "HEAD"]).decode().split("\0")
+          paths = [p for p in paths if p and not any(part == ".env" or part.startswith(".env.") for part in pathlib.PurePosixPath(p).parts)]
+          with (directory / "code.tar.gz").open("wb") as target:
+              subprocess.run(["git", "archive", "--format=tar.gz", "HEAD", "--", *paths], stdout=target, check=True)
+          PY
+          unset LIGHTWEIGHT_CONFIG WEBSITE_CONFIG
+          remote_dir=$(ssh "${ssh_options[@]}" "$remote" 'umask 077; mktemp -d /var/tmp/securewise-worker.XXXXXXXX')
+          [[ "$remote_dir" =~ ^/var/tmp/securewise-worker\.[A-Za-z0-9]+$ ]] || exit 1
+          scp "${ssh_options[@]}" "$local_dir/code.tar.gz" "$local_dir/config.json" deploy/oracle-worker/deploy.py deploy/oracle-worker/policy.py "$remote:$remote_dir/"
+          ssh "${ssh_options[@]}" "$remote" "sudo -n /usr/bin/python3.12 -B -E -s '$remote_dir/deploy.py' '$ENVIRONMENT' '$PROFILE' --config '$remote_dir/config.json' --archive '$remote_dir/code.tar.gz' --revision '$REVISION'"
