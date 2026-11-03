@@ -202,6 +202,10 @@ def url_egress_enforced() -> bool:
             proof.get("verified") is True
             and proof.get("hostname") == socket.gethostname()
             and len(str(proof.get("ruleset_sha256", ""))) == 64
+            and (
+                not os.environ.get("SECUREWISE_URL_EGRESS_RULESET_SHA256")
+                or proof.get("ruleset_sha256") == os.environ["SECUREWISE_URL_EGRESS_RULESET_SHA256"]
+            )
             and 0 <= time.time() - checked_at <= 300
         )
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):

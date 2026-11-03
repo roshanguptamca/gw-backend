@@ -1,0 +1,9 @@
+[Unit]
+Description=Verify enrolled SecureWise %i firewall and refresh passive-worker proof
+
+[Service]
+Type=oneshot
+User=root
+UMask=0022
+ExecStart=/usr/bin/python3.12 /opt/securewise/managed/%i/website_passive/current/code/deploy/oracle-worker/proof.py %i
+TimeoutStartSec=50

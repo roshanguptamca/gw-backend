@@ -132,6 +132,13 @@ def test_egress_proof_accepts_fresh_root_owned_evidence(monkeypatch, egress_proo
     url_security.os.stat.assert_called_once_with("/synthetic/egress-proof.json", follow_symlinks=False)
 
 
+@pytest.mark.parametrize("fingerprint", ["a" * 64, "b" * 64])
+def test_managed_worker_requires_its_enrolled_firewall_fingerprint(monkeypatch, egress_proof, fingerprint):
+    monkeypatch.setenv("SECUREWISE_URL_EGRESS_RULESET_SHA256", fingerprint)
+    monkeypatch.setattr("builtins.open", mock_open(read_data=json.dumps(egress_proof)))
+    assert url_security.url_egress_enforced() is (fingerprint == egress_proof["ruleset_sha256"])
+
+
 @pytest.mark.parametrize(
     ("mode", "uid"),
     [(stat.S_IFLNK | 0o600, 0), (stat.S_IFREG | 0o600, 1000), (stat.S_IFREG | 0o620, 0), (stat.S_IFREG | 0o602, 0)],

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
 
@@ -15,6 +16,7 @@ class Command(BaseCommand):
         parser.add_argument("--poll-interval", type=float, default=2.0)
         parser.add_argument("--once", action="store_true", help="Process at most one queued scan and exit.")
         parser.add_argument("--worker-id", default="")
+        parser.add_argument("--drain-file", default="", help="Exit cleanly between jobs when this file exists.")
         parser.add_argument(
             "--check-connectivity",
             action="store_true",
@@ -41,6 +43,11 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"SecureWise worker {worker_id} ready; capabilities: {capabilities}"))
 
         while True:
+            if options.get("drain_file") and Path(options["drain_file"]).exists():
+                registration.status = "offline"
+                registration.save(update_fields=["status"])
+                self.stdout.write("Worker drained; no further jobs will be claimed.")
+                return
             heartbeat_worker(worker_id)
             job = process_next_job(worker_id=worker_id)
             if job:

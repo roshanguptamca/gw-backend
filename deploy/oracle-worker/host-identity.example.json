@@ -1,0 +1,9 @@
+{
+  "environment": "",
+  "host": "",
+  "database_sha256": "",
+  "other_database_sha256": "",
+  "encryption_key_sha256": "",
+  "other_encryption_key_sha256": "",
+  "egress_ruleset_sha256": ""
+}

@@ -66,3 +66,39 @@ def test_worker_poll_reports_jobs_and_sleeps_only_when_idle(monkeypatch):
         )
     sleep.assert_called_once_with(3)
     assert "Processed scan job synthetic-job" in output.getvalue()
+
+
+def test_drain_stops_before_claiming_and_marks_worker_offline(monkeypatch, tmp_path):
+    registration = Mock(capabilities=["sast"])
+    process = Mock()
+    monkeypatch.setattr(securewise_worker, "register_worker", Mock(return_value=registration))
+    monkeypatch.setattr(securewise_worker, "process_next_job", process)
+    drain_file = tmp_path / "drain"
+    drain_file.touch()
+    securewise_worker.Command(stdout=StringIO(), stderr=StringIO()).handle(
+        poll_interval=1, check_connectivity=False, worker_id="synthetic", once=False, drain_file=str(drain_file)
+    )
+    process.assert_not_called()
+    assert registration.status == "offline"
+    registration.save.assert_called_once_with(update_fields=["status"])
+
+
+def test_drain_finishes_current_job_without_claiming_another(monkeypatch, tmp_path):
+    registration = Mock(capabilities=["sast"])
+    drain_file = tmp_path / "drain"
+
+    def finish_job(**kwargs):
+        drain_file.touch()
+        return "scan", "synthetic-job"
+
+    process = Mock(side_effect=finish_job)
+    monkeypatch.setattr(securewise_worker, "register_worker", Mock(return_value=registration))
+    monkeypatch.setattr(securewise_worker, "heartbeat_worker", Mock())
+    monkeypatch.setattr(securewise_worker, "process_next_job", process)
+    output = StringIO()
+    securewise_worker.Command(stdout=output, stderr=StringIO()).handle(
+        poll_interval=1, check_connectivity=False, worker_id="synthetic", once=False, drain_file=str(drain_file)
+    )
+    process.assert_called_once()
+    assert "Processed scan job synthetic-job" in output.getvalue()
+    assert registration.status == "offline"
