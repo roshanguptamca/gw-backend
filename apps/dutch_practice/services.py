@@ -236,6 +236,7 @@ def public_question(item):
 
 def summary(attempt):
     attempt = effective_attempt(attempt)
+    items = list(attempt.items.all())
     return {
         "id": str(attempt.id),
         "level": attempt.level,
@@ -246,15 +247,15 @@ def summary(attempt):
         "expires_at": attempt.expires_at,
         "completed_at": attempt.completed_at,
         "score": attempt.score,
-        "question_count": attempt.items.count(),
-        "answered_count": attempt.items.filter(answered_at__isnull=False).count(),
+        "question_count": len(items),
+        "answered_count": sum(item.answered_at is not None for item in items),
         "assisted": attempt.assisted,
-        "media_errors": attempt.items.filter(response__media_error=True).count(),
+        "media_errors": sum(item.response.get("media_error") is True for item in items),
         "assessment": "automatic" if attempt.skill in ("reading", "listening", "knm") else "self_assessment",
         "next_position": (
             attempt.last_position
             if attempt.mode == "mock"
-            else attempt.items.filter(answered_at__isnull=True).values_list("position", flat=True).first()
+            else next((item.position for item in items if item.answered_at is None), None)
         ),
         "format": attempt.blueprint.get("family", "short-practice-preview"),
         "mode": attempt.mode,

@@ -7,9 +7,114 @@ from django.utils import timezone
 
 from rest_framework.test import APIClient
 
-from apps.dutch_practice.models import PracticeAttempt, PracticeMedia, PracticeQuestion
+from apps.dutch_practice.models import AttemptQuestion, PracticeAttempt, PracticeMedia, PracticeQuestion
 
 BASE = "/api/dutch-practice/"
+
+
+class AttemptListTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = get_user_model().objects.create_user("attempt-list-learner")
+        cls.other = get_user_model().objects.create_user("attempt-list-other")
+
+    def setUp(self):
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+
+    def create_attempt(self, **kwargs):
+        attempt = PracticeAttempt.objects.create(
+            user=kwargs.pop("user", self.user),
+            level="A2",
+            skill="listening",
+            mock_test=1,
+            question_signature="x" * 64,
+            expires_at=kwargs.pop("expires_at", timezone.now() + timedelta(hours=1)),
+            status=kwargs.pop("status", "abandoned"),
+            **kwargs,
+        )
+        AttemptQuestion.objects.bulk_create(
+            [
+                AttemptQuestion(
+                    attempt=attempt,
+                    position=position,
+                    snapshot={"answer": 1},
+                    response={"choice": 1, "media_error": True, "used_transcript": True} if position == 1 else {},
+                    answered_at=timezone.now() if position == 1 else None,
+                )
+                for position in range(3)
+            ]
+        )
+        return attempt
+
+    def test_list_query_count_is_constant_and_pagination_preserves_summaries(self):
+        first = self.create_attempt()
+        self.create_attempt(user=self.other)
+        with self.assertNumQueries(3):
+            response = self.client.get(BASE + "attempts/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 1)
+
+        attempts = [self.create_attempt() for _ in range(20)]
+        with self.assertNumQueries(3):
+            response = self.client.get(BASE + "attempts/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 21)
+        self.assertEqual(response.data["page"], 1)
+        self.assertEqual([row["id"] for row in response.data["results"]], [str(a.pk) for a in reversed(attempts)])
+        for row in response.data["results"]:
+            self.assertEqual(row["question_count"], 3)
+            self.assertEqual(row["answered_count"], 1)
+            self.assertEqual(row["media_errors"], 1)
+            self.assertEqual(row["next_position"], 0)
+        self.assertEqual(response["Cache-Control"], "private, no-store")
+
+        with self.assertNumQueries(3):
+            response = self.client.get(BASE + "attempts/?page=2")
+        self.assertEqual([row["id"] for row in response.data["results"]], [str(first.pk)])
+
+    def test_list_expired_attempts_preserves_read_only_scoring_and_resume(self):
+        deadline = timezone.now() - timedelta(seconds=1)
+        practice = self.create_attempt(expires_at=deadline, status="active")
+        with self.assertNumQueries(3):
+            response = self.client.get(BASE + "attempts/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["results"][0]["status"], "expired")
+        practice.refresh_from_db()
+        self.assertEqual(practice.status, "active")
+        PracticeAttempt.objects.filter(pk=practice.pk).update(status="expired")
+        mock = self.create_attempt(expires_at=deadline, status="active", mode="mock", last_position=2)
+        empty = PracticeAttempt.objects.create(
+            user=self.user,
+            level="A2",
+            skill="writing",
+            mock_test=1,
+            question_signature="y" * 64,
+            expires_at=deadline,
+            status="completed",
+        )
+        with self.assertNumQueries(3):
+            response = self.client.get(BASE + "attempts/")
+        self.assertEqual(response.status_code, 200)
+        rows = {row["id"]: row for row in response.data["results"]}
+        self.assertEqual(rows[str(practice.pk)]["status"], "expired")
+        row = rows[str(mock.pk)]
+        self.assertEqual(row["status"], "completed")
+        self.assertEqual(row["score"], 1)
+        self.assertTrue(row["assisted"])
+        self.assertEqual(row["completed_at"], deadline)
+        self.assertEqual(row["server_now"], deadline)
+        self.assertEqual(row["question_count"], 3)
+        self.assertEqual(row["answered_count"], 1)
+        self.assertEqual(row["media_errors"], 1)
+        self.assertEqual(row["next_position"], 2)
+        self.assertEqual(rows[str(empty.pk)]["question_count"], 0)
+        self.assertIsNone(rows[str(empty.pk)]["next_position"])
+        mock.refresh_from_db()
+        self.assertEqual(mock.status, "active")
+        self.assertIsNone(mock.score)
+        self.assertIsNone(mock.completed_at)
+        self.assertFalse(mock.assisted)
 
 
 class PracticeTests(TestCase):
