@@ -85,7 +85,7 @@ class AttemptsView(AuthenticatedPracticeView):
                 raise ValueError
         except ValueError:
             raise ValidationError("Page must be a positive integer.")
-        attempts = PracticeAttempt.objects.filter(user=request.user)
+        attempts = PracticeAttempt.objects.filter(user=request.user).prefetch_related("items")
         start = (page - 1) * 20
         return Response(
             {
