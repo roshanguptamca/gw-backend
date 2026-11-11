@@ -723,6 +723,14 @@ PIFUHD_MODEL_PATH = os.getenv("PIFUHD_MODEL_PATH", "")
 PSHUMAN_MODEL_PATH = os.getenv("PSHUMAN_MODEL_PATH", "")
 
 
+# Marketplace seller WhatsApp notifications are strictly opt-in. All three
+# conditions are required: global switch, allowlisted shop slug, E.164 number
+# on ShopSettings. A separate approved Content Template is required.
+# Sender errors never fail checkout or the existing email notifications.
+MARKETPLACE_SELLER_WHATSAPP_ENABLED = os.getenv("MARKETPLACE_SELLER_WHATSAPP_ENABLED", "false").lower() == "true"
+MARKETPLACE_SELLER_WHATSAPP_SHOPS = os.getenv("MARKETPLACE_SELLER_WHATSAPP_SHOPS", "")
+MARKETPLACE_WHATSAPP_CONTENT_SID = os.getenv("MARKETPLACE_WHATSAPP_CONTENT_SID", "")
+
 # Opt in only after migrations and agent confirmation instructions are deployed.
 MARKETPLACE_AI_GUEST_CHECKOUT_ENABLED = os.getenv("MARKETPLACE_AI_GUEST_CHECKOUT_ENABLED", "false").lower() == "true"
 MARKETPLACE_AI_GUEST_CHECKOUT_SHOPS = _env_list("MARKETPLACE_AI_GUEST_CHECKOUT_SHOPS", "rishi-kitchen")

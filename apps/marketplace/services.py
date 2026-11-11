@@ -410,6 +410,15 @@ def _send_emails_background(order_id: int) -> None:
     except Exception:  # noqa: BLE001
         logger.exception("Background email: seller notification failed for order %s", order_id)
 
+    # Independent, explicitly opt-in seller WhatsApp delivery. Never block the
+    # existing buyer/seller emails or checkout when Twilio is unavailable.
+    try:
+        from .whatsapp_notifications import send_seller_whatsapp
+
+        send_seller_whatsapp(order_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("Background WhatsApp: unexpected failure for order %s", order_id)
+
 
 def _unique_username_from_email(email):
     """Derive a unique username from an email's local-part, reusing the same
