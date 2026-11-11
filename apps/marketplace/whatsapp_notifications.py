@@ -6,6 +6,7 @@ The approved Twilio Content Template must use five ordered variables:
   {{1}} order number, {{2}} items, {{3}} total,
   {{4}} pickup/delivery information, {{5}} customer name.
 """
+
 import json
 import logging
 import re
@@ -94,7 +95,9 @@ def send_seller_whatsapp(order_id):
         )
         logger.info(
             "Marketplace WhatsApp accepted by Twilio: order_id=%s shop_id=%s message_sid=%s",
-            order.pk,\n            order.shop_id,\n            message.sid,
+            order.pk,
+            order.shop_id,
+            message.sid,
         )
         return True
     except Exception:
