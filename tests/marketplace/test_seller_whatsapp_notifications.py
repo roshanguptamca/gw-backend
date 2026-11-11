@@ -2,7 +2,7 @@
 import json
 from decimal import Decimal
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
 
@@ -25,10 +25,12 @@ def sample_order():
         total=Decimal("25.00"),
         order_type="pickup",
         fulfillment_snapshot={"currency": "EUR", "pickup_date": "Friday", "pickup_time": "17:00"},
-        items=SimpleNamespace(all=lambda: [
-            SimpleNamespace(quantity=2, product_name="Chole Bhature"),
-            SimpleNamespace(quantity=1, product_name="Besan Laddu"),
-        ]),
+        items=SimpleNamespace(
+            all=lambda: [
+                SimpleNamespace(quantity=2, product_name="Chole Bhature"),
+                SimpleNamespace(quantity=1, product_name="Besan Laddu"),
+            ]
+        ),
     )
 
 
