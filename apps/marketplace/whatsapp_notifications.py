@@ -79,11 +79,7 @@ def send_seller_whatsapp(order_id):
 
     close_old_connections()
     try:
-        order = (
-            Order.objects.select_related("shop__settings")
-            .prefetch_related("items")
-            .get(pk=order_id)
-        )
+        order = Order.objects.select_related("shop__settings").prefetch_related("items").get(pk=order_id)
         config = notification_config(order)
         if config is None:
             return False
@@ -98,7 +94,7 @@ def send_seller_whatsapp(order_id):
         )
         logger.info(
             "Marketplace WhatsApp accepted by Twilio: order_id=%s shop_id=%s message_sid=%s",
-            order.pk, order.shop_id, message.sid,
+            order.pk,\n            order.shop_id,\n            message.sid,
         )
         return True
     except Exception:
