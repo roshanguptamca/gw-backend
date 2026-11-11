@@ -7,11 +7,7 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
 
-from apps.marketplace.whatsapp_notifications import (
-    notification_config,
-    send_seller_whatsapp,
-    template_variables,
-)
+from apps.marketplace.whatsapp_notifications import notification_config, send_seller_whatsapp, template_variables
 
 
 def sample_order():
