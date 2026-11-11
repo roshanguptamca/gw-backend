@@ -1,4 +1,5 @@
 """Regression tests for opt-in, nonblocking marketplace seller WhatsApp alerts."""
+
 import json
 from decimal import Decimal
 from types import SimpleNamespace
