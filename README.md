@@ -381,6 +381,45 @@ to the `runserver` terminal — no SMTP setup required to see them while
 testing checkout locally. Set `EMAIL_HOST_PASSWORD` (Brevo SMTP) or
 `BREVO_API_KEY` (Brevo HTTP API) to send real emails instead.
 
+### Marketplace seller WhatsApp order alerts (opt-in)
+
+New checkout alerts can be delivered to a seller's **personal WhatsApp inbox**
+via Twilio. They are strictly additional to the existing buyer/seller emails.
+A failed, unconfigured or disabled WhatsApp integration does not reject an
+order, suppress an email, or change the checkout response. No frontend changes
+or migrations are required.
+
+**Enable only after an approved WhatsApp Business sender and approved Twilio
+Content template have been configured:**
+
+1. In Django Admin → Marketplace → Shop settings, set the seller's existing
+   `whatsapp_number` to the destination number in E.164 format (e.g.
+   `+31612345678`). Ensure the recipient has opted in to seller notifications.
+2. Create and approve a **seller new order** WhatsApp template on Twilio with
+   exactly these variables in this order:
+   `{{1}}` order number, `{{2}}` item quantities/names, `{{3}}` total,
+   `{{4}}` pickup/delivery information, `{{5}}` customer name.
+   The WhatsApp template category is subject to Meta approval.
+3. Set the existing `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and
+   `TWILIO_WHATSAPP_FROM` to a production sender. The sandbox sender is
+   for testing only.
+4. Configure `MARKETPLACE_WHATSAPP_CONTENT_SID=HX...` for the approved template,
+   `MARKETPLACE_SELLER_WHATSAPP_SHOPS=rishi-kitchen` (comma-separated slug allowlist),
+   then enable `MARKETPLACE_SELLER_WHATSAPP_ENABLED=true` after testing.
+5. Disable immediately by setting `MARKETPLACE_SELLER_WHATSAPP_ENABLED=false`.
+
+Sends run after order creation within the existing background notification worker,
+**after both existing email send attempts**, with an independent exception boundary.
+Messages contain basic order details, but not customer phone numbers or email.
+An HTTP success from Twilio means *accepted*, not necessarily delivered; inspect
+Twilio delivery logs for failures. There are no automatic retries because a
+network timeout after acceptance could otherwise cause duplicate seller alerts.
+The current in-process daemon thread is best-effort and may lose notifications
+during process restarts; a durable job/outbox system would be necessary for
+guaranteed delivery. Checkout and existing emails retain their previous behavior.
+
+Tests: `pytest tests/marketplace/test_seller_whatsapp_notifications.py`.
+
 ### Twilio WhatsApp Sandbox
 
 To test WhatsApp reminders with a Twilio trial account:
