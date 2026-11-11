@@ -5,7 +5,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from apps.marketplace.whatsapp_notifications import notification_config, send_seller_whatsapp, template_variables
 
@@ -76,7 +76,7 @@ class SellerWhatsAppConfigTests(SimpleTestCase):
         self.assertEqual(variables["5"], "Test Customer")
 
 
-class SellerWhatsAppDeliveryTests(SimpleTestCase):
+class SellerWhatsAppDeliveryTests(TestCase):
     @override_settings(**CONFIG)
     @patch("twilio.rest.Client")
     @patch("apps.marketplace.models.Order.objects")
