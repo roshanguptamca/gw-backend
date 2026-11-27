@@ -450,7 +450,10 @@ class TestScannerRunnerEdgeCases:
         )
         ScannerRunner().run_scan(str(scan.id))
         scan.refresh_from_db()
-        assert scan.status in ("completed", "completed_with_warnings")
+        # This fixture has no repository: all four engines run fallback checks.
+        # The runner must report partial coverage rather than imply real tools ran,
+        # just as the passive-only DAST test above does.
+        assert scan.status == "completed_partial"
         assert scan.selected_engines == ["sast", "sca", "secrets", "iac"]
 
         from apps.securewise.models import SecureWiseScanEngineResult
