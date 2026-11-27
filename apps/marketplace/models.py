@@ -569,3 +569,45 @@ class Campaign(models.Model):
 
 # Billing stays in the existing app so model discovery and deployment settings remain unchanged.
 from .billing.models import Invoice, InvoiceItem, InvoicePDF, InvoiceSequence  # noqa: E402,F401
+
+
+class ShopPage(models.Model):
+    class Kind(models.TextChoices):
+        MENU = "menu", "Menu"
+        ENQUIRY = "enquiry", "Party / catering enquiry"
+        INFORMATION = "information", "Information"
+
+    shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name="pages")
+    slug = models.SlugField(max_length=80)
+    title = models.CharField(max_length=100)
+    kind = models.CharField(max_length=20, choices=Kind.choices, default=Kind.MENU)
+    description = models.TextField(max_length=6000, blank=True)
+    fulfilment_notes = models.CharField(max_length=500, blank=True)
+    cover_url = models.URLField(max_length=500, blank=True)
+    is_published = models.BooleanField(default=False)
+    is_featured = models.BooleanField(default=False)
+    position = models.PositiveSmallIntegerField(default=0)
+    order_deadline = models.DateTimeField(null=True, blank=True)
+    products = models.ManyToManyField(Product, blank=True, related_name="shop_pages")
+
+    class Meta:
+        ordering = ["position", "id"]
+        constraints = [models.UniqueConstraint(fields=["shop", "slug"], name="unique_shop_page_slug")]
+
+
+class ShopEnquiry(models.Model):
+    shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name="page_enquiries")
+    page = models.ForeignKey(ShopPage, on_delete=models.SET_NULL, null=True, related_name="enquiries")
+    page_title = models.CharField(max_length=100)
+    customer_name = models.CharField(max_length=100)
+    email = models.EmailField()
+    phone = models.CharField(max_length=40, blank=True)
+    event_date = models.DateField()
+    guests = models.PositiveIntegerField(validators=[MinValueValidator(1), MaxValueValidator(10000)])
+    message = models.TextField(max_length=4000, blank=True)
+    product_ids = models.JSONField(default=list, blank=True)
+    status = models.CharField(max_length=20, default="new")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
