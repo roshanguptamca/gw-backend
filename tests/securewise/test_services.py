@@ -448,7 +448,10 @@ class TestScannerRunnerEdgeCases:
             status="pending",
             triggered_by=owner,
         )
-        ScannerRunner().run_scan(str(scan.id))
+        # Keep this orchestration test independent of optional binaries on CI.
+        # Real-tool execution has its own scanner tests; here all engines use fallbacks.
+        with patch("shutil.which", return_value=None):
+            ScannerRunner().run_scan(str(scan.id))
         scan.refresh_from_db()
         # This fixture has no repository: all four engines run fallback checks.
         # The runner must report partial coverage rather than imply real tools ran,
